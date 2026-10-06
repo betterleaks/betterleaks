@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func MailerSendAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "mailersend-api-token",
+		ID:          "mailersend-api-token",
 		Confidence:  "high",
 		Description: "MailerSend API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`mlsn\.[A-Za-z0-9]{30,100}`, false),
@@ -23,7 +23,7 @@ func MailerSendAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

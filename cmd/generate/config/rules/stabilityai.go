@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func StabilityAI() *config.Rule {
 	r := config.Rule{
-		RuleID:      "stability-ai-api-key",
+		ID:          "stability-ai-api-key",
 		Confidence:  "medium",
 		Description: "Detected a Stability AI API Key, which may expose AI image generation services to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"stability"}, `sk-[A-Za-z0-9]{48}`, true),
 		Keywords:    []string{"stability"},
-		Filter:      `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("stability", "sk-"+secrets.NewSecretWithEntropy(`[A-Za-z0-9]{48}`, 3.5))

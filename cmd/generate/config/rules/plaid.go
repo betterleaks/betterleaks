@@ -1,22 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PlaidAccessID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "plaid-client-id",
+		ID:          "plaid-client-id",
 		Confidence:  "medium",
 		Description: "Uncovered a Plaid Client ID, which could lead to unauthorized financial service integrations and data breaches.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"plaid"}, utils.AlphaNumeric("24"), true),
 		Keywords: []string{
 			"plaid",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -27,14 +27,14 @@ func PlaidAccessID() *config.Rule {
 func PlaidSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "plaid-secret-key",
+		ID:          "plaid-secret-key",
 		Confidence:  "medium",
 		Description: "Detected a Plaid Secret key, risking unauthorized access to financial accounts and sensitive transaction data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"plaid"}, utils.AlphaNumeric("30"), true),
 		Keywords: []string{
 			"plaid",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -45,7 +45,7 @@ func PlaidSecretKey() *config.Rule {
 func PlaidAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "plaid-api-token",
+		ID:          "plaid-api-token",
 		Confidence:  "high",
 		Description: "Discovered a Plaid API Token, potentially compromising financial data aggregation and banking services.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"plaid"},

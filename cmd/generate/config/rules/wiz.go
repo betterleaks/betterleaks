@@ -1,20 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func WizClientID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "wiz-client-id.1",
+		ID:          "wiz-client-id.1",
 		Confidence:  "medium",
 		Description: "Wiz OAuth client ID, used as a component of the Wiz client-secret composite rule.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wiz"}, `[A-Za-z0-9]{53,56}`, false),
 		Keywords:    []string{"wiz"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(4.0),
+		FilterExpr:  utils.MinEntropy(4.0),
 	}
 
 	clientID := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{56}`, 4.0)
@@ -31,12 +31,12 @@ func WizClientID() *config.Rule {
 
 func WizClientSecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "wiz-client-secret.1",
+		ID:          "wiz-client-secret.1",
 		Confidence:  "high",
 		Description: "Wiz OAuth client secret, which may allow access to the Wiz API when paired with its client ID.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"wiz"}, `[A-Za-z0-9]{64}`, false),
 		Keywords:    []string{"wiz"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "wiz-client-id.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.post("https://auth.app.wiz.io/oauth/token", {
@@ -52,7 +52,7 @@ func WizClientSecret() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(4.0),
+		FilterExpr: utils.MinEntropy(4.0),
 	}
 
 	clientSecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{64}`, 4.0)

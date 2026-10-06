@@ -1,0 +1,32 @@
+package github
+
+// Attribute keys and resource values retain their serialized provider names.
+const (
+	ResourceRepo         = "github.repository"
+	ResourceIssue        = "github.issue"
+	ResourcePR           = "github.pr"
+	ResourceComment      = "github.comment"
+	ResourceActions      = "github.actions"
+	ResourceDiscussion   = "github.discussion"
+	ResourceRelease      = "github.release"
+	ResourceReleaseAsset = "github.release_asset"
+	ResourceGist         = "github.gist"
+	AttrOwner            = "github.owner"
+	AttrOwnerType        = "github.owner_type"
+	AttrRepo             = "github.repo"
+	AttrRepoURL          = "github.repo_url"
+	AttrVisibility       = "github.visibility"
+	AttrIssueNumber      = "github.issue.number"
+	AttrPRNumber         = "github.pr.number"
+	AttrCommentID        = "github.comment.id"
+	AttrActionsRunID     = "github.actions.run_id"
+	AttrActionsRunName   = "github.actions.run_name"
+	AttrActionsRunURL    = "github.actions.run_url"
+	AttrActionsEvent     = "github.actions.event"
+	AttrDiscussionNumber = "github.discussion.number"
+	AttrReleaseTag       = "github.release.tag"
+	AttrReleaseAssetName = "github.release.asset_name"
+	AttrGistID           = "github.gist.id"
+	AttrGistFilename     = "github.gist.filename"
+	AttrGistOwner        = "github.gist.owner"
+)

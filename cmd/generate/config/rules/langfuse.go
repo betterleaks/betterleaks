@@ -1,20 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func LangfusePublicKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "langfuse-public-key.1",
+		ID:          "langfuse-public-key.1",
 		Confidence:  "high",
 		Description: "Langfuse public key, used as a component of the Langfuse secret-key composite rule.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pk-lf-`+uuidPattern(), false),
 		Keywords:    []string{"pk-lf-"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	publicKey := "pk-lf-" + randomUUID()
@@ -33,12 +33,12 @@ func LangfuseSecretKey() *config.Rule {
 	// The EU cloud request can prove a matching pair valid; non-success remains
 	// unknown rather than rejecting credentials issued for another host.
 	r := config.Rule{
-		RuleID:      "langfuse-secret-key.1",
+		ID:          "langfuse-secret-key.1",
 		Confidence:  "high",
 		Description: "Langfuse secret key, which authenticates project API access when paired with its public key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-lf-`+uuidPattern(), false),
 		Keywords:    []string{"sk-lf-"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "langfuse-public-key.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.get("https://cloud.langfuse.com/api/public/projects", {
@@ -47,7 +47,7 @@ func LangfuseSecretKey() *config.Rule {
   }); r.status == 200 ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	secretKey := "sk-lf-" + randomUUID()

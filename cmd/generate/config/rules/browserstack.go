@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func BrowserStackUsername() *config.Rule {
 	r := config.Rule{
-		RuleID:      "browserstack-username.1",
+		ID:          "browserstack-username.1",
 		Confidence:  "medium",
 		Description: "BrowserStack username, used as a component of the BrowserStack access-key composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -18,7 +18,7 @@ func BrowserStackUsername() *config.Rule {
 		),
 		Keywords:   []string{"browserstack"},
 		SkipReport: true,
-		Filter:     utils.MinEntropy(2.0),
+		FilterExpr: utils.MinEntropy(2.0),
 	}
 
 	username := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{12}`, 2.0)
@@ -36,7 +36,7 @@ func BrowserStackUsername() *config.Rule {
 
 func BrowserStackAccessKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "browserstack-access-key.1",
+		ID:          "browserstack-access-key.1",
 		Confidence:  "high",
 		Description: "BrowserStack access key, which may allow access to automated browser and device testing when paired with its username.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -45,7 +45,7 @@ func BrowserStackAccessKey() *config.Rule {
 			false,
 		),
 		Keywords: []string{"browserstack"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "browserstack-username.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.get("https://api.browserstack.com/automate/plan.json", {
@@ -59,7 +59,7 @@ func BrowserStackAccessKey() *config.Rule {
     "result": "invalid",
     "reason": "Authentication failed"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	accessKey := secrets.NewSecretWithEntropy(`[A-Za-z0-9]{20}`, 3.0)

@@ -1,31 +1,48 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
+
+// https://developers.brevo.com/reference/get-account
+const brevoValidateExpr = `let r = http.get("https://api.brevo.com/v3/account", {
+  "api-key": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.email ?? "") != "" ? {
+  "result": "valid",
+  "analysis": {
+    "identity": {
+      "id": string(r.json?.user_id ?? ""),
+      "email": string(r.json?.email ?? ""),
+      "name": trim((r.json?.firstName ?? "") + " " + (r.json?.lastName ?? "")),
+      "account": {
+        "id": string(r.json?.organization_id ?? ""),
+        "name": string(r.json?.companyName ?? "")
+      }
+    },
+    "metadata": {}
+  }
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`
+
+const brevoAnalyzeExpr = identityOnlyAnalyzeExpr
 
 func SendInBlueAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "sendinblue-api-token",
+		ID:          "sendinblue-api-token",
 		Confidence:  "high",
 		Description: "Identified a Brevo (formerly Sendinblue) API token, which may compromise email marketing services and subscriber data privacy.",
-		Regex:       regexp.MustCompile(`\b(xkeysib-[a-fA-F0-9]{64}-[a-zA-Z0-9]{16})\b`),
+		Regex:       `\b(xkeysib-[a-fA-F0-9]{64}-[a-zA-Z0-9]{16})\b`,
 		Keywords: []string{
 			"xkeysib-",
 		},
-		ValidateExpr: `let r = http.get("https://api.brevo.com/v3/account", {
-    "api-key": finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.2),
+		ValidateExpr: brevoValidateExpr,
+		AnalyzeExpr:  brevoAnalyzeExpr,
+		FilterExpr:   utils.MinEntropy(3.2),
 	}
 
 	return utils.Validate(r,

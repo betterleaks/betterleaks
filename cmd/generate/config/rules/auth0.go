@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Auth0Domain() *config.Rule {
 	r := config.Rule{
-		RuleID:      "auth0-domain.1",
+		ID:          "auth0-domain.1",
 		Confidence:  "high",
 		Description: "Auth0 tenant domain, used as a component of the Auth0 client-secret composite rule.",
 		Regex: utils.GenerateUniqueTokenRegex(
@@ -33,7 +33,7 @@ func Auth0Domain() *config.Rule {
 
 func Auth0ClientID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "auth0-client-id.1",
+		ID:          "auth0-client-id.1",
 		Confidence:  "medium",
 		Description: "Auth0 client ID, used as a component of the Auth0 client-secret composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -43,7 +43,7 @@ func Auth0ClientID() *config.Rule {
 		),
 		Keywords:   []string{"auth0"},
 		SkipReport: true,
-		Filter:     utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	clientID := secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{32}`, 3.0)
@@ -64,7 +64,7 @@ func Auth0ClientSecret() *config.Rule {
 	// accepts the tenant, client ID, and client secret. An invalid_client error
 	// is therefore a definitive rejection of the discovered credential pair.
 	r := config.Rule{
-		RuleID:      "auth0-client-secret.1",
+		ID:          "auth0-client-secret.1",
 		Confidence:  "high",
 		Description: "Auth0 client secret, which may allow an application to impersonate its OAuth client.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -73,7 +73,7 @@ func Auth0ClientSecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"auth0"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "auth0-client-id.1", Within: "10L"},
 			{RuleID: "auth0-domain.1", Within: "10L"},
 		},
@@ -94,7 +94,7 @@ oauthError == "invalid_grant" ? {
   "result": "invalid",
   "reason": "Invalid Auth0 client credentials"
 } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	clientSecret := secrets.NewSecretWithEntropy(`[A-Za-z0-9_-]{64}`, 3.5)

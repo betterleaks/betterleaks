@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func KimiAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "kimi-api-key",
+		ID:          "kimi-api-key",
 		Confidence:  "high",
 		Description: "Detected a Kimi API key, which may expose Moonshot AI model access and usage to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"kimi", "moonshot"}, `sk-[A-Za-z0-9_-]{48}`, true),
@@ -22,7 +22,7 @@ func KimiAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := append(

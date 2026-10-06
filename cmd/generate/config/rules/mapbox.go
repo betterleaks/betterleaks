@@ -1,16 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func MapBox() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Detected a MapBox API token, posing a risk to geospatial services and sensitive location data exposure.",
-		RuleID:      "mapbox-api-token",
+		ID:          "mapbox-api-token",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mapbox"}, `pk\.[a-z0-9]{60}\.[a-z0-9]{22}`, true),
 

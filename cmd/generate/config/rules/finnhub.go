@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func FinnhubAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "finnhub-access-token",
+		ID:          "finnhub-access-token",
 		Confidence:  "high",
 		Description: "Found a Finnhub Access Token, risking unauthorized access to financial market data and analytics.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"finnhub"}, utils.AlphaNumeric("20"), true),
@@ -17,7 +17,7 @@ func FinnhubAccessToken() *config.Rule {
 		Keywords: []string{
 			"finnhub",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

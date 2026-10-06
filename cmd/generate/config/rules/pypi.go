@@ -1,23 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PyPiUploadToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Discovered a PyPI upload token, potentially compromising Python package distribution and repository integrity.",
-		RuleID:      "pypi-upload-token",
+		ID:          "pypi-upload-token",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`pypi-AgEIcHlwaS5vcmc[\w-]{50,1000}`),
+		Regex:       `pypi-AgEIcHlwaS5vcmc[\w-]{50,1000}`,
 		Keywords: []string{
 			"pypi-AgEIcHlwaS5vcmc",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

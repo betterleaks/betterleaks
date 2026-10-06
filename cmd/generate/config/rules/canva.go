@@ -1,20 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CanvaClientID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "canva-client-id",
+		ID:          "canva-client-id",
 		Confidence:  "high",
 		Description: "Detected a Canva Connect API client ID, used as a component of the canva-client-secret composite rule.",
-		Regex:       regexp.MustCompile(`(?i)\b(?:canva|CANVA_CLIENT_ID)(?:.|[\n\r]){0,32}?(?:client[_\s-]*id|app[_\s-]*id)(?:.|[\n\r]){0,16}?\b(OC-[A-Za-z0-9_-]{8,16})\b`),
+		Regex:       `(?i)\b(?:canva|CANVA_CLIENT_ID)(?:.|[\n\r]){0,32}?(?:client[_\s-]*id|app[_\s-]*id)(?:.|[\n\r]){0,16}?\b(OC-[A-Za-z0-9_-]{8,16})\b`,
 		Keywords:    []string{"canva"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 2.5`,
 	}
 
 	tps := []string{
@@ -30,12 +29,12 @@ func CanvaClientID() *config.Rule {
 
 func CanvaClientSecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "canva-client-secret",
+		ID:          "canva-client-secret",
 		Confidence:  "high",
 		Description: "Detected a Canva Connect API client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
-		Regex:       regexp.MustCompile(`\b(cnvca[a-zA-Z0-9_-]{51})\b`),
+		Regex:       `\b(cnvca[a-zA-Z0-9_-]{51})\b`,
 		Keywords:    []string{"cnvca"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "canva-client-id"},
 		},
 		ValidateExpr: `let r = http.post("https://api.canva.com/rest/v1/oauth/token", {
@@ -50,7 +49,7 @@ func CanvaClientSecret() *config.Rule {
     "result": "invalid",
     "reason": "Invalid client"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{

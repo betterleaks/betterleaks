@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func AssemblyAI() *config.Rule {
 	r := config.Rule{
-		RuleID:      "assemblyai-api-key",
+		ID:          "assemblyai-api-key",
 		Confidence:  "medium",
 		Description: "Detected an AssemblyAI API Key, which may expose speech-to-text services and associated audio data to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"assemblyai"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"assemblyai"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("assemblyai", secrets.NewSecretWithEntropy(utils.AlphaNumeric("32"), 3.5))

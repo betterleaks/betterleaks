@@ -1,22 +1,21 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func EBayClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ebay-client-id",
+		ID:          "ebay-client-id",
 		Confidence:  "high",
 		Description: "eBay client ID, used as a component of the eBay client-secret composite rule.",
-		Regex:       regexp.MustCompile(`\b([a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+-PRD-[a-f0-9]{8,12}-[a-f0-9]{8,12})`),
+		Regex:       `\b([a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+-PRD-[a-f0-9]{8,12}-[a-f0-9]{8,12})`,
 		Keywords:    []string{"-PRD-"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -32,7 +31,7 @@ func EBayClientID() *config.Rule {
 func EBayClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ebay-client-secret",
+		ID:          "ebay-client-secret",
 		Confidence:  "high",
 		Description: "eBay client secret.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -41,7 +40,7 @@ func EBayClientSecret() *config.Rule {
 			false,
 		),
 		Keywords: []string{"ebay"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "ebay-client-id"},
 		},
 		ValidateExpr: `let clientID = (components["ebay-client-id"]?.secret ?? "");
@@ -56,7 +55,7 @@ r.status == 200 && (r.json?.active ?? true) == false ? {
   "result": "invalid",
   "reason": "Invalid client"
 } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	// validate

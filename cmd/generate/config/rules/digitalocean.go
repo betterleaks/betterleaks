@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DigitalOceanPAT() *config.Rule {
 	r := config.Rule{
-		RuleID:      "digitalocean-pat",
+		ID:          "digitalocean-pat",
 		Confidence:  "high",
 		Description: "Discovered a DigitalOcean Personal Access Token, posing a threat to cloud infrastructure security and data privacy.",
 		Regex:       utils.GenerateUniqueTokenRegex(`dop_v1_[a-f0-9]{64}`, false),
 		Keywords:    []string{"dop_v1_"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("do", "dop_v1_"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3))
@@ -22,12 +22,12 @@ func DigitalOceanPAT() *config.Rule {
 
 func DigitalOceanOAuthToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "digitalocean-access-token",
+		ID:          "digitalocean-access-token",
 		Confidence:  "high",
 		Description: "Found a DigitalOcean OAuth Access Token, risking unauthorized cloud resource access and data compromise.",
 		Regex:       utils.GenerateUniqueTokenRegex(`doo_v1_[a-f0-9]{64}`, false),
 		Keywords:    []string{"doo_v1_"},
-		Filter:      `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("do", "doo_v1_"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3))
@@ -37,7 +37,7 @@ func DigitalOceanOAuthToken() *config.Rule {
 func DigitalOceanRefreshToken() *config.Rule {
 	r := config.Rule{
 		Description: "Uncovered a DigitalOcean OAuth Refresh Token, which could allow prolonged unauthorized access and resource manipulation.",
-		RuleID:      "digitalocean-refresh-token",
+		ID:          "digitalocean-refresh-token",
 		Confidence:  "high",
 
 		Regex:    utils.GenerateUniqueTokenRegex(`dor_v1_[a-f0-9]{64}`, true),

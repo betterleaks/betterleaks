@@ -13,32 +13,28 @@
 
 title = "{{.Title}}"
 
-# minVersion indicates the minimum gitleaks config format version required.
-# betterleaksMinVersion indicates the minimum betterleaks version required.
-# If the running version is older, a warning will be logged.
-minVersion = "v8.25.0"
-betterleaksMinVersion = "v1.8.0"
+# minVersion indicates the minimum betterleaks version required.
+# Older versioned builds reject this configuration.
+minVersion = "v2.0.0-rc.1"
 
-{{ with .Prefilter }}
+{{ with .PrefilterExpr }}
 prefilter = {{ tomlExpr . }}
-{{ end }}{{ with .Filter }}
+{{ end }}{{ with .FilterExpr }}
 filter = {{ tomlExpr . }}
 {{ end }}
 {{- range $i, $rule := .Rules }}{{println}}# ──────────────────────────────────────────────────────────────────────────────
-# {{ $rule.RuleID }}
+# {{ $rule.ID }}
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
-id = "{{$rule.RuleID}}"
+id = "{{$rule.ID}}"
 description = "{{$rule.Description}}"
 {{- with $rule.Regex }}
 regex = '''{{ . }}'''{{ end -}}
 {{- with $rule.Path }}
 path = '''{{ . }}'''{{ end -}}
-{{- with $rule.SecretGroup }}
-secretGroup = {{ . }}{{ end -}}
-{{- if eq $rule.RuleID "generic-api-key" }}
-specificity = 0
-{{- else if $rule.Specificity }}
+{{- with $rule.ValueGroup }}
+valueGroup = {{ . }}{{ end -}}
+{{- if $rule.Specificity }}
 specificity = {{ $rule.Specificity }}
 {{- end -}}
 {{- with $rule.Confidence }}
@@ -57,7 +53,11 @@ tags = [
 skipReport = true{{ end }}
 {{- with $rule.ValidateExpr }}
 validate = {{ tomlExpr . }}{{ end }}
-{{- with $rule.Filter }}
+{{- with $rule.AnalyzeExpr }}
+analyze = {{ tomlExpr . }}{{ end }}
+{{- with $rule.RevokeExpr }}
+revoke = {{ tomlExpr . }}{{ end }}
+{{- with $rule.FilterExpr }}
 filter = {{ tomlExpr . }}{{ end }}
 {{- with $rule.Components }}
 components = [{{ range . }}

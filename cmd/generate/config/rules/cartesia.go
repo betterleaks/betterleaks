@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CartesiaAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cartesia-api-key.1",
+		ID:          "cartesia-api-key.1",
 		Confidence:  "high",
 		Description: "Cartesia API key, which grants server-side access to Cartesia voice APIs.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk_car_[A-Za-z0-9_]{20}`, false),
@@ -23,7 +23,7 @@ func CartesiaAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := "sk_car_" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_]{20}`, 3.5)

@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ClerkSecretKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "clerk-secret-key",
+		ID:          "clerk-secret-key",
 		Confidence:  "medium",
 		Description: "Detected a Clerk secret key, which may allow unauthorized access to Clerk backend APIs.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"clerk"}, `sk_(?:test|live)_[A-Za-z0-9]{32}`, true),
@@ -21,7 +21,7 @@ func ClerkSecretKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3`,
+		FilterExpr: `entropy(finding["secret"]) < 3.3`,
 	}
 
 	tps := []string{

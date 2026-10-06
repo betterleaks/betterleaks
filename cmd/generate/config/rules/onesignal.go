@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func OneSignalRichAuthenticationToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "onesignal-rich-authentication-token",
+		ID:          "onesignal-rich-authentication-token",
 		Confidence:  "high",
 		Description: "OneSignal rich authentication token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`os_v2_(?:app|org)_[a-z2-7]{103}`, false),
@@ -17,13 +17,13 @@ func OneSignalRichAuthenticationToken() *config.Rule {
 		ValidateExpr: `let r = http.get("https://api.onesignal.com/apps", {
     "Authorization": "Key " + finding["secret"],
     "Accept": "application/json"
-  }); r.status == 200 || (r.status == 403 && size(r.json?.errors ?? []) > 0) ? {
+  }); r.status == 200 || (r.status == 403 && len(r.json?.errors ?? []) > 0) ? {
     "result": "valid"
   } : r.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

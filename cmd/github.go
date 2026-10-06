@@ -1,154 +1,99 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
-
-	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/sources/github"
 )
 
-func init() {
-	rootCmd.AddCommand(githubCmd)
-	githubCmd.Flags().String("token", "", "GitHub personal access token (or set GITHUB_TOKEN)")
-	githubCmd.Flags().StringSlice("include", nil,
-		"resource types to scan: repos (default), forks, prs, pr-comments, "+
-			"issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists")
-	githubCmd.Flags().StringSlice("exclude", nil,
-		"resource types to skip: repos, forks, prs, pr-comments, "+
-			"issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists")
-	githubCmd.Flags().StringSlice("exclude-repo", nil, "glob patterns to exclude repos")
-	githubCmd.Flags().Int("git-workers", 0, "parallel git workers per repo (0 = single process)")
-	githubCmd.Flags().String("log-opts", "", "git log options passed to each repo scan")
-
-	// Actions scanning
-	githubCmd.Flags().StringSlice("actions-workflow", nil, "only scan runs from these workflow files (e.g. ci.yml)")
-
-	// Date range filtering (applies to issues, PRs, comments, and action runs)
-	githubCmd.Flags().String("since", "", "only scan API items created after this date (YYYY-MM-DD or RFC3339)")
-	githubCmd.Flags().String("until", "", "only scan API items created before this date (YYYY-MM-DD or RFC3339)")
+type GitHubCmd struct {
+	ScanFlags       `embed:""`
+	MaxArchiveDepth int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
+	Token           string   `group:"source" help:"GitHub personal access token (or set GITHUB_TOKEN)."`
+	Include         []string `group:"source" help:"Resource types to scan: repos, forks, prs, pr-comments, issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists."`
+	Exclude         []string `group:"source" help:"Resource types to skip."`
+	ExcludeRepo     []string `group:"source" name:"exclude-repo" help:"Glob patterns to exclude repositories."`
+	LogOpts         string   `group:"source" name:"log-opts" help:"Git log options passed to each repository scan."`
+	ActionsWorkflow []string `group:"source" name:"actions-workflow" help:"Only scan runs from these workflow files."`
+	Since           string   `group:"source" help:"Only scan API items created after this date (YYYY-MM-DD or RFC3339)."`
+	Until           string   `group:"source" help:"Only scan API items created before this date (YYYY-MM-DD or RFC3339)."`
+	TargetURL       string   `arg:"" name:"target-url" help:"GitHub repository, organization, or resource URL."`
 }
 
-var githubCmd = &cobra.Command{
-	Use:   "github <target-url> [flags]",
-	Short: "scan GitHub repositories and resources for secrets",
-	Example: `  # Scan a repository's git history
-  betterleaks github https://github.com/owner/repo
-
-  # Scan a pull request
-  betterleaks github https://github.com/owner/repo/pull/113
-
-  # Scan all repos under an organization
-  betterleaks github https://github.com/myorg
-
-  # Scan repos plus issues and PRs
-  betterleaks github --include=issues,prs https://github.com/owner/repo
-
-  # Scan only issues and comments, skip repo git history
-  betterleaks github --include=issues,issue-comments --exclude=repos https://github.com/owner/repo`,
-	Args: cobra.ExactArgs(1),
-	Run:  runGitHub,
+func (cmd *GitHubCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	runGitHub(runtime, &cli.GlobalFlags, cmd)
+	return nil
 }
 
-func runGitHub(cmd *cobra.Command, args []string) {
+func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd) {
 	start := time.Now()
 
-	initConfig(".")
-	initDiagnostics()
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
+	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config(cmd)
-	detector := Detector(cmd, cfg, ".")
+	filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, "")
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
+	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
 
-	targetURL := args[0]
+	targetURL := options.TargetURL
 
 	// Resolve token: flag > env
-	token := mustGetStringFlag(cmd, "token")
+	token := options.Token
 	if token == "" {
 		token = os.Getenv("GITHUB_TOKEN")
 	}
 
-	include, _ := cmd.Flags().GetStringSlice("include")
-	exclude, _ := cmd.Flags().GetStringSlice("exclude")
-
 	// Parse date range flags.
 	var since, until time.Time
-	var err error
-	if s := mustGetStringFlag(cmd, "since"); s != "" {
+	if s := options.Since; s != "" {
 		since, err = parseDateFlag(s)
 		if err != nil {
-			logging.Fatal().Err(err).Msg("invalid --since value; use YYYY-MM-DD or RFC3339")
+			runtime.fatal("invalid --since value; use YYYY-MM-DD or RFC3339", "error", err)
 		}
 	}
-	if s := mustGetStringFlag(cmd, "until"); s != "" {
+	if s := options.Until; s != "" {
 		until, err = parseDateFlag(s)
 		if err != nil {
-			logging.Fatal().Err(err).Msg("invalid --until value; use YYYY-MM-DD or RFC3339")
+			runtime.fatal("invalid --until value; use YYYY-MM-DD or RFC3339", "error", err)
 		}
 	}
 
-	actionsWorkflows, _ := cmd.Flags().GetStringSlice("actions-workflow")
-	excludeRepos, _ := cmd.Flags().GetStringSlice("exclude-repo")
-
-	src := &sources.GitHub{
+	src := &github.Source{
+		Logger:          runtime.Logger(),
 		Token:           token,
 		URL:             targetURL,
-		Include:         include,
-		Exclude:         exclude,
-		ExcludeRepos:    excludeRepos,
-		ShouldSkip:      detector.SkipFunc(),
-		Sema:            detector.Sema,
-		MaxArchiveDepth: detector.MaxArchiveDepth,
-		Workers:         mustGetIntFlag(cmd, "git-workers"),
-		LogOpts:         mustGetStringFlag(cmd, "log-opts"),
-		Actions: sources.ActionsOptions{
-			Workflows: actionsWorkflows,
+		Include:         options.Include,
+		Exclude:         options.Exclude,
+		ExcludeRepos:    options.ExcludeRepo,
+		Prefilter:       filters.shouldSkip,
+		MaxArchiveDepth: options.MaxArchiveDepth,
+		LogOpts:         options.LogOpts,
+		Actions: github.ActionsOptions{
+			Workflows: options.ActionsWorkflow,
 		},
-		DateRangeOpts: sources.DateRangeOptions{
+		DateRangeOpts: github.DateRangeOptions{
 			Since: since,
 			Until: until,
 		},
 	}
 
-	if err := src.Validate(); err != nil {
-		logging.Fatal().Err(err).Msg("invalid GitHub configuration")
-	}
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "github", options.TargetURL)
 
-	exitCode := mustGetIntFlag(cmd, "exit-code")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
-	verbose := mustGetBoolFlag(cmd, "verbose")
-
-	detector.SkipFindingAppend = true
-	var findings []report.Finding
-	var scanErrs []error
-	for result := range detector.Run(cmd.Context(), src) {
-		if result.Err != nil {
-			scanErrs = append(scanErrs, result.Err)
-			logging.Error().Err(result.Err).Msg("scan error")
-			continue
-		}
-		findings = append(findings, result.Finding)
-		if verbose {
-			if detector.LegacyPrint {
-				result.Finding.PrintLegacy(noColor, redact)
-			} else {
-				result.Finding.Print(noColor, redact)
-			}
-		}
+	findings.startScan(runtime)
+	summary, scanErr := runner.Scan(runtime.Context, src, findings.Add)
+	if scanErr != nil {
+		runtime.Logger().Error("scan error", "error", scanErr)
 	}
-
-	var scanErr error
-	if n := len(scanErrs); n > 0 {
-		scanErr = &multipleErrors{
-			msg:  fmt.Sprintf("%d error(s) during GitHub scan", n),
-			errs: scanErrs,
-		}
-	}
-	findingSummaryAndExit(detector, findings, exitCode, start, scanErr)
+	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
 }
 
 // parseDateFlag parses a date string as either YYYY-MM-DD or RFC3339.

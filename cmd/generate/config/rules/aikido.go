@@ -1,20 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func AikidoClientID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "aikido-client-id",
+		ID:          "aikido-client-id",
 		Confidence:  "high",
 		Description: "Detected an Aikido client ID, used as a component of the aikido-client-secret composite rule.",
 		Regex:       utils.GenerateUniqueTokenRegex(`AIK_CLIENT_[A-Za-z0-9]{24}`, false),
 		Keywords:    []string{"AIK_CLIENT_"},
 		SkipReport:  true,
-		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	}
 
 	tps := []string{
@@ -28,15 +27,15 @@ func AikidoClientID() *config.Rule {
 
 func AikidoClientSecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "aikido-client-secret",
+		ID:          "aikido-client-secret",
 		Confidence:  "high",
 		Description: "Detected an Aikido client secret, which may allow unauthorized access to Aikido APIs when paired with a client ID.",
 		Regex:       utils.GenerateUniqueTokenRegex(`AIK_SECRET_[A-Za-z0-9]{64}`, false),
 		Keywords:    []string{"AIK_SECRET_"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "aikido-client-id"},
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{
@@ -50,12 +49,12 @@ func AikidoClientSecret() *config.Rule {
 
 func AikidoCIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "aikido-ci-token",
+		ID:          "aikido-ci-token",
 		Confidence:  "high",
 		Description: "Detected an Aikido CI token, which may allow unauthorized CI scan integration activity in Aikido.",
-		Regex:       regexp.MustCompile(`\b(AIK_CI_[A-Za-z0-9]{20,44})\b`),
+		Regex:       `\b(AIK_CI_[A-Za-z0-9]{20,44})\b`,
 		Keywords:    []string{"AIK_CI_"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.0`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	}
 
 	tps := []string{

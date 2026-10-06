@@ -1,8 +1,5 @@
 title = "gitleaks extended 2"
 
-[extend]
-path="../testdata/config/extend_3.toml"
-
 [[rules]]
     description = "AWS Secret Key"
     id = "aws-secret-key-again"

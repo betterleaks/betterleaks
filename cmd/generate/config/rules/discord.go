@@ -1,20 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DiscordAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "discord-api-token",
+		ID:          "discord-api-token",
 		Confidence:  "medium",
 		Description: "Detected a Discord API key, potentially compromising communication channels and user data privacy on Discord.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.Hex("64"), true),
 		Keywords:    []string{"discord"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -25,12 +25,12 @@ func DiscordAPIToken() *config.Rule {
 func DiscordClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "discord-client-id",
+		ID:          "discord-client-id",
 		Confidence:  "medium",
 		Description: "Identified a Discord client ID, which may lead to unauthorized integrations and data exposure in Discord applications.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.Numeric("18"), true),
 		Keywords:    []string{"discord"},
-		Filter:      `filter.entropy(finding["secret"]) < 2.75`,
+		FilterExpr:  `entropy(finding["secret"]) < 2.75`,
 	}
 
 	// validate
@@ -45,12 +45,12 @@ func DiscordClientID() *config.Rule {
 func DiscordClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "discord-client-secret",
+		ID:          "discord-client-secret",
 		Confidence:  "medium",
 		Description: "Discovered a potential Discord client secret, risking compromised Discord bot integrations and data leaks.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.AlphaNumericExtended("32"), true),
 		Keywords:    []string{"discord"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

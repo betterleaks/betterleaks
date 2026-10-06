@@ -1,5 +1,0 @@
-[extend]
-useDefault = true
-
-[allowList]
-paths = ['''.*/test/.*''', '''*.test.js''', '''*.stories.js''']

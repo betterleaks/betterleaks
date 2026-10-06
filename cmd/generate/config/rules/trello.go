@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func TrelloAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "trello-access-token",
+		ID:          "trello-access-token",
 		Confidence:  "high",
 		Description: "Trello Access Token",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"trello"}, `[a-zA-Z-0-9]{32}`, true),

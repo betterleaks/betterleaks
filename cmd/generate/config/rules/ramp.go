@@ -1,21 +1,21 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func RampClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ramp-client-id",
+		ID:          "ramp-client-id",
 		Confidence:  "high",
 		Description: "Ramp client ID, used as a component of the Ramp client-secret composite rule.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ramp_id_[A-Za-z0-9]{40}`, false),
 		Keywords:    []string{"ramp_id_"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -32,12 +32,12 @@ func RampClientID() *config.Rule {
 func RampClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "ramp-client-secret",
+		ID:          "ramp-client-secret",
 		Confidence:  "high",
 		Description: "Ramp OAuth client secret.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ramp_sec_[A-Za-z0-9]{48}`, false),
 		Keywords:    []string{"ramp_sec_"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "ramp-client-id"},
 		},
 		ValidateExpr: `let r = http.post("https://api.ramp.com/developer/v1/token", {
@@ -54,7 +54,7 @@ func RampClientSecret() *config.Rule {
     "result": "invalid",
     "reason": "Invalid client credentials"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func UpCloud() *config.Rule {
 	r := config.Rule{
-		RuleID:      "upcloud-api-token",
+		ID:          "upcloud-api-token",
 		Confidence:  "high",
 		Description: "Identified an UpCloud API token, which may expose cloud infrastructure resources to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`ucat_[0-9A-Za-z]{24,32}`, false),
 		Keywords:    []string{"ucat_"},
-		Entropy:     3.0,
+		FilterExpr:  utils.MinEntropy(3.0),
 		ValidateExpr: `let r = http.get("https://api.upcloud.com/1.3/account", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 && (r.body contains '"account"') ? {

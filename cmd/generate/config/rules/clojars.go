@@ -1,21 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Clojars() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "clojars-api-token",
+		ID:          "clojars-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a possible Clojars API token, risking unauthorized access to Clojure libraries and potential code manipulation.",
-		Regex:       regexp.MustCompile(`(?i)CLOJARS_[a-z0-9]{60}`),
+		Regex:       `(?i)CLOJARS_[a-z0-9]{60}`,
 		Keywords:    []string{"clojars_"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

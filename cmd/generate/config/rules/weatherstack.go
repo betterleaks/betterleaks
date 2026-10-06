@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func WeatherstackAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "weatherstack-api-key.1",
+		ID:          "weatherstack-api-key.1",
 		Confidence:  "medium",
 		Description: "Weatherstack API key.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -26,7 +26,7 @@ func WeatherstackAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid access key"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Mem0APIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "mem0-api-key.1",
+		ID:          "mem0-api-key.1",
 		Confidence:  "high",
 		Description: "Mem0 API key, which may allow access to stored application memories.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"mem0"}, `m0-[A-Za-z0-9]{24,44}`, false),
@@ -23,7 +23,7 @@ func Mem0APIKey() *config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	key := "m0-" + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{32}`, 3.0)

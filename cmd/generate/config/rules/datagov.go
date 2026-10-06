@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DataGovAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "datagov-api-key",
+		ID:          "datagov-api-key",
 		Confidence:  "high",
 		Description: "Detected a Data.gov API key, which may expose usage of Data.gov-backed APIs.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`data\.gov`}, utils.AlphaNumeric("40"), true),
@@ -20,7 +20,7 @@ func DataGovAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

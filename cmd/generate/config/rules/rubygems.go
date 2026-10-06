@@ -1,22 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func RubyGemsAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "rubygems-api-token",
+		ID:          "rubygems-api-token",
 		Confidence:  "high",
 		Description: "Identified a Rubygem API token, potentially compromising Ruby library distribution and package management.",
 		Regex:       utils.GenerateUniqueTokenRegex(`rubygems_[a-f0-9]{48}`, false),
 		Keywords: []string{
 			"rubygems_",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

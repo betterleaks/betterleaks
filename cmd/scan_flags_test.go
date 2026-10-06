@@ -1,0 +1,675 @@
+package cmd
+
+import (
+	"fmt"
+	"math"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/alecthomas/kong"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestScanFlagsAreCommandLocal(t *testing.T) {
+	scanOnly := []string{
+		"exit-code",
+		"silent",
+		"output",
+		"confidence",
+		"jobs",
+		"ignore-file",
+		"hmac-key",
+		"allow-signature",
+		"no-allow-signatures",
+		"redact",
+		"no-banner",
+		"disable-rule",
+		"isolate-rule",
+		"match-context",
+		"max-decode-depth",
+		"validate",
+		"analyze",
+		"status",
+		"provider-workers",
+		"diagnostics",
+		"diagnostics-dir",
+	}
+
+	_, parser := newCLIParserForTest(t)
+	scanNodes := []*kong.Node{
+		commandNode(t, parser.Model.Node, "auto"),
+		commandNode(t, parser.Model.Node, "url"),
+		commandNode(t, parser.Model.Node, "filesystem"),
+		commandNode(t, parser.Model.Node, "git"),
+		commandNode(t, parser.Model.Node, "github"),
+		commandNode(t, parser.Model.Node, "gitlab"),
+		commandNode(t, parser.Model.Node, "huggingface"),
+		commandNode(t, parser.Model.Node, "s3"),
+		commandNode(t, parser.Model.Node, "stdin"),
+	}
+	validateNode := commandNode(t, parser.Model.Node, "validate")
+	analyzeNode := commandNode(t, parser.Model.Node, "analyze")
+	revokeNode := commandNode(t, parser.Model.Node, "revoke")
+	configNode := commandNode(t, parser.Model.Node, "config")
+	for _, name := range scanOnly {
+		require.False(t, nodeHasFlag(parser.Model.Node, name), name)
+		require.False(t, nodeHasFlag(configNode, name), name)
+		require.False(t, nodeHasFlag(validateNode, name), name)
+		require.False(t, nodeHasFlag(analyzeNode, name), name)
+		require.False(t, nodeHasFlag(revokeNode, name), name)
+		for _, node := range scanNodes {
+			require.True(t, nodeHasFlag(node, name), "%s: %s", node.Name, name)
+		}
+	}
+
+	for _, node := range scanNodes {
+		wantSize := node.Name == "auto" || node.Name == "filesystem" || node.Name == "url"
+		require.Equal(t, wantSize, nodeHasFlag(node, "max-target-megabytes"), node.Name)
+		require.Equal(t, node.Name != "stdin", nodeHasFlag(node, "max-archive-depth"), node.Name)
+	}
+
+	sharedWithCredentials := []string{
+		"jsonl",
+		"provider-debug",
+		"provider-timeout",
+		"provider-max-requests",
+		"provider-rps",
+		"provider-rps-rule",
+		"provider-env-vars",
+	}
+	for _, name := range sharedWithCredentials {
+		require.False(t, nodeHasFlag(parser.Model.Node, name), name)
+		require.False(t, nodeHasFlag(configNode, name), name)
+		require.True(t, nodeHasFlag(validateNode, name), name)
+		require.True(t, nodeHasFlag(analyzeNode, name), name)
+		require.True(t, nodeHasFlag(revokeNode, name), name)
+		for _, node := range scanNodes {
+			require.True(t, nodeHasFlag(node, name), "%s: %s", node.Name, name)
+		}
+	}
+
+	for _, deprecated := range []string{
+		"validation-workers", "validation-debug", "validation-timeout",
+		"validation-max-requests", "validation-rps", "validation-rps-rule",
+		"validation-env-vars",
+	} {
+		require.False(t, nodeHasFlag(validateNode, deprecated), deprecated)
+		require.False(t, nodeHasFlag(analyzeNode, deprecated), deprecated)
+		require.False(t, nodeHasFlag(revokeNode, deprecated), deprecated)
+		for _, node := range scanNodes {
+			require.False(t, nodeHasFlag(node, deprecated), "%s: %s", node.Name, deprecated)
+		}
+	}
+}
+
+func TestRemovedProviderFlagsAreRejected(t *testing.T) {
+	for _, flag := range []string{
+		"--offline", "--offline=false", "--no-analysis", "--no-analysis=false",
+		"--validation", "--analysis", "--validation-extract-empty", "--no-validation",
+		"--validation-workers=4", "--validation-debug", "--validation-timeout=2s",
+		"--validation-max-requests=5", "--validation-rps=1", "--validation-rps-rule=github-pat=1",
+		"--validation-env-vars=GITHUB_BASE_URL",
+	} {
+		t.Run(flag, func(t *testing.T) {
+			_, err := parseCLIForTest(t, "fs", flag)
+			require.ErrorContains(t, err, "unknown flag")
+		})
+	}
+}
+
+func TestRootHelpKeepsScanFlagsCommandLocal(t *testing.T) {
+	root, output := newTestCLI(t)
+	root.runtime.exit = func(code int) {
+		require.Zero(t, code)
+		panic("help exit")
+	}
+	parser, err := newCLIParser(&CLI{}, root.runtime)
+	require.NoError(t, err)
+	require.PanicsWithValue(t, "help exit", func() {
+		_, _ = parser.Parse([]string{"--help"})
+	})
+
+	require.Contains(t, output.String(), "Scanning Options:")
+	require.Contains(t, output.String(), "-v, --validate")
+	require.Contains(t, output.String(), "-a, --analyze")
+	require.Contains(t, output.String(), "-V, --version")
+	require.Contains(t, output.String(), "BETTERLEAKS_VALIDATE")
+	require.Contains(t, output.String(), "BETTERLEAKS_ANALYZE")
+	require.NotContains(t, output.String(), "--offline")
+	require.NotContains(t, output.String(), "--no-analysis")
+	require.Contains(t, output.String(), "--analyze")
+	require.False(t, nodeHasFlag(parser.Model.Node, "analyze"))
+
+	_, err = parser.Parse([]string{"validate", "--analyze"})
+	require.ErrorContains(t, err, "unknown flag --analyze")
+	_, err = parser.Parse([]string{"auto", "--analyze", "."})
+	require.NoError(t, err)
+}
+
+func TestRedactFlagSupportsImplicitAndExplicitPercentages(t *testing.T) {
+	cli, err := parseCLIForTest(t, "fs", "--redact")
+	require.NoError(t, err)
+	require.Equal(t, redactFlag(100), cli.Directory.Redact)
+
+	cli, err = parseCLIForTest(t, "fs", "--redact=20")
+	require.NoError(t, err)
+	require.Equal(t, redactFlag(20), cli.Directory.Redact)
+}
+
+func nodeHasFlag(node *kong.Node, name string) bool {
+	for _, flag := range node.Flags {
+		if flag.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func commandNode(t *testing.T, parent *kong.Node, name string) *kong.Node {
+	t.Helper()
+	for _, child := range parent.Children {
+		if child.Name == name {
+			return child
+		}
+	}
+	t.Fatalf("command %q not found", name)
+	return nil
+}
+
+func TestAllowSignatureFlags(t *testing.T) {
+	configPath := writeTestConfig(t, "[[rules]]\nid = 'token'\nregex = 'secret-[a-z]+'\n")
+	for _, test := range []struct {
+		name, input string
+		flags       []string
+		want        int
+		wantError   string
+	}{
+		{name: "defaults", input: "secret-alpha betterleaks:allow\nsecret-beta gitleaks:allow"},
+		{name: "custom", input: "secret-alpha #nosec", flags: []string{"--allow-signature", "#nosec"}},
+		{name: "repeated", input: "secret-alpha first\nsecret-beta second", flags: []string{"--allow-signature", "first", "--allow-signature", "second"}},
+		{name: "replaces defaults", input: "secret-alpha betterleaks:allow", flags: []string{"--allow-signature", "#nosec"}, want: 1},
+		{name: "disabled", input: "secret-alpha betterleaks:allow\nsecret-beta gitleaks:allow", flags: []string{"--no-allow-signatures"}, want: 2},
+		{name: "literal comma", input: "secret-alpha first", flags: []string{"--allow-signature", "first,second"}, want: 1},
+		{name: "comma match", input: "secret-alpha first,second", flags: []string{"--allow-signature", "first,second"}},
+		{name: "conflict", flags: []string{"--allow-signature", "#nosec", "--no-allow-signatures"}, wantError: "cannot be combined"},
+		{name: "empty", flags: []string{"--allow-signature="}, wantError: "must not be empty"},
+		{name: "removed flag", flags: []string{"--no-allow-comments"}, wantError: "unknown flag"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"stdin", "--config", configPath, "--jsonl", "--no-banner", "--exit-code=0"}, test.flags...)
+			_, err := parseCLIForTest(t, args...)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+			root, output := newTestCLI(t)
+			root.SetIn(strings.NewReader(test.input))
+			root.SetArgs(args)
+			require.NoError(t, root.Execute())
+			_, findings := decodeScanJSONL(t, output.Bytes())
+			require.Len(t, findings, test.want)
+		})
+	}
+}
+
+func TestScanProviderModes(t *testing.T) {
+	configPath := writeTestConfig(t, `
+[[rules]]
+id = "test-token"
+regex = '''(secret-[a-z]+)'''
+validate = '''
+{"result": "valid", "analysis": {"owner": "user-1"}}
+'''
+analyze = '''
+{
+  "identity": {"id": validation["analysis"]["owner"]},
+  "capabilities": ["write", "read"]
+}
+'''
+`)
+
+	tests := []struct {
+		name           string
+		flags          []string
+		validationEnv  string
+		analysisEnv    string
+		wantValidation bool
+		wantAnalysis   bool
+	}{
+		{name: "detection only by default"},
+		{name: "provider options do not enable stages", flags: []string{"--provider-debug", "--provider-workers=2", "--provider-rps=10"}},
+		{name: "validate", flags: []string{"--validate"}, wantValidation: true},
+		{name: "short validate", flags: []string{"-v"}, wantValidation: true},
+		{name: "analyze implies validation", flags: []string{"--analyze"}, wantValidation: true, wantAnalysis: true},
+		{name: "short analyze", flags: []string{"-a"}, wantValidation: true, wantAnalysis: true},
+		{name: "both long flags", flags: []string{"--analyze", "--validate"}, wantValidation: true, wantAnalysis: true},
+		{name: "bundled av", flags: []string{"-av"}, wantValidation: true, wantAnalysis: true},
+		{name: "bundled va", flags: []string{"-va"}, wantValidation: true, wantAnalysis: true},
+		{name: "analysis with status filter", flags: []string{"-a", "--status=valid"}, wantValidation: true, wantAnalysis: true},
+		{name: "analysis still implies validation", flags: []string{"--analyze", "--validate=false"}, wantValidation: true, wantAnalysis: true},
+		{name: "analysis disabled", flags: []string{"-av", "--analyze=false"}, wantValidation: true},
+		{name: "validation disabled", flags: []string{"-v", "--validate=false"}},
+		{name: "validation from environment", validationEnv: "true", wantValidation: true},
+		{name: "analysis from environment implies validation", analysisEnv: "true", wantValidation: true, wantAnalysis: true},
+		{name: "both from environment", validationEnv: "true", analysisEnv: "true", wantValidation: true, wantAnalysis: true},
+		{name: "false environment", validationEnv: "false", analysisEnv: "false"},
+		{name: "flag disables environment validation", validationEnv: "true", flags: []string{"--validate=false"}},
+		{name: "flag disables environment analysis", analysisEnv: "true", flags: []string{"--analyze=false"}},
+		{name: "validation only override", validationEnv: "true", analysisEnv: "true", flags: []string{"--analyze=false"}, wantValidation: true},
+		{name: "detection only override", validationEnv: "true", analysisEnv: "true", flags: []string{"--analyze=false", "--validate=false"}},
+		{name: "validate flag overrides false environment", validationEnv: "false", flags: []string{"-v"}, wantValidation: true},
+		{name: "analyze flag overrides false environment", analysisEnv: "false", flags: []string{"-a"}, wantValidation: true, wantAnalysis: true},
+		{name: "environment analysis still implies validation", analysisEnv: "true", flags: []string{"--validate=false"}, wantValidation: true, wantAnalysis: true},
+		{name: "environment validation with status filter", validationEnv: "true", flags: []string{"--status=valid"}, wantValidation: true},
+		{name: "environment analysis with status filter", analysisEnv: "true", flags: []string{"--status=valid"}, wantValidation: true, wantAnalysis: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.validationEnv != "" {
+				t.Setenv("BETTERLEAKS_VALIDATE", test.validationEnv)
+			}
+			if test.analysisEnv != "" {
+				t.Setenv("BETTERLEAKS_ANALYZE", test.analysisEnv)
+			}
+			root, stdout := newTestCLI(t)
+			root.SetIn(strings.NewReader("token = secret-alpha\n"))
+			args := []string{
+				"stdin",
+				"--config", configPath,
+				"--jsonl",
+				"--no-banner",
+				"--exit-code", "0",
+			}
+			args = append(args, test.flags...)
+			root.SetArgs(args)
+			require.NoError(t, root.Execute())
+
+			_, findings := decodeScanJSONL(t, stdout.Bytes())
+			require.Len(t, findings, 1)
+			finding := findings[0]
+			if !test.wantValidation {
+				assert.Empty(t, finding.Analysis.Status)
+				assert.True(t, finding.Analysis.IsZero())
+				return
+			}
+
+			assert.Equal(t, report.ValidationStatusValid, finding.Analysis.Status)
+			assert.Empty(t, finding.Analysis.Metadata)
+			if !test.wantAnalysis {
+				assert.Equal(t, report.Analysis{Status: report.ValidationStatusValid}, finding.Analysis)
+				return
+			}
+
+			assert.Equal(t, report.SeverityHigh, finding.Analysis.Severity)
+			assert.Equal(t, []report.Capability{report.CapabilityRead, report.CapabilityWrite}, finding.Analysis.Capabilities)
+			require.NotNil(t, finding.Analysis.Identity)
+			assert.Equal(t, "user-1", finding.Analysis.Identity.ID)
+		})
+	}
+}
+
+func TestScanProviderEnvironmentScopeAndErrors(t *testing.T) {
+	for _, variable := range []string{"BETTERLEAKS_VALIDATE", "BETTERLEAKS_ANALYZE"} {
+		t.Run(variable, func(t *testing.T) {
+			t.Setenv(variable, "invalid-bool")
+			for _, args := range [][]string{{"fs", "."}, {"stdin"}, {"."}} {
+				_, err := parseCLIForTest(t, args...)
+				require.ErrorContains(t, err, variable)
+			}
+			for _, args := range [][]string{
+				{"config", "check"}, {"fingerprint"}, {"version"},
+				{"validate", "--rule", "token"}, {"analyze", "--rule", "token"},
+				{"revoke", "--rule", "token"},
+			} {
+				_, err := parseCLIForTest(t, args...)
+				require.NoError(t, err, "%v", args)
+			}
+		})
+	}
+}
+
+func TestScanReportCountsAfterStatusFilter(t *testing.T) {
+	configPath := writeTestConfig(t, `
+[[rules]]
+id = "test-token"
+regex = '''secret-[a-z]+'''
+confidence = "high"
+validate = '''
+{"result": finding.secret == "secret-live" ? "valid" : finding.secret == "secret-dead" ? "invalid" : "error"}
+'''
+`)
+	for _, jsonl := range []bool{false, true} {
+		for _, status := range []string{"", "valid", "revoked"} {
+			t.Run(fmt.Sprintf("jsonl=%t/status=%s", jsonl, status), func(t *testing.T) {
+				root, stdout := newTestCLI(t)
+				root.SetIn(strings.NewReader("secret-live\nsecret-dead\nsecret-error\n"))
+				args := []string{"stdin", "--config", configPath, "--no-banner", "--validate", "--exit-code=0", "--output=-"}
+				if jsonl {
+					args = append(args, "--jsonl")
+				}
+				if status != "" {
+					args = append(args, "--status", status)
+				}
+				root.SetArgs(args)
+				require.NoError(t, root.Execute())
+				var metadata report.ScanMetadata
+				if jsonl {
+					metadata, _ = decodeScanJSONL(t, stdout.Bytes())
+				} else {
+					metadata, _ = decodeScanJSON(t, stdout.Bytes())
+				}
+				assert.Equal(t, report.ScanStateComplete, metadata.State)
+				wantCount := 0
+				var wantStatuses report.StatusCounts
+				switch status {
+				case "":
+					wantCount = 3
+					wantStatuses = report.StatusCounts{Valid: 1, Invalid: 1, Error: 1}
+				case "valid":
+					wantCount = 1
+					wantStatuses = report.StatusCounts{Valid: 1}
+				}
+				assert.Equal(t, wantCount, metadata.NumFindings)
+				assert.Equal(t, wantStatuses, metadata.StatusCounts)
+				assert.Equal(t, report.ConfidenceCounts{High: wantCount}, metadata.ConfidenceCounts)
+				assert.Equal(t, report.SeverityCounts{None: wantCount}, metadata.SeverityCounts)
+			})
+		}
+	}
+}
+
+func TestParseValidationStatuses(t *testing.T) {
+	got, err := parseValidationStatuses(" valid, NONE,needs_validation ")
+	if err != nil {
+		t.Fatalf("parseValidationStatuses: %v", err)
+	}
+	want := []report.ValidationStatus{
+		report.ValidationStatusValid,
+		report.ValidationStatusNone,
+		report.ValidationStatusNeedsValidation,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("statuses = %v, want %v", got, want)
+	}
+	if _, err := parseValidationStatuses("valid,surprising"); err == nil {
+		t.Fatal("invalid status returned no error")
+	}
+}
+
+func TestParseProviderRuleRPS(t *testing.T) {
+	got, err := parseProviderRuleRPS([]string{"github-pat=2", "gcp-service-account=0.5"})
+	if err != nil {
+		t.Fatalf("parseProviderRuleRPS: %v", err)
+	}
+	if got["github-pat"] != 2 {
+		t.Fatalf("github rate = %v, want 2", got["github-pat"])
+	}
+	if got["gcp-service-account"] != 0.5 {
+		t.Fatalf("gcp rate = %v, want 0.5", got["gcp-service-account"])
+	}
+}
+
+func TestParseProviderRuleRPSRejectsInvalidValues(t *testing.T) {
+	for _, value := range []string{
+		"github-pat",
+		"=1",
+		"github-pat=0",
+		"github-pat=-1",
+		"github-pat=not-a-number",
+		"github-pat=1,github-pat=2",
+	} {
+		if _, err := parseProviderRuleRPS([]string{value}); err == nil {
+			t.Fatalf("parseProviderRuleRPS(%q) returned no error", value)
+		}
+	}
+	if _, err := parseProviderRuleRPS([]string{"github-pat=1", "github-pat=2"}); err == nil {
+		t.Fatal("duplicate rule rate returned no error")
+	}
+}
+
+func TestValidateProviderRPS(t *testing.T) {
+	for _, value := range []float64{0, 0.5, 10} {
+		if err := validateProviderRPS(value); err != nil {
+			t.Fatalf("validateProviderRPS(%v): %v", value, err)
+		}
+	}
+	for _, value := range []float64{-1, math.NaN(), math.Inf(1)} {
+		if err := validateProviderRPS(value); err == nil {
+			t.Fatalf("validateProviderRPS(%v) returned no error", value)
+		}
+	}
+}
+
+func TestProviderRuntimeFlagsRejectInvalidValues(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		flags ProviderRuntimeFlags
+		want  string
+	}{
+		{"negative timeout", ProviderRuntimeFlags{ProviderTimeout: -time.Second}, "--provider-timeout must be non-negative"},
+		{"negative request limit", ProviderRuntimeFlags{ProviderMaxRequests: -1}, "--provider-max-requests must be non-negative"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.EqualError(t, test.flags.Validate(), test.want)
+		})
+	}
+}
+
+func TestScanOutputFlags(t *testing.T) {
+	cli, err := parseCLIForTest(t, "fs", "-s", "--jsonl", "-o", "findings.json")
+	require.NoError(t, err)
+	require.True(t, cli.Directory.Silent)
+	require.True(t, cli.Directory.JSONL)
+	require.Equal(t, "findings.json", cli.Directory.Output)
+
+	for _, removed := range []string{"report", "report-path", "report-format", "verbose"} {
+		_, err := parseCLIForTest(t, "fs", "--"+removed)
+		require.ErrorContains(t, err, "unknown flag")
+	}
+	_, err = parseCLIForTest(t, "fs", "-r", "findings.json")
+	require.ErrorContains(t, err, "unknown flag")
+}
+
+func TestJobsFlag(t *testing.T) {
+	cli, err := parseCLIForTest(t, "fs", "-j", "3")
+	require.NoError(t, err)
+	require.Equal(t, 3, cli.Directory.Jobs)
+
+	cli, err = parseCLIForTest(t, "git", "--jobs=5")
+	require.NoError(t, err)
+	require.Equal(t, 5, cli.Git.Jobs)
+
+	cli, err = parseCLIForTest(t, "s3", "-j", "6", "s3://bucket")
+	require.NoError(t, err)
+	require.Equal(t, 6, cli.S3.Jobs)
+}
+
+func TestWorkerLimits(t *testing.T) {
+	require.Equal(t, 10, resolveAnalyzeWorkers(0))
+	require.Equal(t, 1, resolveAnalyzeWorkers(1))
+	require.Equal(t, 25, resolveAnalyzeWorkers(25))
+}
+
+func TestJobsRejectsNegativeValues(t *testing.T) {
+	_, err := parseCLIForTest(t, "git", "--jobs=-1")
+	require.ErrorContains(t, err, "--jobs must be non-negative")
+}
+
+func TestRemovedWorkerFlagsAreRejected(t *testing.T) {
+	tests := [][]string{
+		{"fs", "--source-workers=2"},
+		{"fs", "--detect-workers=2"},
+		{"git", "--git-workers=2"},
+		{"s3", "--workers=2", "s3://bucket"},
+	}
+	for _, args := range tests {
+		_, err := parseCLIForTest(t, args...)
+		require.Error(t, err, "parseCLIForTest(%q)", args)
+	}
+}
+
+func TestExpandRuleFlagShorthands(t *testing.T) {
+	t.Parallel()
+
+	args := []string{
+		"fs", "-dr", "generic-api-key", "-ir=github-pat",
+		"--disable-rule=aws-access-key", "-i", ".", "--", "-dr",
+	}
+
+	assert.Equal(t, []string{
+		"fs", "--disable-rule", "generic-api-key", "--isolate-rule=github-pat",
+		"--disable-rule=aws-access-key", "-i", ".", "--", "-dr",
+	}, expandRuleFlagShorthands(args))
+	assert.Equal(t, "-dr", args[1], "input must not be mutated")
+}
+
+func TestApplyRuleSelection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		args           []string
+		wantRules      []string
+		wantHiddenRule string
+		wantErr        string
+	}{
+		{
+			name:      "no selection leaves all rules enabled",
+			wantRules: []string{"aws", "github", "github-client-id", "slack"},
+		},
+		{
+			name:      "disable removes rules",
+			args:      []string{"--disable-rule", "aws,slack"},
+			wantRules: []string{"github", "github-client-id"},
+		},
+		{
+			name:      "isolate retains rules",
+			args:      []string{"--isolate-rule", "github,slack"},
+			wantRules: []string{"github", "github-client-id", "slack"},
+		},
+		{
+			name:      "disable applies after isolate",
+			args:      []string{"--isolate-rule", "aws,github", "--disable-rule", "aws"},
+			wantRules: []string{"github", "github-client-id"},
+		},
+		{
+			name:           "isolate retains component rules for matching",
+			args:           []string{"--isolate-rule", "github"},
+			wantRules:      []string{"github", "github-client-id"},
+			wantHiddenRule: "github-client-id",
+		},
+		{
+			name:      "disabled component is not restored by isolate",
+			args:      []string{"--isolate-rule", "github", "--disable-rule", "github-client-id"},
+			wantRules: []string{"github"},
+		},
+		{
+			name:    "unknown isolated rule fails",
+			args:    []string{"--isolate-rule", "missing"},
+			wantErr: `requested rule "missing" not found in rules`,
+		},
+		{
+			name:    "unknown disabled rule fails",
+			args:    []string{"--disable-rule", "missing"},
+			wantErr: `requested rule "missing" not found in rules`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			flags := newRuleSelectionTestFlags(t, tt.args)
+			originalRules := []config.Rule{
+				{ID: "aws", Keywords: []string{"aws"}},
+				{
+					ID:       "github",
+					Keywords: []string{"github"},
+					Components: []config.Component{
+						{RuleID: "github-client-id"},
+					},
+				},
+				{ID: "github-client-id", Keywords: []string{"client"}},
+				{ID: "slack"},
+			}
+			cfg := &config.Config{Rules: originalRules}
+
+			err := applyRuleSelection(nil, flags, cfg)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.wantRules, ruleIDs(cfg.Rules))
+			assert.Len(t, originalRules, 4, "selection must not mutate the loaded config rules")
+			if tt.wantHiddenRule != "" {
+				assert.True(t, findRule(t, cfg.Rules, tt.wantHiddenRule).SkipReport)
+				assert.False(t, findRule(t, originalRules, tt.wantHiddenRule).SkipReport, "selection must not mutate component rules")
+			}
+		})
+	}
+}
+
+func newRuleSelectionTestFlags(t *testing.T, args []string) *ScanFlags {
+	t.Helper()
+	cliArgs := append([]string{"fs"}, args...)
+	cli, err := parseCLIForTest(t, cliArgs...)
+	require.NoError(t, err)
+	return &cli.Directory.ScanFlags
+}
+
+func ruleIDs(rules []config.Rule) []string {
+	ids := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		ids = append(ids, rule.ID)
+	}
+	return ids
+}
+
+func findRule(t testing.TB, rules []config.Rule, id string) config.Rule {
+	t.Helper()
+	for _, rule := range rules {
+		if rule.ID == id {
+			return rule
+		}
+	}
+	t.Fatalf("rule %q not found", id)
+	return config.Rule{}
+}
+
+func TestParseSize(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    int64
+		wantErr bool
+	}{
+		{input: "", want: 0},
+		{input: "0", want: 0},
+		{input: "250MiB", want: 250 * 1024 * 1024},
+		{input: "1GiB", want: 1024 * 1024 * 1024},
+		{input: "1GB", want: 1_000_000_000},
+		{input: "1G", want: 1_000_000_000},
+		{input: "512kB", want: 512_000},
+		{input: "notasize", wantErr: true},
+		{input: "12 zettabytes", wantErr: true},
+		{input: "10EB", wantErr: true}, // overflows int64
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := parseSize(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}

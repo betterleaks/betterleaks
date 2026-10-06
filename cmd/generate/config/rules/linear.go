@@ -1,32 +1,39 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
+
+// https://linear.app/developers/graphql
+const linearValidateExpr = `let r = http.post("https://api.linear.app/graphql", {"Authorization": finding["secret"], "Content-Type": "application/json"}, "{\"query\":\"query { viewer { id name email } }\"}");
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && type(r.json?.data?.viewer) == "map" && (r.json?.data?.viewer?.id ?? "") != "" && len(r.json?.errors ?? []) == 0 ? {
+  "result": "valid",
+  "analysis": {
+    "identity": {
+      "id": string(r.json?.data?.viewer?.id ?? ""),
+      "name": string(r.json?.data?.viewer?.name ?? ""),
+      "email": string(r.json?.data?.viewer?.email ?? "")
+    }
+  }
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`
+
+const linearAnalyzeExpr = identityOnlyAnalyzeExpr
 
 func LinearAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "linear-api-key",
-		Confidence:  "high",
-		Description: "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
-		Regex:       regexp.MustCompile(`lin_api_(?i)[a-z0-9]{40}`),
-		Keywords:    []string{"lin_api_"},
-		ValidateExpr: `let r = http.post("https://api.linear.app/graphql", {
-    "Authorization": finding["secret"],
-    "Content-Type": "application/json"
-  }, "{\"query\": \"query { viewer { id name email } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") ? {
-    "result": "valid",
-    "email": (r.json?.data?.viewer?.email ?? ""),
-    "name": (r.json?.data?.viewer?.name ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		ID:           "linear-api-key",
+		Confidence:   "high",
+		Description:  "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
+		Regex:        `lin_api_(?i)[a-z0-9]{40}`,
+		Keywords:     []string{"lin_api_"},
+		ValidateExpr: linearValidateExpr,
+		AnalyzeExpr:  linearAnalyzeExpr,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -37,12 +44,12 @@ func LinearAPIToken() *config.Rule {
 func LinearClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "linear-client-secret",
+		ID:          "linear-client-secret",
 		Confidence:  "medium",
 		Description: "Identified a Linear Client Secret, which may compromise secure integrations and sensitive project management data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"linear"}, utils.Hex("32"), true),
 		Keywords:    []string{"linear"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -1,23 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PlanetScalePassword() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "planetscale-password",
+		ID:          "planetscale-password",
 		Confidence:  "high",
 		Description: "Discovered a PlanetScale password, which could lead to unauthorized database operations and data breaches.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pscale_pw_(?i)[\w=\.-]{32,64}`, true),
 		Keywords: []string{
 			"pscale_pw_",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -31,15 +30,13 @@ func PlanetScalePassword() *config.Rule {
 // This is a dependency rule for PlanetScaleAPIToken and is not reported on its own.
 func PlanetScaleID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "planetscale-id",
+		ID:          "planetscale-id",
 		Confidence:  "high",
 		Description: "Found a PlanetScale service token ID.",
-		Regex: regexp.MustCompile(
-			`(?i)(?:pscale|planetscale)(?:.|[\n\r]){0,16}?(?:USER|ID|NAME)(?:.|[\n\r]){0,16}?([a-z0-9]{12})`,
-		),
-		Keywords:   []string{"pscale", "planetscale"},
-		SkipReport: true,
-		Filter:     `entropy(finding["secret"]) <= 3.0`,
+		Regex:       `(?i)(?:pscale|planetscale)(?:.|[\n\r]){0,16}?(?:USER|ID|NAME)(?:.|[\n\r]){0,16}?([a-z0-9]{12})`,
+		Keywords:    []string{"pscale", "planetscale"},
+		SkipReport:  true,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := []string{
@@ -53,14 +50,14 @@ func PlanetScaleID() *config.Rule {
 func PlanetScaleAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "planetscale-api-token",
+		ID:          "planetscale-api-token",
 		Confidence:  "high",
 		Description: "Identified a PlanetScale API token, potentially compromising database management and operations.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pscale_tkn_(?i)[\w=\.-]{32,64}`, false),
 		Keywords: []string{
 			"pscale_tkn_",
 		},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "planetscale-id"},
 		},
 		ValidateExpr: `let r = http.get("https://api.planetscale.com/v1/organizations", {
@@ -68,12 +65,12 @@ func PlanetScaleAPIToken() *config.Rule {
     "Authorization": (components["planetscale-id"]?.secret ?? "") + ":" + finding["secret"]
   }); r.status == 200 && (r.json?.type ?? "") == "list" ? {
     "result": "valid",
-    "organization": r.json?.data?.[0]?.name ?? ""
+    "metadata": {"organization": r.json?.data?.[0]?.name ?? ""}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate
@@ -86,14 +83,14 @@ func PlanetScaleAPIToken() *config.Rule {
 func PlanetScaleOAuthToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "planetscale-oauth-token",
+		ID:          "planetscale-oauth-token",
 		Confidence:  "high",
 		Description: "Found a PlanetScale OAuth token, posing a risk to database access control and sensitive data integrity.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pscale_oauth_[\w=\.-]{32,64}`, false),
 		Keywords: []string{
 			"pscale_oauth_",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PostmarkAPIToken() *config.Rule {
@@ -11,7 +11,7 @@ func PostmarkAPIToken() *config.Rule {
 	// endpoint first, then the account endpoint, and reject the token only when
 	// both authentication schemes return Postmark's documented 401 response.
 	r := config.Rule{
-		RuleID:      "postmark-api-token.1",
+		ID:          "postmark-api-token.1",
 		Confidence:  "high",
 		Description: "Postmark server or account API token, which may allow access to email delivery and account configuration.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"postmark"}, utils.Hex8_4_4_4_12(), true),
@@ -21,18 +21,18 @@ func PostmarkAPIToken() *config.Rule {
     "Accept": "application/json"
   }); server.status == 200 && (server.body contains "\"ID\"") ? {
     "result": "valid",
-    "type": "server"
+    "metadata": {"type": "server"}
   } : (let account = http.get("https://api.postmarkapp.com/domains?count=1&offset=0", {
     "X-Postmark-Account-Token": finding["secret"],
     "Accept": "application/json"
   }); account.status == 200 ? {
     "result": "valid",
-    "type": "account"
+    "metadata": {"type": "account"}
   } : server.status == 401 && account.status == 401 ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(account))`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	token := secrets.NewSecretWithEntropy(utils.Hex8_4_4_4_12(), 3.0)

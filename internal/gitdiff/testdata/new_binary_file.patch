@@ -1,0 +1,16 @@
+commit 5d9790fec7d95aa223f3d20936340bf55ff3dcbe
+Author: Morton Haypenny <mhaypenny@example.com>
+Date:   Tue Apr 2 22:55:40 2019 -0700
+
+    A binary file with the first 10 fibonacci numbers.
+
+diff --git a/dir/ten.bin b/dir/ten.bin
+new file mode 100644
+index 0000000000000000000000000000000000000000..77b068ba48c356156944ea714740d0d5ca07bfec
+GIT binary patch
+literal 40
+gcmZQzU|?i`U?w2V48*KJ%mKu_Kr9NxN<eH500b)lkN^Mx
+
+literal 0
+HcmV?d00001
+

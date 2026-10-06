@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ScalrAPIAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "scalr-api-access-token.1",
+		ID:          "scalr-api-access-token.1",
 		Confidence:  "high",
 		Description: "Scalr API access token.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -29,7 +29,7 @@ func ScalrAPIAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

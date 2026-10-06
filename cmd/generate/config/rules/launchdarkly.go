@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func LaunchDarklyAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "launchdarkly-access-token",
+		ID:          "launchdarkly-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a Launchdarkly Access Token, potentially compromising feature flag management and application functionality.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"launchdarkly"}, utils.AlphaNumericExtended("40"), true),
@@ -17,7 +17,7 @@ func LaunchDarklyAccessToken() *config.Rule {
 		Keywords: []string{
 			"launchdarkly",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -1,16 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func NeonAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "neon-api-key",
+		ID:          "neon-api-key",
 		Confidence:  "high",
 		Description: "Neon API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`napi_[A-Za-z0-9]{64}`, false),
@@ -25,7 +24,7 @@ func NeonAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate
@@ -42,12 +41,12 @@ func NeonAPIKey() *config.Rule {
 func NeonConnectionURI() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "neon-connection-uri",
+		ID:          "neon-connection-uri",
 		Confidence:  "high",
 		Description: "Password embedded in a Neon PostgreSQL connection URI.",
-		Regex:       regexp.MustCompile(`\bpostgres(?:ql)?://[^:@\s]{1,64}:([^@\s]{6,128})@[^\s/"']{4,200}\.neon\.tech\b`),
+		Regex:       `\bpostgres(?:ql)?://[^:@\s]{1,64}:([^@\s]{6,128})@[^\s/"']{4,200}\.neon\.tech\b`,
 		Keywords:    []string{".neon.tech"},
-		Filter:      utils.MinEntropy(2.5),
+		FilterExpr:  utils.MinEntropy(2.5),
 	}
 
 	// validate

@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func EndorLabsAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "endorlabs-api-key",
+		ID:          "endorlabs-api-key",
 		Confidence:  "high",
 		Description: "Detected an Endor Labs API Key, which may compromise supply chain security scanning and software composition analysis.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"endor(?:labs)?", "key"}, `endr\+[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"endr+"},
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	tps := []string{
@@ -30,12 +30,12 @@ func EndorLabsAPIKey() *config.Rule {
 
 func EndorLabsAPISecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "endorlabs-api-secret",
+		ID:          "endorlabs-api-secret",
 		Confidence:  "high",
 		Description: "Detected an Endor Labs API Secret, which together with an API key grants full access to Endor Labs supply chain security services.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"endor(?:labs)?", "secret"}, `endr\+[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"endr+"},
-		Filter:      utils.MinEntropy(3.5),
+		FilterExpr:  utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

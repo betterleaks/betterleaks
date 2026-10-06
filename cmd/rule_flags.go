@@ -2,16 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
-	"github.com/spf13/cobra"
-
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/logging"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 // expandRuleFlagShorthands translates the multi-character aliases requested by
-// the CLI into long flags. Cobra/pflag only supports one-character shorthands.
+// the CLI into long flags. Kong reserves short flags for one-character names.
 func expandRuleFlagShorthands(args []string) []string {
 	expanded := make([]string, len(args))
 	flagsEnded := false
@@ -41,29 +39,20 @@ func expandRuleFlagShorthands(args []string) []string {
 	return expanded
 }
 
-func applyRuleSelection(cmd *cobra.Command, cfg *config.Config) error {
-	isolateRules, err := cmd.Flags().GetStringSlice("isolate-rule")
-	if err != nil {
-		return fmt.Errorf("reading isolate-rule: %w", err)
+func applyRuleSelection(logger *slog.Logger, flags *ScanFlags, cfg *config.Config) error {
+	if logger == nil {
+		logger = discardLogger
 	}
-
-	// --enable-rule predates --isolate-rule and remains a compatibility alias.
-	enableRules, err := cmd.Flags().GetStringSlice("enable-rule")
-	if err != nil {
-		return fmt.Errorf("reading enable-rule: %w", err)
-	}
-	isolateRules = append(isolateRules, enableRules...)
-
-	disableRules, err := cmd.Flags().GetStringSlice("disable-rule")
-	if err != nil {
-		return fmt.Errorf("reading disable-rule: %w", err)
-	}
-
+	isolateRules := flags.IsolateRule
+	disableRules := flags.DisableRule
 	if len(isolateRules) == 0 && len(disableRules) == 0 {
 		return nil
 	}
 
-	availableRules := cfg.Rules
+	availableRules := make(map[string]config.Rule, len(cfg.Rules))
+	for _, rule := range cfg.Rules {
+		availableRules[rule.ID] = rule
+	}
 	disabledRuleIDs := make(map[string]struct{}, len(disableRules))
 	for _, ruleID := range disableRules {
 		if _, ok := availableRules[ruleID]; !ok {
@@ -74,7 +63,7 @@ func applyRuleSelection(cmd *cobra.Command, cfg *config.Config) error {
 
 	selectedRules := make(map[string]config.Rule, len(availableRules))
 	if len(isolateRules) > 0 {
-		logging.Info().Msg("Isolating rules: " + strings.Join(isolateRules, ", "))
+		logger.Info("Isolating rules", "rules", strings.Join(isolateRules, ", "))
 		for _, ruleID := range isolateRules {
 			rule, ok := availableRules[ruleID]
 			if !ok {
@@ -105,7 +94,7 @@ func applyRuleSelection(cmd *cobra.Command, cfg *config.Config) error {
 				}
 				componentRule, ok := availableRules[component.RuleID]
 				if !ok {
-					return fmt.Errorf("component rule %q referenced by %q not found in rules", component.RuleID, rule.RuleID)
+					return fmt.Errorf("component rule %q referenced by %q not found in rules", component.RuleID, rule.ID)
 				}
 				componentRule.SkipReport = true
 				selectedRules[component.RuleID] = componentRule
@@ -122,28 +111,15 @@ func applyRuleSelection(cmd *cobra.Command, cfg *config.Config) error {
 	}
 
 	if len(disableRules) > 0 {
-		logging.Info().Msg("Disabling rules: " + strings.Join(disableRules, ", "))
+		logger.Info("Disabling rules", "rules", strings.Join(disableRules, ", "))
 	}
 
-	cfg.Rules = selectedRules
-	rebuildRuleDispatch(cfg)
+	selected := make([]config.Rule, 0, len(selectedRules))
+	for _, rule := range cfg.Rules {
+		if selectedRule, ok := selectedRules[rule.ID]; ok {
+			selected = append(selected, selectedRule)
+		}
+	}
+	cfg.Rules = selected
 	return nil
-}
-
-// rebuildRuleDispatch drops keywords for rules removed by CLI selection and
-// refreshes the detector's keyword-to-rule indexes.
-func rebuildRuleDispatch(cfg *config.Config) {
-	cfg.Keywords = make(map[string]struct{})
-	cfg.KeywordToRules = make(map[string][]string)
-	cfg.NoKeywordRules = nil
-	for ruleID, rule := range cfg.Rules {
-		if len(rule.Keywords) == 0 {
-			cfg.NoKeywordRules = append(cfg.NoKeywordRules, ruleID)
-			continue
-		}
-		for _, keyword := range rule.Keywords {
-			cfg.Keywords[keyword] = struct{}{}
-			cfg.KeywordToRules[keyword] = append(cfg.KeywordToRules[keyword], ruleID)
-		}
-	}
 }

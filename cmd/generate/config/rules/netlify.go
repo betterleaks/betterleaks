@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func NetlifyAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "netlify-access-token",
+		ID:          "netlify-access-token",
 		Confidence:  "high",
 		Description: "Detected a Netlify Access Token, potentially compromising web hosting services and site management.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"netlify"},
@@ -18,7 +18,7 @@ func NetlifyAccessToken() *config.Rule {
 		Keywords: []string{
 			"netlify",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -1,21 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func EasyPost() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "easypost-api-token",
+		ID:          "easypost-api-token",
 		Confidence:  "high",
 		Description: "Identified an EasyPost API token, which could lead to unauthorized postal and shipment service access and data exposure.",
-		Regex:       regexp.MustCompile(`\bEZAK(?i)[a-z0-9]{54}\b`),
+		Regex:       `\bEZAK(?i)[a-z0-9]{54}\b`,
 		Keywords:    []string{"EZAK"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -26,7 +25,7 @@ func EasyPost() *config.Rule {
 	)
 	fps := []string{
 		// random base64 encoded string
-		`...6wqX6fNUXA/rYqRvfQ+EZAKGqQRiRyqAFRQshGPWOIAwNWGORfKHSBnVNFtVmWYoW6PH23lkqbbDWep95C/3VmWq/edti6...`, // gitleaks:allow
+		`...6wqX6fNUXA/rYqRvfQ+EZAKGqQRiRyqAFRQshGPWOIAwNWGORfKHSBnVNFtVmWYoW6PH23lkqbbDWep95C/3VmWq/edti6...`, // betterleaks:allow
 	}
 	return utils.Validate(r, tps, fps)
 }
@@ -34,12 +33,12 @@ func EasyPost() *config.Rule {
 func EasyPostTestAPI() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "easypost-test-api-token",
+		ID:          "easypost-test-api-token",
 		Confidence:  "high",
 		Description: "Detected an EasyPost test API token, risking exposure of test environments and potentially sensitive shipment data.",
-		Regex:       regexp.MustCompile(`\bEZTK(?i)[a-z0-9]{54}\b`),
+		Regex:       `\bEZTK(?i)[a-z0-9]{54}\b`,
 		Keywords:    []string{"EZTK"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
@@ -51,7 +50,7 @@ func EasyPostTestAPI() *config.Rule {
 	)
 	fps := []string{
 		// random base64 encoded string
-		`...6wqX6fNUXA/rYqRvfQ+EZTKGqQRiRyqAFRQshGPWOIAwNWGORfKHSBnVNFtVmWYoW6PH23lkqbbDWep95C/3VmWq/edti6...`, // gitleaks:allow
+		`...6wqX6fNUXA/rYqRvfQ+EZTKGqQRiRyqAFRQshGPWOIAwNWGORfKHSBnVNFtVmWYoW6PH23lkqbbDWep95C/3VmWq/edti6...`, // betterleaks:allow
 	}
 	return utils.Validate(r, tps, fps)
 }

@@ -1,20 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func LookerClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a Looker Client ID, risking unauthorized access to a Looker account and exposing sensitive data.",
-		RuleID:      "looker-client-id",
+		ID:          "looker-client-id",
 		Confidence:  "medium",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"looker"}, utils.AlphaNumeric("20"), true),
 		Keywords:    []string{"looker"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -26,11 +26,11 @@ func LookerClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a Looker Client Secret, risking unauthorized access to a Looker account and exposing sensitive data.",
-		RuleID:      "looker-client-secret",
+		ID:          "looker-client-secret",
 		Confidence:  "medium",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"looker"}, utils.AlphaNumeric("24"), true),
 		Keywords:    []string{"looker"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

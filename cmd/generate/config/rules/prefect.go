@@ -1,22 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Prefect() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "prefect-api-token",
+		ID:          "prefect-api-token",
 		Confidence:  "high",
 		Description: "Detected a Prefect API token, risking unauthorized access to workflow management and automation services.",
 		Regex:       utils.GenerateUniqueTokenRegex(`pnu_[a-zA-Z0-9]{36}`, false),
 		Keywords: []string{
 			"pnu_",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate

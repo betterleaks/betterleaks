@@ -1,27 +1,27 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func SquareAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "square-access-token",
+		ID:          "square-access-token",
 		Confidence:  "high",
 		Description: "Detected a Square Access Token, risking unauthorized payment processing and financial transaction exposure.",
 		Regex:       utils.GenerateUniqueTokenRegex(`(?:EAAA|sq0atp-)[\w-]{22,60}`, false),
 		Keywords:    []string{"sq0atp-", "EAAA"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
 	tps := utils.GenerateSampleSecrets("square", secrets.NewSecretWithEntropy(`(?:EAAA|sq0atp-)[\w-]{22,60}`, 2))
 	tps = append(tps,
-		"ARG token=sq0atp-812erere3wewew45678901",                                    // gitleaks:allow
-		"ARG token=EAAAlsBxkkVgvmr7FasTFbM6VUGZ31EJ4jZKTJZySgElBDJ_wyafHuBFquFexY7E", // gitleaks:allow",
+		"ARG token=sq0atp-812erere3wewew45678901",                                    // betterleaks:allow
+		"ARG token=EAAAlsBxkkVgvmr7FasTFbM6VUGZ31EJ4jZKTJZySgElBDJ_wyafHuBFquFexY7E", // betterleaks:allow",
 	)
 	fps := []string{
 		`aws-cli@sha256:eaaa7b11777babe28e6133a8b19ff71cea687e0d7f05158dee95a71f76ce3d00`,
@@ -32,18 +32,18 @@ func SquareAccessToken() *config.Rule {
 func SquareSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "square-secret",
+		ID:          "square-secret",
 		Confidence:  "high",
 		Description: "Square Secret",
 		Regex:       utils.GenerateUniqueTokenRegex(`sq0csp-[\w-]{43}`, false),
 		Keywords:    []string{"sq0csp-"},
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	// validate
 	tps := utils.GenerateSampleSecrets("square", secrets.NewSecretWithEntropy(`sq0csp-[0-9A-Za-z\\-_]{43}`, 2))
 	tps = append(tps,
-		`value: "sq0csp-0p9h7g6f4s3s3s3-4a3ardgwa6ADRDJDDKUFYDYDYDY"`, // gitleaks:allow
+		`value: "sq0csp-0p9h7g6f4s3s3s3-4a3ardgwa6ADRDJDDKUFYDYDYDY"`, // betterleaks:allow
 	)
 	return utils.Validate(r, tps, nil)
 }

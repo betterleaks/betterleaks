@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func FreshbooksAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "freshbooks-access-token",
+		ID:          "freshbooks-access-token",
 		Confidence:  "high",
 		Description: "Discovered a Freshbooks Access Token, posing a risk to accounting software access and sensitive financial data exposure.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"freshbooks"}, utils.AlphaNumeric("64"), true),
@@ -18,7 +18,7 @@ func FreshbooksAccessToken() *config.Rule {
 			"freshbooks",
 		},
 		ValidateExpr: utils.BearerGetValidationExpr("https://api.freshbooks.com/auth/api/v1/users/me", "true"),
-		Filter:       `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Civo() *config.Rule {
 	r := config.Rule{
-		RuleID:      "civo-api-key",
+		ID:          "civo-api-key",
 		Confidence:  "high",
 		Description: "Detected a Civo Cloud API key, which may expose Kubernetes clusters and compute resources to unauthorized access.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"civo"}, utils.AlphaNumeric("50"), true),
 		Keywords:    []string{"civo"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://api.civo.com/v2/instances", {
     "Authorization": "Bearer " + finding["secret"]
   }); r.status == 200 ? {

@@ -1,17 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func BraveSearchAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "brave-search-api-key",
+		ID:          "brave-search-api-key",
 		Confidence:  "high",
 		Description: "Detected a Brave Search API key, which may allow unauthorized use of Brave Search API quota.",
-		Regex:       regexp.MustCompile(`\b(BSA[A-Za-z0-9_-]{24,40})\b`),
+		Regex:       `\b(BSA[A-Za-z0-9_-]{24,40})\b`,
 		Keywords:    []string{"BSA"},
 		ValidateExpr: `let r = http.get("https://api.search.brave.com/res/v1/web/search?q=betterleaks&count=1", {
     "Accept": "application/json",
@@ -22,7 +21,7 @@ func BraveSearchAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.2`,
+		FilterExpr: `entropy(finding["secret"]) < 3.2`,
 	}
 
 	tps := []string{

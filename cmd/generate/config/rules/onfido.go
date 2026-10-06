@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func OnfidoLiveAPITokenEU() *config.Rule {
@@ -36,7 +36,7 @@ func OnfidoLiveAPITokenCA() *config.Rule {
 func onfidoLiveAPIToken(ruleID, tokenRegex, keyword, endpoint string) *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      ruleID,
+		ID:          ruleID,
 		Confidence:  "high",
 		Description: "Onfido live API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(tokenRegex, false),
@@ -50,7 +50,7 @@ func onfidoLiveAPIToken(ruleID, tokenRegex, keyword, endpoint string) *config.Ru
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	// validate

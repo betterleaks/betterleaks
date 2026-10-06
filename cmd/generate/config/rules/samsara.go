@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func SamsaraAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "samsara-api-token.1",
+		ID:          "samsara-api-token.1",
 		Confidence:  "high",
 		Description: "Samsara API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`samsara_api_[A-Za-z0-9]{26,32}`, false),
@@ -26,7 +26,7 @@ func SamsaraAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Invalid token"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.0),
+		FilterExpr: utils.MinEntropy(3.0),
 	}
 
 	// validate

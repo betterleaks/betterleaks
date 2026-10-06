@@ -1,21 +1,49 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
+
+const airtableValidateExpr = `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); r.status == 200 ? {
+    "result": "valid",
+    "analysis": {
+      "id": (r.json?.id ?? ""),
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.json?.scopes ?? [])
+    }
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`
+
+const airtableAnalyzeExpr = `let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "email": input["email"] ?? ""
+  },
+  "metadata": len(scopes) > 0 ? {"scopes": scopes} : {},
+  "capabilities": analysis.capabilities({
+    "read": matchesAny(scopes, [":read$"]),
+    "write": matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
+    "manage_users": matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
+  })
+}`
 
 func AirtableApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Uncovered a possible Airtable API Key, potentially compromising database access and leading to data leakage or alteration.",
-		RuleID:      "airtable-api-key",
+		ID:          "airtable-api-key",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, utils.AlphaNumeric("17"), true),
 		Keywords:    []string{"airtable"},
-		Filter:      `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -26,20 +54,14 @@ func AirtableApiKey() *config.Rule {
 func AirtablePersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		Description: "Uncovered a possible Airtable Personal AccessToken, potentially compromising database access and leading to data leakage or alteration.",
-		RuleID:      "airtable-personnal-access-token",
-		Confidence:  "high",
-		Regex:       regexp.MustCompile(`\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b`),
-		Keywords:    []string{"airtable"},
-		ValidateExpr: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Description:  "Uncovered a possible Airtable Personal AccessToken, potentially compromising database access and leading to data leakage or alteration.",
+		ID:           "airtable-personnal-access-token",
+		Confidence:   "high",
+		Regex:        `\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b`,
+		Keywords:     []string{"airtable"},
+		ValidateExpr: airtableValidateExpr,
+		AnalyzeExpr:  airtableAnalyzeExpr,
+		FilterExpr:   `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -49,20 +71,14 @@ func AirtablePersonalAccessToken() *config.Rule {
 
 func AirtableOAuthToken() *config.Rule {
 	r := config.Rule{
-		Description: "Detected an Airtable OAuth token, which may allow unauthorized access to Airtable resources granted to an OAuth integration.",
-		RuleID:      "airtable-oauth-token",
-		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, `[A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+`, true),
-		Keywords:    []string{"airtable"},
-		ValidateExpr: `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Description:  "Detected an Airtable OAuth token, which may allow unauthorized access to Airtable resources granted to an OAuth integration.",
+		ID:           "airtable-oauth-token",
+		Confidence:   "high",
+		Regex:        utils.GenerateSemiGenericRegex([]string{"airtable"}, `[A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+`, true),
+		Keywords:     []string{"airtable"},
+		ValidateExpr: airtableValidateExpr,
+		AnalyzeExpr:  airtableAnalyzeExpr,
+		FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

@@ -1,20 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func OVHApplicationKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "ovh-application-key",
+		ID:          "ovh-application-key",
 		Confidence:  "medium",
 		Description: "OVHcloud Application Key - component of authenticated OVH API requests.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}key"}, `[A-Za-z0-9-]{16}`, true),
 		Keywords:    []string{"ovh"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	tps := []string{
@@ -32,13 +32,13 @@ func OVHApplicationKey() *config.Rule {
 
 func OVHConsumerKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "ovh-consumer-key",
+		ID:          "ovh-consumer-key",
 		Confidence:  "medium",
 		Description: "OVHcloud Consumer Key - component of authenticated OVH API requests.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"consumer[_.-]{0,1}key"}, `[A-Za-z0-9-]{32}`, true),
 		Keywords:    []string{"ovh"},
 		SkipReport:  true,
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	tps := []string{
@@ -56,7 +56,7 @@ func OVHConsumerKey() *config.Rule {
 
 func OVHApplicationSecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "ovh-application-secret",
+		ID:          "ovh-application-secret",
 		Confidence:  "high",
 		Description: "OVHcloud Application Secret - component of authenticated OVH API requests, which could allow unauthorized access to OVHcloud infrastructure when combined with Application and Consumer keys.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"app(?:lication)?[_.-]{0,1}secret"}, `[A-Za-z0-9-]{32}`, true),
@@ -72,7 +72,7 @@ func OVHApplicationSecret() *config.Rule {
             "result": "invalid",
             "reason": "Unauthorized"
           } : validate.unknown(r)))))`,
-		Components: []*config.Component{
+		Components: []config.Component{
 			{
 				RuleID: "ovh-application-key",
 				Within: "20L",
@@ -82,7 +82,7 @@ func OVHApplicationSecret() *config.Rule {
 				Within: "20L",
 			},
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := []string{

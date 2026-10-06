@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PagerDutyAuthorizationToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "pagerduty-authorization-token.1",
+		ID:          "pagerduty-authorization-token.1",
 		Confidence:  "high",
 		Description: "PagerDuty authorization token, which may allow access to PagerDuty account and incident data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"pagerduty"}, `u\+[A-Za-z0-9_+-]{18}`, false),
@@ -22,7 +22,7 @@ func PagerDutyAuthorizationToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	token := "u+" + secrets.NewSecretWithEntropy(`[A-Za-z0-9_+-]{18}`, 3.5)

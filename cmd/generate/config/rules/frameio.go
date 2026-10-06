@@ -1,19 +1,18 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func FrameIO() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Found a Frame.io API token, potentially compromising video collaboration and project management.",
-		RuleID:      "frameio-api-token",
+		ID:          "frameio-api-token",
 		Confidence:  "high",
-		Regex:       regexp.MustCompile(`fio-u-(?i)[a-z0-9\-_=]{64}`),
+		Regex:       `fio-u-(?i)[a-z0-9\-_=]{64}`,
 		Keywords:    []string{"fio-u-"},
 		ValidateExpr: `let r = http.get("https://api.frame.io/v2/me", {
     "Authorization": "Bearer " + finding["secret"],
@@ -24,7 +23,7 @@ func FrameIO() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.3),
+		FilterExpr: utils.MinEntropy(3.3),
 	}
 
 	// validate

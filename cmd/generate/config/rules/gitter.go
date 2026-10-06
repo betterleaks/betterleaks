@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func GitterAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "gitter-access-token",
+		ID:          "gitter-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a Gitter Access Token, which may lead to unauthorized access to chat and communication services.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"gitter"},
@@ -18,7 +18,7 @@ func GitterAccessToken() *config.Rule {
 		Keywords: []string{
 			"gitter",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

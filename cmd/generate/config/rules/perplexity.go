@@ -1,18 +1,17 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PerplexityAPIKey() *config.Rule {
 	// Define Rule
 	r := config.Rule{
-		RuleID:      "perplexity-api-key",
+		ID:          "perplexity-api-key",
 		Confidence:  "high",
 		Description: "Detected a Perplexity API key, which could lead to unauthorized access to Perplexity AI services and data exposure.",
-		Regex:       regexp.MustCompile(`\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)`),
+		Regex:       `\b(pplx-[a-zA-Z0-9]{48})(?:[\x60'"\s;]|\\[nr]|$|\b)`,
 		Keywords:    []string{"pplx-"},
 		ValidateExpr: `let r = http.post("https://api.perplexity.ai/chat/completions", {
     "Authorization": "Bearer " + finding["secret"],
@@ -23,7 +22,7 @@ func PerplexityAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 4.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	}
 
 	// validate

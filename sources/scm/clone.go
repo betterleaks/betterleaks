@@ -7,14 +7,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"regexp"
-	"runtime"
 	"strings"
-)
 
-// userinfoRedactor matches `<scheme>://<userinfo>@` in URLs so we can replace
-// the userinfo with "***" without parsing every URL we might log.
-var userinfoRedactor = regexp.MustCompile(`(https?)://[^/\s@]+@`)
+	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
+)
 
 // CloneOptions configures a CloneAuthed call. Zero value is valid: full
 // (non-bare, non-mirror) clone with no extra options.
@@ -61,7 +57,7 @@ func CloneAuthed(ctx context.Context, remote, token, dest string, opts CloneOpti
 
 	authConfigs, err := authCloneConfigs(remote, token)
 	if err != nil {
-		return fmt.Errorf("clone auth config: %w", err)
+		return fmt.Errorf("clone auth config: %w", urlredact.Error(err))
 	}
 
 	args := []string{"clone", "--quiet"}
@@ -82,10 +78,24 @@ func CloneAuthed(ctx context.Context, remote, token, dest string, opts CloneOpti
 	cmd.Env = gitCloneEnv(append(opts.Configs, authConfigs...))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		publicRemote := SanitizeOutput(remote, token)
+		output := string(out)
+		if u, parseErr := url.Parse(remote); parseErr == nil && u.Host != "" {
+			publicRemote = SanitizeOutput(urlredact.Public(u), token)
+			// Git may remove userinfo or normalize the URL before echoing it.
+			// Remove the known private components before sanitizing free text.
+			for _, private := range []string{u.RawQuery, u.Fragment, u.RawFragment} {
+				if private != "" {
+					output = strings.ReplaceAll(output, private, "***")
+				}
+			}
+		}
+		// Git may echo the original URL verbatim, including unescaped spaces.
+		output = strings.ReplaceAll(output, remote, publicRemote)
 		return fmt.Errorf("git clone %s: %w: %s",
-			SanitizeOutput(remote, token),
+			publicRemote,
 			err,
-			SanitizeOutput(string(out), token))
+			SanitizeOutput(output, token))
 	}
 	return nil
 }
@@ -149,12 +159,8 @@ func isSSHRemote(s string) bool {
 }
 
 func gitCloneEnv(configs []GitConfig) []string {
-	var nullDevice string
-	if runtime.GOOS == "windows" {
-		nullDevice = "NUL"
-	} else {
-		nullDevice = "/dev/null"
-	}
+	// Git recognizes /dev/null on Windows too; Git for Windows 2.56.0 rejects NUL.
+	const nullDevice = "/dev/null"
 	overrides := map[string]string{
 		"GIT_CONFIG_GLOBAL":      nullDevice,
 		"GIT_CONFIG_NOSYSTEM":    "1",
@@ -187,7 +193,7 @@ func gitCloneEnv(configs []GitConfig) []string {
 }
 
 // SanitizeOutput redacts the token (and any URL-encoded form of it) from text.
-// It also strips userinfo from any URL that looks like https://user:pass@host.
+// It also strips URL userinfo, query parameters, and fragments.
 // Use it whenever you log or wrap text that may have come from a `git` invocation.
 func SanitizeOutput(text, token string) string {
 	if text == "" {
@@ -199,5 +205,5 @@ func SanitizeOutput(text, token string) string {
 			text = strings.ReplaceAll(text, encoded, "***")
 		}
 	}
-	return userinfoRedactor.ReplaceAllString(text, "$1://***@")
+	return urlredact.Redact(text)
 }

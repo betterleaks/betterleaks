@@ -1,24 +1,34 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
-const wakaTimeAPIKeyValidateExpr = `let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"data\"") ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`
+// https://wakatime.com/developers#users
+const wakaTimeAPIKeyValidateExpr = `let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {"Accept": "application/json"});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && (r.json?.data?.id ?? "") != "" ? {
+  "result": "valid",
+  "analysis": {
+    "identity": {
+      "id": string(r.json?.data?.id ?? ""),
+      "username": string(r.json?.data?.username ?? ""),
+      "name": string(r.json?.data?.display_name ?? ""),
+      "email": string(r.json?.data?.email ?? "")
+    },
+    "metadata": {}
+  }
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`
+
+const wakaTimeAPIKeyAnalyzeExpr = identityOnlyAnalyzeExpr
 
 func WakaTimeAPIKeyV1() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "wakatime-api-key.1",
+		ID:          "wakatime-api-key.1",
 		Confidence:  "high",
 		Description: "WakaTime API key version 1 (UUID format).",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -28,7 +38,8 @@ func WakaTimeAPIKeyV1() *config.Rule {
 		),
 		Keywords:     []string{"wakatime", "waka_time", "waka-time", "waka time", "waka.time"},
 		ValidateExpr: wakaTimeAPIKeyValidateExpr,
-		Filter:       utils.MinEntropy(3.0),
+		AnalyzeExpr:  wakaTimeAPIKeyAnalyzeExpr,
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -46,13 +57,14 @@ func WakaTimeAPIKeyV1() *config.Rule {
 func WakaTimeAPIKeyV2() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "wakatime-api-key.2",
+		ID:           "wakatime-api-key.2",
 		Confidence:   "high",
 		Description:  "WakaTime API key version 2 (waka_ format).",
 		Regex:        utils.GenerateUniqueTokenRegex(`waka_[a-z0-9]{36,64}`, true),
 		Keywords:     []string{"waka_"},
 		ValidateExpr: wakaTimeAPIKeyValidateExpr,
-		Filter:       utils.MinEntropy(3.0),
+		AnalyzeExpr:  wakaTimeAPIKeyAnalyzeExpr,
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate

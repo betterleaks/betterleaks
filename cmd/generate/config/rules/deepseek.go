@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DeepSeek() *config.Rule {
 	r := config.Rule{
-		RuleID:      "deepseek-api-key",
+		ID:          "deepseek-api-key",
 		Confidence:  "high",
 		Description: "Detected a DeepSeek API Key, which may expose AI model access and associated usage to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"deepseek"}, `sk-[a-f0-9]{32}`, true),
@@ -22,7 +22,7 @@ func DeepSeek() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	tps := utils.GenerateSampleSecrets("deepseek", "sk-"+secrets.NewSecretWithEntropy(utils.Hex("32"), 3.5))

@@ -1,22 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PostManAPI() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "postman-api-token",
+		ID:          "postman-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a Postman API token, potentially compromising API testing and development workflows.",
 		Regex:       utils.GenerateUniqueTokenRegex(`PMAK-(?i)[a-f0-9]{24}\-[a-f0-9]{34}`, false),
 		Keywords: []string{
 			"PMAK-",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	// validate

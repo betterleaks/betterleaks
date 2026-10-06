@@ -1,20 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ExoscaleAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "exoscale-api-key",
+		ID:          "exoscale-api-key",
 		Confidence:  "high",
 		Description: "Identified an Exoscale API key paired with a secret, which together grant programmatic access to Exoscale cloud resources.",
 		Regex:       utils.GenerateUniqueTokenRegex(`EXO[a-zA-Z0-9]{24,30}`, false),
 		Keywords:    []string{"EXO"},
-		Entropy:     3.0,
-		Components: []*config.Component{
+		FilterExpr:  utils.MinEntropy(3.0),
+		Components: []config.Component{
 			{
 				RuleID: "exoscale-api-secret",
 				Within: "5L",
@@ -47,12 +47,12 @@ func ExoscaleAPIKey() *config.Rule {
 
 func ExoscaleAPISecret() *config.Rule {
 	r := config.Rule{
-		RuleID:      "exoscale-api-secret",
+		ID:          "exoscale-api-secret",
 		Confidence:  "high",
 		Description: "Identified an Exoscale API secret, used as a component of the exoscale-api-key composite rule.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"exoscale"}, `[A-Za-z0-9_\-]{40,60}`, true),
 		Keywords:    []string{"exoscale"},
-		Entropy:     4.0,
+		FilterExpr:  utils.MinEntropy(4.0),
 		SkipReport:  true,
 	}
 

@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CheckoutSecretKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "checkout-secret-key",
+		ID:          "checkout-secret-key",
 		Confidence:  "medium",
 		Description: "Checkout.com secret key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"checkout"}, `sk_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`, true),

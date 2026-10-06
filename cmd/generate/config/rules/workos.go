@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func WorkOSProductionAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "workos-production-api-key.1",
+		ID:          "workos-production-api-key.1",
 		Confidence:  "high",
 		Description: "WorkOS production API key.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -29,8 +29,8 @@ func WorkOSProductionAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5
-|| filter.matchesAny(finding["secret"], ["(?i)example"])`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5
+|| matchesAny(finding["secret"], ["(?i)example"])`,
 	}
 
 	// validate

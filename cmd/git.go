@@ -1,15 +1,18 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
-
-	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/sources"
-	"github.com/betterleaks/betterleaks/sources/scm"
+	"github.com/betterleaks/betterleaks/v2/pipeline"
+	"github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
 // multipleErrors wraps multiple scan errors into a single error that supports
@@ -22,133 +25,212 @@ type multipleErrors struct {
 func (e *multipleErrors) Error() string   { return e.msg }
 func (e *multipleErrors) Unwrap() []error { return e.errs }
 
-func init() {
-	rootCmd.AddCommand(gitCmd)
-	gitCmd.Flags().String("platform", "", "the target platform used to generate links (github, gitlab)")
-	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
-	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
-	gitCmd.Flags().String("log-opts", "", "git log options")
-	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process)")
+type GitCmd struct {
+	ScanFlags       `embed:""`
+	MaxArchiveDepth int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
+	Token           string   `group:"source" help:"Token for an HTTP(S) clone (or the known host's GITHUB_TOKEN, GITLAB_TOKEN, HUGGINGFACE_TOKEN/HF_TOKEN)."`
+	Platform        string   `group:"source" help:"Target platform used to generate links: github or gitlab."`
+	Staged          bool     `group:"source" help:"Scan added lines in staged changes."`
+	Unstaged        bool     `group:"source" help:"Scan added lines in unstaged changes to tracked files."`
+	PreReceive      bool     `group:"source" name:"pre-receive" help:"Run as a Git pre-receive hook, scanning pushed commits read from stdin."`
+	PreReceiveError string   `group:"source" name:"pre-receive-error-message" help:"Message printed to stderr when the pre-receive hook finds leaks; environment variables in $$VAR and $${VAR} form are expanded."`
+	LogOpts         string   `group:"source" name:"log-opts" help:"Git log options (uses one history stream to preserve option semantics)."`
+	Include         []string `group:"source" help:"Additional Git resources to scan: commit-messages, tag-messages, reflogs."`
+	Repo            string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
 }
 
-var gitCmd = &cobra.Command{
-	Use:   "git [flags] [repo]",
-	Short: "scan git repositories for secrets",
-	Args:  cobra.MaximumNArgs(1),
-	Run:   runGit,
+func (cmd GitCmd) Validate() error {
+	if err := cmd.ScanFlags.Validate(); err != nil {
+		return err
+	}
+	if cmd.Staged && cmd.Unstaged {
+		return errors.New("--staged and --unstaged are mutually exclusive")
+	}
+	if cmd.PreReceive && (cmd.Staged || cmd.Unstaged) {
+		return errors.New("--pre-receive cannot be combined with --staged or --unstaged")
+	}
+	if cmd.PreReceive && cmd.LogOpts != "" {
+		return errors.New("--pre-receive cannot be combined with --log-opts")
+	}
+	if cmd.PreReceive && remoteGitURL(cmd.Repo) {
+		return errors.New("--pre-receive requires a local Git repository")
+	}
+	if cmd.PreReceive && len(cmd.Include) > 0 {
+		return errors.New("--include cannot be combined with --pre-receive")
+	}
+	if remoteGitURL(cmd.Repo) && (cmd.Staged || cmd.Unstaged) {
+		return errors.New("--staged and --unstaged require a local Git repository")
+	}
+	if len(cmd.Include) > 0 && (cmd.Staged || cmd.Unstaged) {
+		return errors.New("--include requires a Git history scan; it cannot be combined with --staged or --unstaged")
+	}
+	return (&sources.Git{Include: cmd.Include}).Validate()
 }
 
-func runGit(cmd *cobra.Command, args []string) {
+func (cmd *GitCmd) Run(cli *CLI, runtime *commandRuntime) error {
+	runGit(runtime, &cli.GlobalFlags, cmd)
+	return nil
+}
+
+func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	// start timer
 	start := time.Now()
 
 	// grab source
 	source := "."
-	if len(args) == 1 {
-		source = args[0]
+	if options.Repo != "" {
+		source = options.Repo
 		if source == "" {
 			source = "."
 		}
 	}
 
 	// setup config (aka, the thing that defines rules)
-	initConfig(source)
-	initDiagnostics()
+	ignoreSource := source
+	remote := remoteGitURL(source)
+	if remote {
+		ignoreSource = ""
+	}
+	cfg := initConfig(runtime, globals, &options.ScanFlags)
+	initDiagnostics(runtime, &options.ScanFlags)
 
-	cfg := Config(cmd)
+	// create runner
+	filters, err := loadScanFilters(runtime, cfg, options.IgnoreFile, ignoreSource)
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
+	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	if err != nil {
+		runtime.fatal("unable to prepare scan", "error", err)
+		return
+	}
 
-	// create detector
-	detector := Detector(cmd, cfg, source)
+	var src sources.Source
 
-	// parse flags
-	exitCode := mustGetIntFlag(cmd, "exit-code")
-	logOpts := mustGetStringFlag(cmd, "log-opts")
-	staged := mustGetBoolFlag(cmd, "staged")
-	preCommit := mustGetBoolFlag(cmd, "pre-commit")
-	gitWorkers := mustGetIntFlag(cmd, "git-workers")
-	noColor := mustGetBoolFlag(cmd, "no-color")
-	redact := mustGetUIntFlag(cmd, "redact")
-	verbose := mustGetBoolFlag(cmd, "verbose")
-
-	var (
-		findings    []report.Finding
-		err         error
-		src         sources.Source
-		scmPlatform scm.Platform
-	)
-
-	if preCommit || staged {
-		gitCmd, cmdErr := sources.NewGitDiffCmdContext(cmd.Context(), source, staged)
-		if cmdErr != nil {
-			logging.Fatal().Err(cmdErr).Msg("could not create Git diff cmd")
+	if options.PreReceive {
+		updates, parseErr := sources.ParsePreReceiveInput(runtime.stdin)
+		if parseErr != nil {
+			runtime.fatal("could not read pre-receive input", "error", parseErr)
+			return
 		}
-		// Remote info + links are irrelevant for staged changes.
+		logArgs := sources.PreReceiveLogArgs(updates, sources.NewGitCommitResolver(runtime.Context, source))
+		if len(logArgs) == 0 {
+			// Nothing to scan (e.g. only ref deletions). Report cleanly.
+			runtime.Logger().Info("pre-receive: no new commits to scan")
+			findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "git", source)
+			findings.startScan(runtime)
+			findingSummaryAndExit(runtime, pipeline.ScanSummary{}, runner.ValidationEnabled(), findings, options.ExitCode, start, nil)
+			return
+		}
+		// Server-side hook scans have no remote to link findings to.
 		src = &sources.Git{
-			Cmd:             gitCmd,
-			ShouldSkip:      detector.SkipFunc(),
+			Logger:          runtime.Logger(),
+			RepoPath:        source,
+			Prefilter:       filters.shouldSkip,
 			Platform:        scm.NoPlatform,
-			Sema:            detector.Sema,
-			MaxArchiveDepth: detector.MaxArchiveDepth,
+			MaxArchiveDepth: options.MaxArchiveDepth,
+			LogOpts:         strings.Join(logArgs, " "),
+		}
+	} else if options.Unstaged || options.Staged {
+		mode := sources.GitWorkingTree
+		if options.Staged {
+			mode = sources.GitStaged
+		}
+		// Local diffs have no committed revision to link to.
+		src = &sources.Git{
+			Logger:          runtime.Logger(),
+			RepoPath:        source,
+			Mode:            mode,
+			Prefilter:       filters.shouldSkip,
+			Platform:        scm.NoPlatform,
+			MaxArchiveDepth: options.MaxArchiveDepth,
 		}
 	} else {
-		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
-			logging.Fatal().Err(err).Send()
+		scmPlatform, platformErr := scm.PlatformFromString(options.Platform)
+		if platformErr != nil {
+			runtime.fatal("invalid platform", "error", platformErr)
 		}
-		resolvedPlatform, remoteURL := sources.ResolveRemote(cmd.Context(), scmPlatform, source)
+		resolvedPlatform, remoteURL := scmPlatform, ""
+		if !remote {
+			resolvedPlatform, remoteURL = sources.ResolveRemote(runtime.Context, scmPlatform, source)
+		}
 
-		if gitWorkers > 0 {
-			src = &sources.ParallelGit{
-				RepoPath:        source,
-				ShouldSkip:      detector.SkipFunc(),
-				Platform:        resolvedPlatform,
-				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-				LogOpts:         logOpts,
-				Workers:         gitWorkers,
-			}
-		} else {
-			gitCmd, cmdErr := sources.NewGitLogCmdContext(cmd.Context(), source, logOpts)
-			if cmdErr != nil {
-				logging.Fatal().Err(cmdErr).Msg("could not create Git log cmd")
-			}
-			src = &sources.Git{
-				Cmd:             gitCmd,
-				ShouldSkip:      detector.SkipFunc(),
-				Platform:        resolvedPlatform,
-				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
+		gitSource := &sources.Git{
+			Logger:          runtime.Logger(),
+			RepoPath:        source,
+			Prefilter:       filters.shouldSkip,
+			Platform:        resolvedPlatform,
+			RemoteURL:       remoteURL,
+			MaxArchiveDepth: options.MaxArchiveDepth,
+			LogOpts:         options.LogOpts,
+			Include:         options.Include,
+		}
+		if remote {
+			gitSource.RepoPath = ""
+			gitSource.URL = source
+			gitSource.Token = options.Token
+			if gitSource.Token == "" {
+				gitSource.Token = remoteGitToken(source)
 			}
 		}
+		src = gitSource
 	}
 
-	detector.SkipFindingAppend = true
-	var scanErrs []error
-	for result := range detector.Run(cmd.Context(), src) {
-		if result.Err != nil {
-			scanErrs = append(scanErrs, result.Err)
-			// don't exit on error, just log it
-			logging.Error().Err(result.Err).Msg("failed to scan Git repository")
-			continue
-		}
-
-		findings = append(findings, result.Finding)
-		if verbose {
-			if detector.LegacyPrint {
-				result.Finding.PrintLegacy(noColor, redact)
-			} else {
-				result.Finding.Print(noColor, redact)
-			}
-		}
+	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "git", source)
+	findings.startScan(runtime)
+	summary, err := runner.Scan(runtime.Context, src, findings.Add)
+	if err != nil {
+		runtime.Logger().Error("failed to scan Git repository", "error", err)
 	}
 
-	if n := len(scanErrs); n > 0 {
-		err = &multipleErrors{
-			msg:  fmt.Sprintf("%d error(s) encountered during scan", n),
-			errs: scanErrs,
-		}
+	// When running as a pre-receive hook, print the custom error message
+	// (with environment variables expanded) so the pushing client sees it.
+	if options.PreReceive && options.PreReceiveError != "" && findings.Count() != 0 {
+		fmt.Fprintln(runtime.stderr, os.ExpandEnv(options.PreReceiveError))
 	}
 
-	findingSummaryAndExit(detector, findings, exitCode, start, err)
+	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, err)
+}
+
+// An existing path wins even when its spelling resembles a URL.
+func remoteGitURL(target string) bool {
+	if _, err := os.Stat(target); err == nil {
+		return false
+	}
+	u, err := url.Parse(target)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+func remoteGitToken(target string) string {
+	u, err := url.Parse(target)
+	if err != nil || u.Scheme != "https" || u.User != nil {
+		return ""
+	}
+	switch strings.ToLower(u.Host) {
+	case "github.com":
+		return os.Getenv("GITHUB_TOKEN")
+	case "gitlab.com":
+		return os.Getenv("GITLAB_TOKEN")
+	case "huggingface.co":
+		if token := os.Getenv("HUGGINGFACE_TOKEN"); token != "" {
+			return token
+		}
+		return os.Getenv("HF_TOKEN")
+	}
+	return ""
+}
+
+// Match clone authentication, without forwarding environment tokens on redirects.
+type gitAutoTransport struct {
+	host  string
+	token string
+}
+
+func (t gitAutoTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Scheme == "https" && req.URL.Host == t.host {
+		req = req.Clone(req.Context())
+		req.SetBasicAuth("x-access-token", t.token)
+	}
+	return http.DefaultTransport.RoundTrip(req)
 }

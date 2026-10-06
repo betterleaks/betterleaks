@@ -1,17 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func CockroachLabsCloudAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cockroachlabs-cloud-api-key",
+		ID:          "cockroachlabs-cloud-api-key",
 		Confidence:  "high",
 		Description: "Detected a CockroachDB Cloud service account API key, which may allow unauthorized access to CockroachDB Cloud resources.",
-		Regex:       regexp.MustCompile(`\b(CCDB1_[A-Za-z0-9]{22}_[A-Za-z0-9]{40})\b`),
+		Regex:       `\b(CCDB1_[A-Za-z0-9]{22}_[A-Za-z0-9]{40})\b`,
 		Keywords:    []string{"CCDB1_"},
 		ValidateExpr: `let r = http.get("https://cockroachlabs.cloud/api/v1/clusters", {
     "Authorization": "Bearer " + finding["secret"],
@@ -22,7 +21,7 @@ func CockroachLabsCloudAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5`,
 	}
 
 	tps := []string{

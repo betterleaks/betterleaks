@@ -16,6 +16,42 @@ Fill out the template as best you can. Make sure your tests pass. If you see a
 PR that isn't one you opened and want it introduced in the next release,
 give it a :thumbsup: on the PR description.
 
+### Code organization
+
+- **Keep a struct definition and all of its methods in the same file.** This
+  includes exported and unexported methods. Add new methods to that file.
+- Keep supporting helpers alongside the code they serve. Do not create a file
+  for each feature, operation, or small addition. File length alone is not a
+  reason to split a struct's implementation.
+- Read the existing package before adding files. Follow its ownership and
+  layout; do not reintroduce files that were deliberately consolidated.
+- Use `analyze/analyzer.go` as the model: `Analyzer`, its direct credential
+  operations, streaming methods, and requirement queries all live together.
+
+### Tests
+
+Tests should protect meaningful behavior and be easy to find and maintain.
+More test files and more assertions are not goals in themselves.
+
+- **Use the existing test file for the behavior you are changing.** Read the
+  package's tests before adding another file. For example, a regression proving
+  that scans never execute revocation belongs in `pipeline/pipeline_test.go`.
+- **Do not create a new test file for every feature, bug fix, or PR.** A single
+  regression or a few related cases usually belong alongside existing coverage.
+  Create a separate file when it owns a distinct area of behavior or a substantial
+  test suite whose separation makes the package easier to navigate.
+- Extend an existing table or reuse its fixtures when the new case exercises
+  the same contract. Avoid duplicating setup and helpers across small files.
+- Test observable results and consequential failure modes: incorrect findings,
+  leaked credentials, unintended provider requests, broken cancellation, or
+  incorrect command behavior. Avoid tests that merely restate implementation
+  details, check that code contains a string, or repeat coverage at every layer
+  without catching a different failure.
+- Straightforward renames and documentation edits generally do not need new
+  tests. Update affected existing tests and run the relevant checks.
+- During review, consolidate overlapping tests and remove redundant assertions.
+  Preserve useful regression coverage when reorganizing files.
+
 ## Adding new Betterleaks rules
 
 If you want to add a new rule to the [default configuration](config/betterleaks.toml) then follow these steps.
@@ -86,13 +122,17 @@ If you want to add a new rule to the [default configuration](config/betterleaks.
    Last thing you'll want to hit before we move on from this file is the
    validation part. You can use `generateSampleSecret` to create a secret for the
    true positives (`tps` in the example above) used in `validate`.
+   `secrets.NewSecret` and `secrets.NewSecretWithEntropy` use a fixed local seed,
+   so their examples are repeatable and independent of rule generation order.
+   Add literal fixtures for boundary characters and other important edge cases;
+   regeneration does not provide randomized coverage.
 
 2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, set the rule's `Filter` field. For more information, check out the [config doc](/docs/config.md)
 Example simple `filter`:
 ```
 filter = '''
-    filter.entropy(finding["secret"]) <= 3.5 ||
-    filter.failsTokenEfficiency(finding["secret"])
+    entropy(finding["secret"]) <= 3.5 ||
+    failsTokenEfficiency(finding["secret"])
 '''
 ```
 
@@ -122,12 +162,43 @@ r.status == 200 && (r.json?.slug ?? "") != "" ? {
    secrets from `components["rule-id"]?.secret ?? ""`, and component named
    groups from `components["rule-id"]?.captures?.group ?? ""`.
 
-4. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
+4. When the provider exposes identity, scope, or permission information, add an
+   `AnalyzeExpr`. Pass data already returned by validation through its reserved
+   `analysis` object and read it from `validation.analysis`. Do not repeat a
+   provider request merely to obtain data validation already had.
+
+   Keep analysis metadata focused on triage: credential ownership, actionable
+   permissions, and affected resources. Omit empty/default values and routine
+   provider settings that do not help assess or remediate the finding.
+
+### Provider safety for validation and analysis
+
+Validation and analysis run against real provider APIs. Be polite:
+
+- Target five or fewer analysis requests per credential. Reuse
+  `validation.analysis` whenever possible.
+- Prefer `GET` for validation. Use `POST` only when it is non-stateful and
+  cannot create or modify provider resources.
+- Avoid broad resource enumeration and unbounded pagination.
+- Document the endpoints used. Tests should verify request methods, paths, and
+  counts with an injected HTTP transport.
+
+If a provider cannot be checked safely, omit validation or analysis.
+
+Credential revocation belongs exclusively in a rule's optional `RevokeExpr`
+(`revoke` in TOML). Only the `revoke` command executes it; do not put revocation
+requests in validation or analysis expressions. Test lookup-then-revoke workflows
+with a local HTTP server, including failed lookups, missing IDs, request limits,
+and evidence confirming invalidation. Return `revoked` only when invalidation is
+confirmed; an asynchronous acceptance response alone is `unknown`. See the
+[revocation contract](../docs/config.md#explicit-credential-revocation).
+
+5. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
    the `rules.Beamer(),` in `main()`. Try and keep
    this alphabetically pretty please.
 
-5. Run `make config/betterleaks.toml`
+6. Run `make config/betterleaks.toml`
 
-6. Check out your new rules in `config/betterleaks.toml` and see if everything looks good.
+7. Check out your new rules in `config/betterleaks.toml` and see if everything looks good.
 
-7. Open a PR
+8. Open a PR

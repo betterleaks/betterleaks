@@ -1,16 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func TelegramBotToken() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Detected a Telegram Bot API Token, risking unauthorized bot operations and message interception on Telegram.",
-		RuleID:      "telegram-bot-api-token",
+		ID:          "telegram-bot-api-token",
 		Confidence:  "high",
 
 		Regex: utils.GenerateSemiGenericRegex([]string{"telegr"}, "[0-9]{5,16}:(?-i:A)[a-z0-9_\\-]{34}", true),

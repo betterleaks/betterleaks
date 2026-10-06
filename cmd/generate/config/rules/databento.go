@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func DatabentoAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "databento-api-key",
+		ID:          "databento-api-key",
 		Confidence:  "high",
 		Description: "Databento API key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"databento"}, `db-[A-Za-z0-9]{29}`, true),

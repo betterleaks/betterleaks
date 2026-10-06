@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func NewRelicUserID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "new-relic-user-api-key",
+		ID:          "new-relic-user-api-key",
 		Confidence:  "high",
 		Description: "Discovered a New Relic user API Key, which could lead to compromised application insights and performance monitoring.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
@@ -21,7 +21,7 @@ func NewRelicUserID() *config.Rule {
 		Keywords: []string{
 			"NRAK",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -32,7 +32,7 @@ func NewRelicUserID() *config.Rule {
 func NewRelicUserKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "new-relic-user-api-id",
+		ID:          "new-relic-user-api-id",
 		Confidence:  "high",
 		Description: "Found a New Relic user API ID, posing a risk to application monitoring services and data integrity.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
@@ -46,7 +46,7 @@ func NewRelicUserKey() *config.Rule {
 			"newrelic",
 			"new_relic",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -57,7 +57,7 @@ func NewRelicUserKey() *config.Rule {
 func NewRelicBrowserAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "new-relic-browser-api-token",
+		ID:          "new-relic-browser-api-token",
 		Confidence:  "high",
 		Description: "Identified a New Relic ingest browser API token, risking unauthorized access to application performance data and analytics.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
@@ -69,7 +69,7 @@ func NewRelicBrowserAPIKey() *config.Rule {
 		Keywords: []string{
 			"NRJS-",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -80,7 +80,7 @@ func NewRelicBrowserAPIKey() *config.Rule {
 func NewRelicInsertKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "new-relic-insert-key",
+		ID:          "new-relic-insert-key",
 		Confidence:  "high",
 		Description: "Discovered a New Relic insight insert key, compromising data injection into the platform.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
@@ -92,7 +92,7 @@ func NewRelicInsertKey() *config.Rule {
 		Keywords: []string{
 			"NRII-",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

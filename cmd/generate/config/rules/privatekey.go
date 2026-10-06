@@ -1,18 +1,17 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PrivateKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "private-key",
+		ID:          "private-key",
 		Confidence:  "high",
 		Description: "Identified a Private Key, which may compromise cryptographic security and sensitive data encryption.",
-		Regex:       regexp.MustCompile(`(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]{64,}?KEY(?: BLOCK)?-----`),
+		Regex:       `(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]{64,}?KEY(?: BLOCK)?-----`,
 		Keywords:    []string{"-----BEGIN"},
 	}
 
@@ -30,7 +29,7 @@ yxR5MsXFu9PRsrYQA7/4UTPHiC4y2sAVCBg4C2yyBpUEtMQjyCESi6Y=
 lQWGBGSVV4YBDAClvRnxezIRy2Yv7SFlzC0iFiRF/O/jePSw+XYhvcrTaqSYTGic
 =8xQN
 -----END PGP PRIVATE KEY BLOCK-----`,
-	} // gitleaks:allow
+	} // betterleaks:allow
 	fps := []string{
 		`-----BEGIN PRIVATE KEY-----
 anything
@@ -43,10 +42,10 @@ anything
 func PrivateKeyPKCS12File() *config.Rule {
 	// https://en.wikipedia.org/wiki/PKCS_12
 	r := config.Rule{
-		RuleID:      "pkcs12-file",
+		ID:          "pkcs12-file",
 		Confidence:  "high",
 		Description: "Found a PKCS #12 file, which commonly contain bundled private keys.",
-		Path:        regexp.MustCompile(`(?i)(?:^|\/)[^\/]+\.p(?:12|fx)$`),
+		Path:        `(?i)(?:^|\/)[^\/]+\.p(?:12|fx)$`,
 	}
 
 	// validate

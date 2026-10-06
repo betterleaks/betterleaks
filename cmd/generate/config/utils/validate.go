@@ -5,35 +5,45 @@
 package utils
 
 import (
+	"context"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/base"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/sources"
+	"github.com/betterleaks/betterleaks/v2/analyze"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
+	"github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 func Validate(rule config.Rule, truePositives []string, falsePositives []string) *config.Rule {
 	r := &rule
-	d := createSingleRuleDetector(r)
+	d := createSingleRuleScanner(r)
 	for _, tp := range truePositives {
-		if len(d.DetectString(tp)) < 1 {
-			logging.Fatal().
-				Str("rule", r.RuleID).
-				Str("value", tp).
-				Str("regex", r.Regex.String()).
-				Msg("Failed to Validate. True positive was not detected by regex.")
+		count, err := countFindings(d, sources.Fragment{Raw: tp})
+		if err != nil {
+			logging.Fatal("Failed to validate true positive.", "error", err, "rule", r.ID)
+		}
+		if count < 1 {
+			logging.Fatal("Failed to Validate. True positive was not detected by regex.",
+				"rule", r.ID,
+				"value", tp,
+				"regex", r.Regex,
+			)
 		}
 	}
 	for _, fp := range falsePositives {
-		findings := d.DetectString(fp)
-		if len(findings) != 0 {
-			logging.Fatal().
-				Str("rule", r.RuleID).
-				Str("value", fp).
-				Str("regex", r.Regex.String()).
-				Msg("Failed to Validate. False positive was detected by regex.")
+		count, err := countFindings(d, sources.Fragment{Raw: fp})
+		if err != nil {
+			logging.Fatal("Failed to validate false positive.", "error", err, "rule", r.ID)
+		}
+		if count != 0 {
+			logging.Fatal("Failed to Validate. False positive was detected by regex.",
+				"rule", r.ID,
+				"value", fp,
+				"regex", r.Regex,
+			)
 		}
 	}
 	return r
@@ -41,7 +51,7 @@ func Validate(rule config.Rule, truePositives []string, falsePositives []string)
 
 func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falsePositives map[string]string) *config.Rule {
 	r := &rule
-	d := createSingleRuleDetector(r)
+	d := createSingleRuleScanner(r)
 	for path, tp := range truePositives {
 		f := sources.Fragment{
 			Raw: tp,
@@ -49,13 +59,17 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 				sources.AttrPath: path,
 			},
 		}
-		if len(d.Detect(f)) != 1 {
-			logging.Fatal().
-				Str("rule", r.RuleID).
-				Str("value", tp).
-				Str("regex", r.Regex.String()).
-				Str("path", r.Path.String()).
-				Msg("Failed to Validate. True positive was not detected by regex and/or path.")
+		count, err := countFindings(d, f)
+		if err != nil {
+			logging.Fatal("Failed to validate true positive.", "error", err, "rule", r.ID)
+		}
+		if count != 1 {
+			logging.Fatal("Failed to Validate. True positive was not detected by regex and/or path.",
+				"rule", r.ID,
+				"value", tp,
+				"regex", r.Regex,
+				"path", r.Path,
+			)
 		}
 	}
 	for path, fp := range falsePositives {
@@ -65,19 +79,23 @@ func ValidateWithPaths(rule config.Rule, truePositives map[string]string, falseP
 				sources.AttrPath: path,
 			},
 		}
-		if len(d.Detect(f)) != 0 {
-			logging.Fatal().
-				Str("rule", r.RuleID).
-				Str("value", fp).
-				Str("regex", r.Regex.String()).
-				Str("path", r.Path.String()).
-				Msg("Failed to Validate. False positive was detected by regex and/or path.")
+		count, err := countFindings(d, f)
+		if err != nil {
+			logging.Fatal("Failed to validate false positive.", "error", err, "rule", r.ID)
+		}
+		if count != 0 {
+			logging.Fatal("Failed to Validate. False positive was detected by regex and/or path.",
+				"rule", r.ID,
+				"value", fp,
+				"regex", r.Regex,
+				"path", r.Path,
+			)
 		}
 	}
 	return r
 }
 
-func createSingleRuleDetector(r *config.Rule) *detect.Detector {
+func createSingleRuleScanner(r *config.Rule) *scan.Scanner {
 	// normalize keywords like in the config package
 	var (
 		uniqueKeywords = make(map[string]struct{})
@@ -98,21 +116,42 @@ func createSingleRuleDetector(r *config.Rule) *detect.Detector {
 	testRule := *r
 	testRule.SkipReport = false
 	testRule.Components = nil
-	rules := map[string]config.Rule{
-		r.RuleID: testRule,
-	}
 	cfg := base.CreateGlobalConfig()
-	cfg.Rules = rules
-	cfg.Keywords = uniqueKeywords
+	cfg.Rules = []config.Rule{testRule}
 
-	cfg.KeywordToRules = make(map[string][]string)
-	if len(r.Keywords) == 0 {
-		cfg.NoKeywordRules = []string{r.RuleID}
-	} else {
-		for _, k := range r.Keywords {
-			cfg.KeywordToRules[k] = append(cfg.KeywordToRules[k], r.RuleID)
+	scanner, err := scan.New(cfg, scan.WithPrecompile())
+	if err != nil {
+		logging.Fatal("Failed to create rule scanner.", "error", err, "rule", r.ID)
+	}
+	// Rule generation checks provider expression scopes explicitly. Scanner's
+	// precompile option intentionally covers discovery alone.
+	if _, err := analyze.New(cfg, analyze.WithPrecompile()); err != nil {
+		logging.Fatal("Failed to compile provider programs.", "error", err, "rule", r.ID)
+	}
+	if r.RevokeExpr != "" {
+		runtime, err := exprruntime.New(nil)
+		if err != nil {
+			logging.Fatal("Failed to create revocation compiler.", "error", err, "rule", r.ID)
+		}
+		if _, err := runtime.CompileRevocation(r.RevokeExpr); err != nil {
+			logging.Fatal("Failed to compile revocation program.", "error", err, "rule", r.ID)
 		}
 	}
+	return scanner
+}
 
-	return detect.NewDetector(cfg)
+func countFindings(d *scan.Scanner, fragment sources.Fragment) (int, error) {
+	summary, err := d.Scan(context.Background(), fragmentSource{fragment: fragment}, nil)
+	return summary.Findings, err
+}
+
+type fragmentSource struct {
+	fragment sources.Fragment
+}
+
+func (s fragmentSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return yield(s.fragment, nil)
 }

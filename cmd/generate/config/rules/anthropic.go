@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func AnthropicApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "anthropic-api-key",
+		ID:          "anthropic-api-key",
 		Confidence:  "high",
 		Description: "Identified an Anthropic API Key, which may compromise AI assistant integrations and expose sensitive data to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-ant-api03-[a-zA-Z0-9_\-]{93}AA`, false),
@@ -50,7 +50,7 @@ func AnthropicApiKey() *config.Rule {
 func AnthropicAdminApiKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "anthropic-admin-api-key",
+		ID:          "anthropic-admin-api-key",
 		Confidence:  "high",
 		Description: "Detected an Anthropic Admin API Key, risking unauthorized access to administrative functions and sensitive AI model configurations.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-ant-admin01-[a-zA-Z0-9_\-]{93}AA`, false),
@@ -62,7 +62,7 @@ func AnthropicAdminApiKey() *config.Rule {
     "anthropic-version": "2023-06-01"
   }); r.status == 200 && (r.json?.id ?? "") != "" && (r.json?.type ?? "") == "organization" ? {
     "result": "valid",
-    "organization": (r.json?.name ?? "")
+    "metadata": {"organization": (r.json?.name ?? "")}
   } : r.status in [401, 403] ? {
     "result": "invalid",
     "reason": "Unauthorized"

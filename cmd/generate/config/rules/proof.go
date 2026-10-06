@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ProofFullAccessAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "proof-full-access-api-key",
+		ID:          "proof-full-access-api-key",
 		Confidence:  "high",
 		Description: "Proof production full-access API key.",
 		Regex:       utils.GenerateUniqueTokenRegex(`prf_(?:cli_)?[A-Za-z0-9_-]{20,80}`, false),
@@ -24,7 +24,7 @@ func ProofFullAccessAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.matchesAny(finding["secret"], ["^prf_(?:cli_)?test_"])
+		FilterExpr: `matchesAny(finding["secret"], ["^prf_(?:cli_)?test_"])
 || ` + utils.MinEntropy(3.5),
 	}
 

@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func SegmentPublicAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "segment-public-api-token.1",
+		ID:          "segment-public-api-token.1",
 		Confidence:  "high",
 		Description: "Segment workspace bearer token for the Public API.",
 		Regex:       utils.GenerateUniqueTokenRegex(`sgp_[A-Za-z0-9]{64}`, false),
@@ -23,7 +23,7 @@ func SegmentPublicAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Not authorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.3),
+		FilterExpr: utils.MinEntropy(3.3),
 	}
 
 	// validate

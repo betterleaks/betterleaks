@@ -1,19 +1,18 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func SnowflakeAccountHost() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "snowflake-account-host.1",
+		ID:          "snowflake-account-host.1",
 		Confidence:  "high",
 		Description: "Snowflake account host, used as a component of the programmatic access-token rule.",
-		Regex:       regexp.MustCompile(`(?i)\b([a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.snowflakecomputing\.com)\b`),
+		Regex:       `(?i)\b([a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.snowflakecomputing\.com)\b`,
 		Keywords:    []string{"snowflakecomputing.com"},
 		SkipReport:  true,
 	}
@@ -33,7 +32,7 @@ func SnowflakeAccountHost() *config.Rule {
 func SnowflakeProgrammaticAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "snowflake-programmatic-access-token.1",
+		ID:          "snowflake-programmatic-access-token.1",
 		Confidence:  "high",
 		Description: "Snowflake programmatic access token.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -42,7 +41,7 @@ func SnowflakeProgrammaticAccessToken() *config.Rule {
 			false,
 		),
 		Keywords: []string{"snowflake", "sf_token"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "snowflake-account-host.1", Within: "30L"},
 		},
 		ValidateExpr: `let r = http.post("https://" + (components["snowflake-account-host.1"]?.secret ?? "") + "/api/v2/statements", {
@@ -57,7 +56,7 @@ func SnowflakeProgrammaticAccessToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

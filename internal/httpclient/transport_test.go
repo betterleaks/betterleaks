@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // noJitter eliminates randomness in tests; tests assert on exact sleep totals.
@@ -36,191 +38,74 @@ func newTestTransport(base http.RoundTripper) (*RetryTransport, *recordingSleepe
 	return rt, rs
 }
 
-func TestRoundTrip_429DefaultRetry(t *testing.T) {
-	var calls atomic.Int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if calls.Add(1) == 1 {
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	rt, rs := newTestTransport(http.DefaultTransport)
-	client := &http.Client{Transport: rt}
-
-	resp, err := client.Get(srv.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("got status %d, want 200", resp.StatusCode)
-	}
-	if calls.Load() != 2 {
-		t.Errorf("expected 2 calls, got %d", calls.Load())
-	}
-	if len(rs.durations) != 1 {
-		t.Fatalf("expected 1 sleep, got %d", len(rs.durations))
-	}
-	if rs.durations[0] != 60*time.Second {
-		t.Errorf("429 default sleep = %v, want 60s", rs.durations[0])
-	}
-}
-
-func TestRoundTrip_SecondaryRateLimit(t *testing.T) {
-	var calls atomic.Int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if calls.Add(1) == 1 {
-			w.Header().Set("Retry-After", "3")
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	rt, rs := newTestTransport(http.DefaultTransport)
-	client := &http.Client{Transport: rt}
-
-	resp, err := client.Get(srv.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("got status %d, want 200", resp.StatusCode)
-	}
-	if len(rs.durations) != 1 || rs.durations[0] != 3*time.Second {
-		t.Errorf("expected one 3s sleep, got %v", rs.durations)
-	}
-}
-
-func TestRoundTrip_429(t *testing.T) {
-	var calls atomic.Int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if calls.Add(1) == 1 {
-			w.Header().Set("Retry-After", "2")
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	rt, rs := newTestTransport(http.DefaultTransport)
-	client := &http.Client{Transport: rt}
-
-	resp, err := client.Get(srv.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("got status %d, want 200", resp.StatusCode)
-	}
-	if len(rs.durations) != 1 || rs.durations[0] != 2*time.Second {
-		t.Errorf("expected one 2s sleep, got %v", rs.durations)
-	}
-}
-
-func TestRoundTrip_5xxBackoff(t *testing.T) {
-	var calls atomic.Int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if calls.Add(1) <= 2 {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	rt, rs := newTestTransport(http.DefaultTransport)
-	client := &http.Client{Transport: rt}
-
-	resp, err := client.Get(srv.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("got status %d, want 200", resp.StatusCode)
-	}
-	// Two 5xx responses -> two backoff sleeps: 1s, 2s.
-	if len(rs.durations) != 2 {
-		t.Fatalf("expected 2 sleeps, got %v", rs.durations)
-	}
-	if rs.durations[0] != time.Second {
-		t.Errorf("first backoff = %v, want 1s", rs.durations[0])
-	}
-	if rs.durations[1] != 2*time.Second {
-		t.Errorf("second backoff = %v, want 2s", rs.durations[1])
-	}
-}
-
-func TestRoundTrip_4xxNoRetry(t *testing.T) {
-	var calls atomic.Int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		w.WriteHeader(http.StatusBadRequest)
-	}))
-	defer srv.Close()
-
-	rt, rs := newTestTransport(http.DefaultTransport)
-	client := &http.Client{Transport: rt}
-
-	resp, err := client.Get(srv.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("got status %d, want 400", resp.StatusCode)
-	}
-	if calls.Load() != 1 {
-		t.Errorf("expected 1 call, got %d", calls.Load())
-	}
-	if len(rs.durations) != 0 {
-		t.Errorf("expected no sleeps, got %v", rs.durations)
-	}
-}
-
-func TestRoundTrip_MaxRetriesExhausted(t *testing.T) {
-	var calls atomic.Int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	rt, _ := newTestTransport(http.DefaultTransport)
-	rt.MaxRetries = 2
-	client := &http.Client{Transport: rt}
-
-	resp, err := client.Get(srv.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Errorf("got status %d, want 500", resp.StatusCode)
-	}
-	// MaxRetries=2 means up to 3 total attempts (1 + 2 retries).
-	if got := calls.Load(); got != 3 {
-		t.Errorf("expected 3 calls, got %d", got)
+func TestRetryTransport(t *testing.T) {
+	for _, tc := range []struct {
+		name                      string
+		status, failures, retries int
+		retryAfter                string
+		wantStatus, wantCalls     int
+		wantSleeps                []time.Duration
+	}{
+		{
+			name:   "429 default delay",
+			status: http.StatusTooManyRequests, failures: 1, retries: 5, retryAfter: "",
+			wantStatus: http.StatusOK, wantCalls: 2,
+			wantSleeps: []time.Duration{60 * time.Second},
+		},
+		{
+			name:   "secondary rate limit",
+			status: http.StatusForbidden, failures: 1, retries: 5, retryAfter: "3",
+			wantStatus: http.StatusOK, wantCalls: 2,
+			wantSleeps: []time.Duration{3 * time.Second},
+		},
+		{
+			name:   "429 explicit delay",
+			status: http.StatusTooManyRequests, failures: 1, retries: 5, retryAfter: "2",
+			wantStatus: http.StatusOK, wantCalls: 2,
+			wantSleeps: []time.Duration{2 * time.Second},
+		},
+		{
+			name:   "server backoff",
+			status: http.StatusInternalServerError, failures: 2, retries: 5, retryAfter: "",
+			wantStatus: http.StatusOK, wantCalls: 3,
+			wantSleeps: []time.Duration{time.Second, 2 * time.Second},
+		},
+		{
+			name:   "client error",
+			status: http.StatusBadRequest, failures: 1, retries: 5, retryAfter: "",
+			wantStatus: http.StatusBadRequest, wantCalls: 1,
+			wantSleeps: nil,
+		},
+		{
+			name:   "retries exhausted",
+			status: http.StatusInternalServerError, failures: 3, retries: 2, retryAfter: "",
+			wantStatus: http.StatusInternalServerError, wantCalls: 3,
+			wantSleeps: []time.Duration{time.Second, 2 * time.Second},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if int(calls.Add(1)) <= tc.failures {
+					if tc.retryAfter != "" {
+						w.Header().Set("Retry-After", tc.retryAfter)
+					}
+					w.WriteHeader(tc.status)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+			transport, sleeps := newTestTransport(http.DefaultTransport)
+			transport.MaxRetries = tc.retries
+			client := &http.Client{Transport: transport}
+			response, err := client.Get(server.URL)
+			require.NoError(t, err)
+			defer response.Body.Close()
+			require.Equal(t, tc.wantStatus, response.StatusCode)
+			require.EqualValues(t, tc.wantCalls, calls.Load())
+			require.Equal(t, tc.wantSleeps, sleeps.durations)
+		})
 	}
 }
 

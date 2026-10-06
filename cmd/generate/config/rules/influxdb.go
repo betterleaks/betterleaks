@@ -1,17 +1,16 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func InfluxDBAPIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:      "influxdb-api-token",
+		ID:          "influxdb-api-token",
 		Confidence:  "high",
 		Description: "Detected an InfluxDB API token, which may allow unauthorized access to time-series data and InfluxDB organization resources.",
-		Regex:       regexp.MustCompile(`(?i)(?:\binflux(?:db)?\b(?:.|[\n\r]){0,64}?\b(?:token|api[_-]?key)\b(?:.|[\n\r]){0,32}?)[=:"'\s]{1,8}([A-Za-z0-9+/=_-]{88,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)`),
+		Regex:       `(?i)(?:\binflux(?:db)?\b(?:.|[\n\r]){0,64}?\b(?:token|api[_-]?key)\b(?:.|[\n\r]){0,32}?)[=:"'\s]{1,8}([A-Za-z0-9+/=_-]{88,})(?:\\?['"\x60]|[\s;]|\\[nr]|$)`,
 		Keywords:    []string{"influx"},
 		ValidateExpr: `let r = http.get("https://us-east-1-1.aws.cloud2.influxdata.com/api/v2/orgs", {
     "Authorization": "Token " + finding["secret"],
@@ -22,7 +21,7 @@ func InfluxDBAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	tps := []string{

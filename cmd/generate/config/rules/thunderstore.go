@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ThunderstoreAPIToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "thunderstore-api-token.1",
+		ID:          "thunderstore-api-token.1",
 		Confidence:  "high",
 		Description: "Thunderstore API token.",
 		Regex:       utils.GenerateUniqueTokenRegex(`tss_[A-Za-z0-9_-]{20,80}`, false),
@@ -23,8 +23,8 @@ func ThunderstoreAPIToken() *config.Rule {
     "result": "invalid",
     "reason": "Invalid Service Account token"
   } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5
-|| !filter.matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){2}"])`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5
+|| !matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){2}"])`,
 	}
 
 	// validate

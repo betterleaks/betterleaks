@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func KrakenAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "kraken-access-token",
+		ID:          "kraken-access-token",
 		Confidence:  "medium",
 		Description: "Identified a Kraken Access Token, potentially compromising cryptocurrency trading accounts and financial security.",
 		Regex: utils.GenerateSemiGenericRegex([]string{"kraken"},
@@ -18,7 +18,7 @@ func KrakenAccessToken() *config.Rule {
 		Keywords: []string{
 			"kraken",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 4.0 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

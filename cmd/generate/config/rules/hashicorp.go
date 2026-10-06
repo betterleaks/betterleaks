@@ -3,21 +3,20 @@ package rules
 import (
 	"fmt"
 
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func HashiCorpTerraform() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "hashicorp-tf-api-token",
+		ID:          "hashicorp-tf-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a HashiCorp Terraform user/org API token, which may lead to unauthorized infrastructure management and security breaches.",
-		Regex:       regexp.MustCompile(`(?i)[a-z0-9]{14}\.(?-i:atlasv1)\.[a-z0-9\-_=]{60,70}`),
+		Regex:       `(?i)[a-z0-9]{14}\.(?-i:atlasv1)\.[a-z0-9\-_=]{60,70}`,
 		Keywords:    []string{"atlasv1"},
-		Filter:      `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate
@@ -35,13 +34,13 @@ func HashicorpField() *config.Rule {
 	keywords := []string{"administrator_login_password", "password"}
 	// define rule
 	r := config.Rule{
-		RuleID:      "hashicorp-tf-password",
+		ID:          "hashicorp-tf-password",
 		Confidence:  "medium",
 		Description: "Identified a HashiCorp Terraform password field, risking unauthorized infrastructure configuration and security breaches.",
 		Regex:       utils.GenerateSemiGenericRegex(keywords, fmt.Sprintf(`"%s"`, utils.AlphaNumericExtended("8,20")), true),
-		Path:        regexp.MustCompile(`(?i)\.(?:tf|hcl)$`),
+		Path:        `(?i)\.(?:tf|hcl)$`,
 		Keywords:    keywords,
-		Filter:      `entropy(finding["secret"]) <= 2.0`,
+		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	}
 
 	tps := map[string]string{

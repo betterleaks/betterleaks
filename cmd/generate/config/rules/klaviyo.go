@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func KlaviyoAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "klaviyo-api-key",
+		ID:          "klaviyo-api-key",
 		Confidence:  "high",
 		Description: "Detected a Klaviyo API key, which may expose Klaviyo account and marketing data.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"klaviyo"}, `pk_`+utils.AlphaNumeric("34"), true),
@@ -22,7 +22,7 @@ func KlaviyoAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	tps := []string{

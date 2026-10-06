@@ -1,20 +1,20 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func AsanaClientID() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Discovered a potential Asana Client ID, risking unauthorized access to Asana projects and sensitive task information.",
-		RuleID:      "asana-client-id",
+		ID:          "asana-client-id",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"asana"}, utils.Numeric("16"), true),
 		Keywords:    []string{"asana"},
-		Filter:      `filter.entropy(finding["secret"]) < 2.75`,
+		FilterExpr:  `entropy(finding["secret"]) < 2.75`,
 	}
 
 	// validate
@@ -26,12 +26,12 @@ func AsanaClientSecret() *config.Rule {
 	// define rule
 	r := config.Rule{
 		Description: "Identified an Asana Client Secret, which could lead to compromised project management integrity and unauthorized access.",
-		RuleID:      "asana-client-secret",
+		ID:          "asana-client-secret",
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"asana"}, utils.AlphaNumeric("32"), true),
 
-		Keywords: []string{"asana"},
-		Filter:   `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		Keywords:   []string{"asana"},
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

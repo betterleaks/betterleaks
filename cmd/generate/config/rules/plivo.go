@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PlivoAuthID() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "plivo-auth-id",
+		ID:          "plivo-auth-id",
 		Confidence:  "high",
 		Description: "Plivo Auth ID, used as a component of the Plivo Auth Token composite rule.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -19,7 +19,7 @@ func PlivoAuthID() *config.Rule {
 		),
 		Keywords:   []string{"plivo"},
 		SkipReport: true,
-		Filter:     `filter.entropy(finding["secret"]) < 2.8 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 2.8 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate
@@ -36,7 +36,7 @@ func PlivoAuthID() *config.Rule {
 func PlivoAuthToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "plivo-auth-token",
+		ID:          "plivo-auth-token",
 		Confidence:  "high",
 		Description: "Plivo Auth Token.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -45,7 +45,7 @@ func PlivoAuthToken() *config.Rule {
 			false,
 		),
 		Keywords: []string{"plivo"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "plivo-auth-id"},
 		},
 		ValidateExpr: `let authID = (components["plivo-auth-id"]?.secret ?? "");
@@ -61,7 +61,7 @@ let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
   "result": "invalid",
   "reason": "Unauthorized"
 } : validate.unknown(r)`,
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

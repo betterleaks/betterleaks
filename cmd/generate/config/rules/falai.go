@@ -1,22 +1,22 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func FalAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "fal-api-key.1",
+		ID:          "fal-api-key.1",
 		Confidence:  "high",
 		Description: "Fal.ai API key, which may allow access to model execution, billing, and platform APIs.",
 		Regex: utils.GenerateSemiGenericRegex(
-			[]string{"fal"},
+			[]string{"falai", "fal_ai", "fal-ai", "fal.ai", "fal-api", "fal_api", "fal_key", "fal-key"},
 			utils.Hex("8")+`-`+utils.Hex("4")+`-`+utils.Hex("4")+`-`+utils.Hex("4")+`-`+utils.Hex("12")+`:`+utils.Hex("32"),
 			false,
 		),
-		Keywords: []string{"fal"},
+		Keywords: []string{"falai", "fal_ai", "fal-ai", "fal.ai", "fal-api", "fal_api", "fal_key", "fal-key"},
 		ValidateExpr: `let r = http.get("https://api.fal.ai/v1/models/pricing?endpoint_id=fal-ai%2Fflux%2Fdev", {
     "Authorization": "Key " + finding["secret"],
     "Accept": "application/json"
@@ -26,7 +26,7 @@ func FalAPIKey() *config.Rule {
     "result": "invalid",
     "reason": (r.json?.error?.message ?? "Invalid API key")
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	key := secrets.NewSecretWithEntropy(`[a-f0-9]{8}`, 2.5) + "-" +
@@ -36,7 +36,6 @@ func FalAPIKey() *config.Rule {
 		secrets.NewSecretWithEntropy(`[a-f0-9]{12}`, 2.5) + ":" +
 		secrets.NewSecretWithEntropy(`[a-f0-9]{32}`, 3.5)
 	tps := []string{
-		`FAL_KEY=` + key,
 		`fal.ai api key: "` + key + `"`,
 		`fal-api=` + key,
 	}

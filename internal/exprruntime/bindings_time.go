@@ -8,7 +8,6 @@ import (
 func timeNamespace() map[string]any {
 	return map[string]any{
 		"nowUnix":    timeNowUnix,
-		"now_unix":   timeNowUnix,
 		"nowRFC3339": timeNowRFC3339,
 	}
 }

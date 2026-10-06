@@ -2,26 +2,29 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-	"github.com/spf13/cobra"
-
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/detect"
-	"github.com/betterleaks/betterleaks/internal/confidence"
-	"github.com/betterleaks/betterleaks/internal/contextwindow"
-	"github.com/betterleaks/betterleaks/logging"
-	"github.com/betterleaks/betterleaks/regexp"
-	regexpre2 "github.com/betterleaks/betterleaks/regexp/re2"
-	"github.com/betterleaks/betterleaks/report"
-	"github.com/betterleaks/betterleaks/version"
+	"github.com/alecthomas/kong"
+	"github.com/betterleaks/betterleaks/v2/analyze"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
+	"github.com/betterleaks/betterleaks/v2/pipeline"
+	"github.com/betterleaks/betterleaks/v2/regexp"
+	regexpre2 "github.com/betterleaks/betterleaks/v2/regexp/re2"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
+	"github.com/betterleaks/betterleaks/v2/version"
 )
 
 var banner = fmt.Sprintf(`
@@ -31,43 +34,87 @@ var banner = fmt.Sprintf(`
 
 `, version.Version)
 
-func confidenceFlag(cmd *cobra.Command) (string, error) {
-	return confidence.Parse(mustGetStringFlag(cmd, "confidence"))
-}
-
 const configDescription = `config file path
 order of precedence:
 1. --config/-c
-2. env var BETTERLEAKS_CONFIG or GITLEAKS_CONFIG
-3. env var BETTERLEAKS_CONFIG_TOML or GITLEAKS_CONFIG_TOML with the file content
-4. (target path)/.betterleaks.toml or .gitleaks.toml
-If none of the four options are used, then the default config will be used`
+2. env var BETTERLEAKS_CONFIG
+3. env var BETTERLEAKS_CONFIG_TOML with the file content
+If none of these options are used, the embedded default config is used.
+Config files in scan targets or the current directory are not loaded automatically.`
 
-var (
-	rootCmd = &cobra.Command{
-		Use:     "betterleaks",
-		Short:   "Betterleaks scans code, past or present, for secrets",
-		Version: version.Version,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := confidenceFlag(cmd); err != nil {
-				return err
-			}
-			// Set the timeout for all the commands
-			if timeout, err := cmd.Flags().GetInt("timeout"); err != nil {
-				return err
-			} else if timeout > 0 {
-				ctx, cancel := context.WithTimeout(cmd.Context(), time.Duration(timeout)*time.Second)
-				cmd.SetContext(ctx)
-				cobra.OnFinalize(cancel)
-			}
-			return nil
-		},
+type GlobalFlags struct {
+	Config       string      `short:"c" help:"${config_help}"`
+	LogLevel     string      `name:"log-level" short:"l" default:"info" help:"Log level: trace, debug, info, warn, error, fatal."`
+	NoColor      bool        `name:"no-color" help:"Turn off color in terminal output."`
+	RegexEngine  string      `name:"regex-engine" default:"re2" help:"Regex engine: stdlib or re2."`
+	RegexpEngine string      `name:"regexp-engine" hidden:"" help:"Deprecated alias for --regex-engine."`
+	Version      versionFlag `short:"V" help:"Print version information and quit."`
+}
+
+type CLI struct {
+	GlobalFlags `embed:""`
+
+	Auto        AutoCmd        `cmd:"" default:"withargs" help:"Detect and scan a local path or remote URL (auto may be omitted)."`
+	Directory   DirectoryCmd   `cmd:"" name:"filesystem" aliases:"fs" help:"Scan files and directories."`
+	URL         URLCmd         `cmd:"" name:"url" help:"Download and scan one HTTP(S) URL for secrets."`
+	Git         GitCmd         `cmd:"" help:"Scan Git repositories for secrets."`
+	GitHub      GitHubCmd      `cmd:"" name:"github" help:"Scan GitHub repositories and resources for secrets."`
+	GitLab      GitLabCmd      `cmd:"" name:"gitlab" help:"Scan GitLab projects and resources for secrets."`
+	HuggingFace HuggingFaceCmd `cmd:"" name:"huggingface" aliases:"hf" help:"Scan Hugging Face repositories and community resources for secrets."`
+	S3          S3Cmd          `cmd:"" name:"s3" help:"Scan an S3 or S3-compatible bucket for secrets."`
+	Stdin       StdinCmd       `cmd:"" help:"Detect secrets from stdin."`
+	Fingerprint FingerprintCmd `cmd:"" help:"Generate a value fingerprint from stdin (SHA-256, or HMAC-SHA-256 with a key)."`
+	Validate    ValidateCmd    `cmd:"" help:"Validate a known secret without running detection."`
+	Analyze     AnalyzeCmd     `cmd:"" help:"Check credential validity, identity, permissions, and severity."`
+	Revoke      RevokeCmd      `cmd:"" help:"Revoke a known credential using its rule's revoke expression."`
+	ConfigCmd   ConfigCmd      `cmd:"" name:"config" help:"Validate and inspect betterleaks configs."`
+	VersionCmd  VersionCmd     `cmd:"" name:"version" help:"Display betterleaks version."`
+}
+
+type commandRuntime struct {
+	context.Context
+	stdin  io.Reader
+	stdout io.Writer
+	stderr io.Writer
+	logger *slog.Logger
+	engine regexp.Engine
+	exit   func(int)
+}
+
+func (r *commandRuntime) regexEngine() regexp.Engine {
+	if r == nil || r.engine == nil {
+		return regexp.Stdlib{}
 	}
+	return r.engine
+}
 
-	// diagnostics manager is global to ensure it can be started before a scan begins
-	// and stopped after a scan completes
-	diagnosticsManager *DiagnosticsManager
-)
+var discardLogger = slog.New(slog.DiscardHandler)
+
+func (r *commandRuntime) Logger() *slog.Logger {
+	if r == nil || r.logger == nil {
+		return discardLogger
+	}
+	return r.logger
+}
+
+func (r *commandRuntime) logContext() context.Context {
+	if r == nil || r.Context == nil {
+		return context.Background()
+	}
+	return r.Context
+}
+
+func (r *commandRuntime) fatal(msg string, args ...any) {
+	r.Logger().Log(r.logContext(), logging.LevelFatal, msg, args...)
+	if r == nil || r.exit == nil {
+		panic("command runtime exit function is not configured")
+	}
+	r.exit(1)
+}
+
+// diagnostics manager is global to ensure it can be started before a scan
+// begins and stopped after a scan completes.
+var diagnosticsManager *DiagnosticsManager
 
 const (
 	BYTE     = 1.0
@@ -76,469 +123,399 @@ const (
 	GIGABYTE = MEGABYTE * 1000
 )
 
-func init() {
-	cobra.OnInitialize(initLog)
-	rootCmd.PersistentFlags().StringP("config", "c", "", configDescription)
-	rootCmd.PersistentFlags().Int("exit-code", 1, "exit code when leaks have been encountered")
-	rootCmd.PersistentFlags().StringP("report-path", "r", "", "report file (use \"-\" for stdout)")
-	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
-	rootCmd.PersistentFlags().StringP("report-template", "", "", "template file used to generate the report (implies --report-format=template)")
-	rootCmd.PersistentFlags().StringP("baseline-path", "b", "", "path to baseline with issues that can be ignored")
-	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "log level (trace, debug, info, warn, error, fatal)")
-	rootCmd.PersistentFlags().String("confidence", "", "minimum confidence to include (low, medium, high)")
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "show verbose output from scan")
-	rootCmd.PersistentFlags().Bool("legacy-print", false, "use legacy key/value verbose finding format (requires --verbose)")
-	rootCmd.PersistentFlags().BoolP("no-color", "", false, "turn off color in terminal output")
-	rootCmd.PersistentFlags().Int("max-target-megabytes", 0, "files larger than this will be skipped")
-	rootCmd.PersistentFlags().BoolP("ignore-gitleaks-allow", "", false, "ignore gitleaks:allow and betterleaks:allow comments")
-	rootCmd.PersistentFlags().Uint("redact", 0, "redact secrets from logs and stdout. To redact only parts of the secret just apply a percent value from 0..100. For example --redact=20 (default 100%)")
-	rootCmd.Flag("redact").NoOptDefVal = "100"
-	rootCmd.PersistentFlags().Bool("no-banner", false, "suppress banner")
-	rootCmd.PersistentFlags().StringSlice("enable-rule", []string{}, "only enable specific rules by id")
-	rootCmd.PersistentFlags().StringSlice("disable-rule", nil, "disable specific rules by id (repeatable; shorthand: -dr)")
-	rootCmd.PersistentFlags().StringSlice("isolate-rule", nil, "only enable specific rules by id (repeatable; shorthand: -ir)")
-	rootCmd.PersistentFlags().StringP("gitleaks-ignore-path", "i", ".", "path to .betterleaksignore or .gitleaksignore file or folder containing one")
-	rootCmd.PersistentFlags().String("match-context", "", "context around match: L (lines), C (columns/characters). e.g. 10L, 100C, -2C,+4C")
-	rootCmd.PersistentFlags().Int("max-decode-depth", 5, "allow recursive decoding up to this depth")
-	rootCmd.PersistentFlags().Int("max-archive-depth", 8, "allow scanning into nested archives up to this depth")
-	rootCmd.PersistentFlags().Int("timeout", 0, "set a timeout for gitleaks commands in seconds (default \"0\", no timeout is set)")
-	rootCmd.PersistentFlags().String("regex-engine", "re2", "regex engine (stdlib, re2)")
-	rootCmd.PersistentFlags().String("regexp-engine", "re2", "regex engine (stdlib, re2)")
-	_ = rootCmd.PersistentFlags().MarkHidden("regexp-engine")
-
-	rootCmd.PersistentFlags().String("experiments", "", "comma-separated list of experimental features to enable")
-
-	// Validation flags
-	rootCmd.PersistentFlags().Bool("validation", false, "enable validation of findings against live APIs")
-	rootCmd.PersistentFlags().String("validation-status", "", "comma-separated list of validation statuses to include: valid, needs_validation, invalid, revoked, error, unknown, none (none = rules without validation)")
-	rootCmd.PersistentFlags().Duration("validation-timeout", 10*time.Second, "per-request timeout for validation")
-	rootCmd.PersistentFlags().Int("validation-workers", 10, "number of concurrent validation workers")
-	rootCmd.PersistentFlags().Int("validation-max-requests", 0, "maximum validation requests sent to each provider target (0 = unlimited)")
-	rootCmd.PersistentFlags().Int("validation-max-request", 0, "alias for --validation-max-requests")
-	_ = rootCmd.PersistentFlags().MarkHidden("validation-max-request")
-	rootCmd.PersistentFlags().Float64("validation-rps", 0, "global validation requests per second (0 = unlimited)")
-	rootCmd.PersistentFlags().StringSlice("validation-rps-rule", nil, "rule-specific validation request rate as RULE=RPS (repeatable)")
-	rootCmd.PersistentFlags().Bool("validation-extract-empty", false, "include empty values from extractors in output")
-	rootCmd.PersistentFlags().Bool("validation-debug", false, "include validation HTTP debug metadata in output")
-	rootCmd.PersistentFlags().StringSlice("validation-env-vars", nil, "comma-separated env var names the validation env(...) binding may read (repeat flag to add more); unset means env() is disabled")
-
-	// Add diagnostics flags
-	rootCmd.PersistentFlags().String("diagnostics", "", "enable diagnostics (http OR comma-separated list: cpu,mem,trace,rules,rules-csv). cpu=CPU prof, mem=memory prof, trace=exec tracing, rules=rule timings text, rules-csv=rule timings CSV, http=serve via net/http/pprof")
-	rootCmd.PersistentFlags().String("diagnostics-dir", "", "directory to store diagnostics output files when not using http mode (defaults to ./diagnostics)")
-
-}
-
-var logLevel = zerolog.InfoLevel
-
-func initLog() {
-	ll, err := rootCmd.Flags().GetString("log-level")
-	if err != nil {
-		logging.Fatal().Msg(err.Error())
-	}
-
-	switch strings.ToLower(ll) {
+func initLog(globals *GlobalFlags, ctx *kong.Context, runtime *commandRuntime) error {
+	logLevel := slog.LevelInfo
+	var unknownLevel string
+	switch strings.ToLower(globals.LogLevel) {
 	case "trace":
-		logLevel = zerolog.TraceLevel
+		logLevel = logging.LevelTrace
 	case "debug":
-		logLevel = zerolog.DebugLevel
+		logLevel = slog.LevelDebug
 	case "info":
-		logLevel = zerolog.InfoLevel
+		logLevel = slog.LevelInfo
 	case "warn":
-		logLevel = zerolog.WarnLevel
+		logLevel = slog.LevelWarn
 	case "err", "error":
-		logLevel = zerolog.ErrorLevel
+		logLevel = slog.LevelError
 	case "fatal":
-		logLevel = zerolog.FatalLevel
+		logLevel = logging.LevelFatal
 	default:
-		logging.Warn().Msgf("unknown log level: %s", ll)
+		logLevel = slog.LevelInfo
+		unknownLevel = globals.LogLevel
 	}
-	logging.Logger = logging.Logger.Level(logLevel)
+	runtime.logger = logging.NewConsole(runtime.stderr, logging.ConsoleOptions{
+		Level:   logLevel,
+		NoColor: globals.NoColor,
+	})
+	if unknownLevel != "" {
+		runtime.Logger().Warn("unknown log level", "level", unknownLevel)
+	}
 
-	var engineName string
-	if rootCmd.Flags().Changed("regex-engine") {
-		engineName, _ = rootCmd.Flags().GetString("regex-engine")
-	} else if rootCmd.Flags().Changed("regexp-engine") {
-		engineName, _ = rootCmd.Flags().GetString("regexp-engine")
+	engineName := globals.RegexEngine
+	if !flagWasSet(ctx, "regex-engine") && flagWasSet(ctx, "regexp-engine") {
+		engineName = globals.RegexpEngine
 	}
 	switch engineName {
-	case "", "re2":
-		regexp.SetEngine(regexpre2.RE2{})
+	case "re2":
+		runtime.engine = regexpre2.RE2{}
 	case "stdlib":
-		regexp.SetEngine(regexp.Stdlib{})
+		runtime.engine = regexp.Stdlib{}
 	default:
-		logging.Fatal().Msgf("unknown regex engine %q (valid values: re2, stdlib)", engineName)
+		return fmt.Errorf("unknown regex engine %q (valid values: re2, stdlib)", engineName)
 	}
+	return nil
 }
 
-var (
-	bannerPrinted      bool
-	resolvedConfigPath string // set by initConfig to the actual config file path that was loaded
-	loadedConfig       *config.Config
-)
-
-func initConfig(source string) {
-	resolvedConfigPath = "" // reset for each call (cmd/directory.go calls per-source)
-	loadedConfig = nil
-	hideBanner, err := rootCmd.Flags().GetBool("no-banner")
-
-	if err != nil {
-		logging.Fatal().Msg(err.Error())
+func flagWasSet(ctx *kong.Context, name string) bool {
+	for _, trace := range ctx.Path {
+		if trace.Flag != nil && trace.Flag.Name == name {
+			return true
+		}
 	}
-	if !hideBanner && !bannerPrinted {
-		_, _ = fmt.Fprint(os.Stderr, banner)
+	return false
+}
+
+var bannerPrinted bool
+
+func initConfig(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags) *config.Config {
+	if !flags.NoBanner && !flags.Silent && !bannerPrinted {
+		_, _ = fmt.Fprint(runtime.stderr, banner)
 		bannerPrinted = true
 	}
-
-	logging.Debug().Msgf("using %s regex engine", regexp.Version())
-
-	cfgPath, err := rootCmd.Flags().GetString("config")
+	runtime.Logger().Debug("using regex engine", "version", runtime.regexEngine().Version())
+	resolved, err := resolveConfig(runtime, globals.Config, "")
 	if err != nil {
-		logging.Fatal().Msg(err.Error())
+		runtime.fatal("unable to load config", "error", err)
 	}
-	if cfgPath != "" {
-		resolvedConfigPath = cfgPath
-		logging.Debug().Msgf("using config %s from `--config`", cfgPath)
-		loadedConfig = mustLoadConfigFile(cfgPath)
-	} else if envPath := getEnvWithFallback("BETTERLEAKS_CONFIG", "GITLEAKS_CONFIG"); envPath != "" {
-		resolvedConfigPath = envPath
-		logging.Debug().Msgf("using config from env var: %s", envPath)
-		loadedConfig = mustLoadConfigFile(envPath)
-	} else if configContent := getEnvWithFallback("BETTERLEAKS_CONFIG_TOML", "GITLEAKS_CONFIG_TOML"); configContent != "" {
-		cfg, err := config.ParseTOMLString(configContent, "")
-		if err != nil {
-			logging.Fatal().Err(err).Str("content", configContent).Msg("unable to load config from env var")
-		}
-		logging.Debug().Str("content", configContent).Msg("using config from env var content")
-		// resolvedConfigPath stays "" — inline content, no file to skip.
-		loadedConfig = cfg
-		return
-	} else {
-		fileInfo, err := os.Stat(source)
-		if err != nil {
-			logging.Fatal().Msg(err.Error())
-		}
-
-		if !fileInfo.IsDir() {
-			logging.Debug().Msgf("unable to load config from %s since --source=%s is a file, using default config",
-				filepath.Join(source, ".betterleaks.toml"), source)
-			loadedConfig, err = config.Default()
-			if err != nil {
-				logging.Fatal().Msgf("err reading toml %s", err.Error())
-			}
-			// resolvedConfigPath stays "" — using embedded default config.
-			return
-		}
-
-		// Check for config file: .betterleaks.toml first, then .gitleaks.toml
-		configFile := findConfigFile(source)
-		if configFile == "" {
-			logging.Debug().Msgf("no config found in path %s, using default config", source)
-
-			loadedConfig, err = config.Default()
-			if err != nil {
-				logging.Fatal().Msgf("err reading default config toml %s", err.Error())
-			}
-			// resolvedConfigPath stays "" — using embedded default config.
-			return
-		} else {
-			resolvedConfigPath = configFile
-			logging.Debug().Msgf("using existing config %s", configFile)
-		}
-
-		loadedConfig = mustLoadConfigFile(configFile)
+	runtime.Logger().Debug("using config", "source", resolved.source)
+	// Apply rule selection once, before any target constructs its engines.
+	if err := applyRuleSelection(runtime.Logger(), flags, resolved.cfg); err != nil {
+		runtime.fatal("unable to apply rule selection", "error", err)
 	}
+	return resolved.cfg
 }
 
-func mustLoadConfigFile(path string) *config.Config {
-	cfg, err := config.LoadFile(path)
-	if err != nil {
-		logging.Fatal().Msgf("unable to load config, err: %s", err)
-	}
-	return cfg
-}
-
-// getEnvWithFallback returns the value of the first environment variable that is set.
-// This allows betterleaks env vars to take precedence over gitleaks env vars.
-func getEnvWithFallback(primary, fallback string) string {
-	if val := os.Getenv(primary); val != "" {
-		return val
-	}
-	return os.Getenv(fallback)
-}
-
-// findConfigFile looks for a config file in the given directory.
-// It checks for .betterleaks.toml first, then .gitleaks.toml for backwards compatibility.
-func findConfigFile(source string) string {
-	for _, name := range []string{".betterleaks.toml", ".gitleaks.toml"} {
-		path := filepath.Join(source, name)
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	return ""
-}
-
-// findIgnoreFile looks for an ignore file in the given directory.
-// It checks for .betterleaksignore first, then .gitleaksignore for backwards compatibility.
-func findIgnoreFile(dir string) string {
-	for _, name := range []string{".betterleaksignore", ".gitleaksignore"} {
-		path := filepath.Join(dir, name)
-		if fileExists(path) {
-			return path
-		}
-	}
-	return ""
-}
-
-func initDiagnostics() {
-	// Initialize diagnostics manager
-	diagnosticsFlag, err := rootCmd.PersistentFlags().GetString("diagnostics")
-	if err != nil {
-		logging.Fatal().Err(err).Msg("Error getting diagnostics flag")
-	}
-
-	diagnosticsDir, err := rootCmd.PersistentFlags().GetString("diagnostics-dir")
-	if err != nil {
-		logging.Fatal().Err(err).Msg("Error getting diagnostics-dir flag")
-	}
-
+func initDiagnostics(runtime *commandRuntime, flags *ScanFlags) {
 	var diagErr error
-	diagnosticsManager, diagErr = NewDiagnosticsManager(diagnosticsFlag, diagnosticsDir)
+	diagnosticsManager, diagErr = NewDiagnosticsManager(flags.Diagnostics, flags.DiagnosticsDir, runtime.Logger())
 	if diagErr != nil {
-		logging.Fatal().Err(diagErr).Msg("Error initializing diagnostics")
+		runtime.fatal("Error initializing diagnostics", "error", diagErr)
 	}
 
 	if diagnosticsManager.Enabled {
-		logging.Info().Msg("Starting diagnostics...")
+		runtime.Context = diagnosticsManager.withContext(runtime.Context)
+		runtime.Logger().Info("Starting diagnostics...")
 		if diagErr := diagnosticsManager.StartDiagnostics(); diagErr != nil {
-			logging.Fatal().Err(diagErr).Msg("Failed to start diagnostics")
+			runtime.fatal("Failed to start diagnostics", "error", diagErr)
 		}
 	}
 
 }
 
 func Execute() {
-	// pflag only supports single-character shorthands. Expand the requested
-	// multi-character aliases before Cobra parses the command line.
-	rootCmd.SetArgs(expandRuleFlagShorthands(os.Args[1:]))
-	if err := rootCmd.Execute(); err != nil {
-		if strings.Contains(err.Error(), "unknown flag") {
-			// exit code 126: Command invoked cannot execute
-			os.Exit(126)
-		}
-		logging.Fatal().Msg(err.Error())
+	ExecuteContext(context.Background())
+}
+
+func ExecuteContext(ctx context.Context) {
+	runtime := &commandRuntime{
+		Context: ctx,
+		stdin:   os.Stdin,
+		stdout:  os.Stdout,
+		stderr:  os.Stderr,
+		logger: logging.NewConsole(os.Stderr, logging.ConsoleOptions{
+			Level: slog.LevelInfo,
+		}),
+		exit: os.Exit,
+	}
+	if err := runCLIWithErrorHandling(expandRuleFlagShorthands(os.Args[1:]), runtime); err != nil {
+		runtime.fatal(err.Error())
 	}
 }
 
-func Config(cmd *cobra.Command) *config.Config {
-	if loadedConfig == nil {
-		logging.Fatal().Msg("Failed to load config")
+func runCLI(args []string, runtime *commandRuntime) error {
+	cli := &CLI{}
+	parser, err := newCLIParser(cli, runtime)
+	if err != nil {
+		return err
 	}
-	cfg := *loadedConfig
-	cfg.Path = resolvedConfigPath
-
-	return &cfg
+	return runCLIWithParser(args, runtime, cli, parser)
 }
 
-func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Detector {
-	var err error
-
-	// Apply rule overrides BEFORE constructing the detector so that
-	// NewDetectorContext compiles expression filters for the final rule set.
-	if err := applyRuleSelection(cmd, cfg); err != nil {
-		logging.Fatal().Err(err).Msg("unable to apply rule selection")
-	}
-
-	// Setup common detector. NewDetectorContext compiles all expression programs
-	// and sets up the validation pool, so the cfg must be fully prepared.
-	validationEnvVars, err := cmd.Flags().GetStringSlice("validation-env-vars")
+func runCLIWithErrorHandling(args []string, runtime *commandRuntime) error {
+	cli := &CLI{}
+	parser, err := newCLIParser(cli, runtime)
 	if err != nil {
-		logging.Fatal().Err(err).Msg("validation-env-vars flag")
+		return err
 	}
-	validationMaxRequests, err := getValidationMaxRequests(cmd)
-	if err != nil {
-		logging.Fatal().Err(err).Msg("validation maximum requests")
-	}
-	validationRPS := mustGetFloat64Flag(cmd, "validation-rps")
-	if err := validateValidationRPS(validationRPS); err != nil {
-		logging.Fatal().Err(err).Msg("validation-rps")
-	}
-	validationRPSRuleValues, err := cmd.Flags().GetStringSlice("validation-rps-rule")
-	if err != nil {
-		logging.Fatal().Err(err).Msg("validation-rps-rule flag")
-	}
-	validationRPSByRule, err := parseValidationRuleRPS(validationRPSRuleValues)
-	if err != nil {
-		logging.Fatal().Err(err).Msg("validation-rps-rule")
-	}
-	valOpts := detect.ValidationOptions{
-		Enabled:                 mustGetBoolFlag(cmd, "validation"),
-		Debug:                   mustGetBoolFlag(cmd, "validation-debug"),
-		Workers:                 mustGetIntFlag(cmd, "validation-workers"),
-		ExtractEmpty:            mustGetBoolFlag(cmd, "validation-extract-empty"),
-		StatusFilter:            mustGetStringFlag(cmd, "validation-status"),
-		MaxRequestsPerTarget:    validationMaxRequests,
-		RequestsPerSecond:       validationRPS,
-		RequestsPerSecondByRule: validationRPSByRule,
-		ValidationEnvVars:       validationEnvVars,
-	}
-	valOpts.Timeout, _ = cmd.Flags().GetDuration("validation-timeout")
-
-	detector := detect.NewDetectorContext(cmd.Context(), cfg, valOpts)
-	detector.MinConfidence, err = confidenceFlag(cmd)
-	if err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	if diagnosticsManager != nil && diagnosticsManager.RuleTimings != nil {
-		detector.RuleTimings = diagnosticsManager.RuleTimings
+	err = runCLIWithParser(args, runtime, cli, parser)
+	if err == nil {
+		return nil
 	}
 
-	if detector.MaxDecodeDepth, err = cmd.Flags().GetInt("max-decode-depth"); err != nil {
-		logging.Fatal().Err(err).Send()
+	var parseErr *kong.ParseError
+	if !errors.As(err, &parseErr) {
+		return err
 	}
+	if strings.Contains(err.Error(), "unknown flag") {
+		// Preserve the exit code used before the Kong migration.
+		err = cliExitError{error: err, code: 126}
+	}
+	parser.FatalIfErrorf(err)
+	return nil
+}
 
-	if detector.MaxArchiveDepth, err = cmd.Flags().GetInt("max-archive-depth"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
+type cliExitError struct {
+	error
+	code int
+}
 
-	// set color flag at first
-	if detector.NoColor, err = cmd.Flags().GetBool("no-color"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	// also init logger again without color
-	if detector.NoColor {
-		logging.Logger = log.Output(zerolog.ConsoleWriter{
-			Out:     os.Stderr,
-			NoColor: detector.NoColor,
-		}).Level(logLevel)
-	}
-	// set verbose flag
-	if detector.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	// set redact flag
-	if detector.Redact, err = cmd.Flags().GetUint("redact"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	if detector.LegacyPrint, err = cmd.Flags().GetBool("legacy-print"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	if detector.MaxTargetMegaBytes, err = cmd.Flags().GetInt("max-target-megabytes"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
-	// set ignore gitleaks:allow / betterleaks:allow flag
-	if detector.IgnoreGitleaksAllow, err = cmd.Flags().GetBool("ignore-gitleaks-allow"); err != nil {
-		logging.Fatal().Err(err).Send()
-	}
+func (e cliExitError) ExitCode() int { return e.code }
+func (e cliExitError) Unwrap() error { return e.error }
 
-	matchContextStr, err := cmd.Flags().GetString("match-context")
+func runCLIWithParser(args []string, runtime *commandRuntime, cli *CLI, parser *cliParser) error {
+	if len(args) == 0 {
+		args = []string{"--help"}
+	}
+	parsed, err := parser.Parse(args)
 	if err != nil {
-		logging.Fatal().Err(err).Send()
+		return err
 	}
-	if matchContextStr != "" {
-		detector.MatchContext, err = contextwindow.Parse(matchContextStr)
-		if err != nil {
-			logging.Fatal().Err(err).Msg("invalid --match-context value")
+	if err := initLog(&cli.GlobalFlags, parsed, runtime); err != nil {
+		return err
+	}
+	return parsed.Run(runtime)
+}
+
+func newCLIParser(cli *CLI, runtime *commandRuntime) (*cliParser, error) {
+	parser, err := kong.New(
+		cli,
+		kong.Name("betterleaks"),
+		kong.Description("Betterleaks scans code, past or present, for secrets"),
+		kong.Vars{
+			"config_help":     configDescription,
+			"analyze_workers": strconv.Itoa(defaultAnalyzeWorkers),
+		},
+		kong.Writers(runtime.stdout, runtime.stderr),
+		kong.Exit(runtime.exit),
+		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
+		kong.Help(printCLIHelp),
+		kong.Groups{
+			"scanning":    "Scanning Options:",
+			"output":      "Output Options:",
+			"validation":  "Validation & Analysis Options:",
+			"source":      "Source Options:",
+			"diagnostics": "Diagnostics Options:",
+		},
+		kong.AutoGroup(func(kong.Visitable, *kong.Flag) *kong.Group {
+			return &kong.Group{Key: "options", Title: "Options:"}
+		}),
+		kong.UsageOnError(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &cliParser{Kong: parser}, nil
+}
+
+type versionFlag bool
+
+func (v *versionFlag) Decode(*kong.DecodeContext) error {
+	*v = true
+	return nil
+}
+
+func (*versionFlag) IsBool() bool { return true }
+
+func (versionFlag) BeforeApply(app *kong.Kong) error {
+	_, _ = fmt.Fprintln(app.Stdout, version.Version)
+	app.Exit(0)
+	return nil
+}
+
+func newScanPipeline(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags, cfg *config.Config, extraOptions ...scan.Option) (*pipeline.Pipeline, error) {
+	if err := validateProviderRPS(flags.ProviderRPS); err != nil {
+		return nil, fmt.Errorf("provider-rps: %w", err)
+	}
+	providerRPSByRule, err := parseProviderRuleRPS(flags.ProviderRPSRule)
+	if err != nil {
+		return nil, fmt.Errorf("provider-rps-rule: %w", err)
+	}
+	scannerOptions := []scan.Option{
+		scan.WithRegexEngine(runtime.regexEngine()),
+		scan.WithWorkers(flags.Jobs),
+		scan.WithMaxDecodeDepth(flags.MaxDecodeDepth),
+		scan.WithMinimumConfidence(flags.Confidence),
+	}
+	key, err := fingerprintKey(flags.HMACKey)
+	if err != nil {
+		return nil, err
+	}
+	if len(key) > 0 {
+		scannerOptions = append(scannerOptions, scan.WithFingerprintKey(key))
+	}
+	if flags.NoAllowSignatures {
+		scannerOptions = append(scannerOptions, scan.WithAllowSignatures())
+	} else if len(flags.AllowSignatures) > 0 {
+		scannerOptions = append(scannerOptions, scan.WithAllowSignatures(flags.AllowSignatures...))
+	}
+	if flags.MatchContext != "" {
+		scannerOptions = append(scannerOptions, scan.WithMatchContext(flags.MatchContext))
+	}
+	scannerOptions = append(scannerOptions, scan.WithLogger(runtime.Logger()))
+	scannerOptions = append(scannerOptions, extraOptions...)
+	scanner, err := scan.New(cfg, scannerOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create scanner: %w", err)
+	}
+	var analyzer *analyze.Analyzer
+	var pipelineOptions []pipeline.Option
+	if flags.validationEnabled() {
+		statuses, statusErr := parseValidationStatuses(flags.ValidationStatus)
+		if statusErr != nil {
+			return nil, fmt.Errorf("status: %w", statusErr)
 		}
-	}
-
-	ignorePath, err := cmd.Flags().GetString("gitleaks-ignore-path")
-	if err != nil {
-		logging.Fatal().Err(err).Msg("could not get ignore path")
-	}
-
-	// If the flag points directly to an ignore file, use it
-	if fileExists(ignorePath) {
-		if err = detector.AddGitleaksIgnore(ignorePath); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// Check for ignore file in the flag directory (.betterleaksignore first, then .gitleaksignore)
-	if ignoreFile := findIgnoreFile(ignorePath); ignoreFile != "" {
-		if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// Check for ignore file in the source directory (.betterleaksignore first, then .gitleaksignore)
-	if ignoreFile := findIgnoreFile(source); ignoreFile != "" {
-		if err = detector.AddGitleaksIgnore(ignoreFile); err != nil {
-			logging.Fatal().Err(err).Msg("could not load ignore file")
-		}
-	}
-
-	// ignore findings from the baseline (an existing report in json format generated earlier)
-	baselinePath, _ := cmd.Flags().GetString("baseline-path")
-	if baselinePath != "" {
-		err = detector.AddBaseline(baselinePath, source)
-		if err != nil {
-			logging.Error().Msgf("Could not load baseline. The path must point of a gitleaks report generated using the default format: %s", err)
-		}
-	}
-
-	// Validate report settings.
-	reportPath := mustGetStringFlag(cmd, "report-path")
-	if reportPath != "" {
-		if reportPath != report.StdoutReportPath {
-			// Ensure the path is writable.
-			if f, err := os.Create(reportPath); err != nil {
-				logging.Fatal().Err(err).Msgf("Report path is not writable: %s", reportPath)
-			} else {
-				_ = f.Close()
-				_ = os.Remove(reportPath)
-			}
-		}
-
-		// Build report writer.
-		var (
-			reporter       report.Reporter
-			reportFormat   = mustGetStringFlag(cmd, "report-format")
-			reportTemplate = mustGetStringFlag(cmd, "report-template")
+		pipelineOptions = append(pipelineOptions, pipeline.WithValidationStatuses(statuses...))
+		analyzer, err = analyze.New(cfg,
+			analyze.WithRegexEngine(runtime.regexEngine()),
+			analyze.WithLogger(runtime.Logger()),
+			analyze.WithWorkers(resolveAnalyzeWorkers(flags.ProviderWorkers)),
+			analyze.WithDebug(flags.ProviderDebug),
+			analyze.WithTimeout(flags.ProviderTimeout),
+			analyze.WithMaxRequestsPerTarget(flags.ProviderMaxRequests),
+			analyze.WithRequestsPerSecond(flags.ProviderRPS),
+			analyze.WithRequestsPerSecondByRule(providerRPSByRule),
+			analyze.WithEnvVars(flags.ProviderEnvVars...),
 		)
-		if reportFormat == "" {
-			ext := strings.ToLower(filepath.Ext(reportPath))
-			switch ext {
-			case ".csv":
-				reportFormat = "csv"
-			case ".json":
-				reportFormat = "json"
-			case ".sarif":
-				reportFormat = "sarif"
-			default:
-				logging.Fatal().Msgf("Unknown report format: %s", reportFormat)
-			}
-			logging.Debug().Msgf("No report format specified, inferred %q from %q", reportFormat, ext)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create analyzer: %w", err)
 		}
-		switch strings.TrimSpace(strings.ToLower(reportFormat)) {
-		case "csv":
-			reporter = &report.CsvReporter{}
-		case "json":
-			reporter = &report.JsonReporter{}
-		case "junit":
-			reporter = &report.JunitReporter{}
-		case "sarif":
-			reporter = &report.SarifReporter{
-				OrderedRules: cfg.GetOrderedRules(),
-			}
-		case "template":
-			if reporter, err = report.NewTemplateReporter(reportTemplate); err != nil {
-				logging.Fatal().Err(err).Msg("Invalid report template")
-			}
+		if !flags.analysisEnabled() {
+			pipelineOptions = append(pipelineOptions, pipeline.WithValidationOnly())
+		}
+		if !analyzer.HasValidation() {
+			runtime.Logger().Debug("no enabled rules have validation expressions")
+		}
+		if flags.analysisEnabled() && !analyzer.HasAnalysis() {
+			runtime.Logger().Debug("no enabled rules have analysis expressions")
+		}
+	}
+	runner, err := pipeline.New(scanner, analyzer, pipelineOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create pipeline: %w", err)
+	}
+	return runner, nil
+}
+
+func parseValidationStatuses(value string) ([]report.ValidationStatus, error) {
+	var statuses []report.ValidationStatus
+	for value := range strings.SplitSeq(value, ",") {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if value == "none" {
+			statuses = append(statuses, report.ValidationStatusNone)
+			continue
+		}
+		status := report.ValidationStatus(value)
+		switch status {
+		case report.ValidationStatusValid,
+			report.ValidationStatusNeedsValidation,
+			report.ValidationStatusInvalid,
+			report.ValidationStatusRevoked,
+			report.ValidationStatusUnknown,
+			report.ValidationStatusError:
+			statuses = append(statuses, status)
 		default:
-			logging.Fatal().Msgf("unknown report format %s", reportFormat)
+			return nil, fmt.Errorf("invalid validation status %q", value)
 		}
+	}
+	return statuses, nil
+}
 
-		// Sanity check.
-		if reportTemplate != "" && reportFormat != "template" {
-			logging.Fatal().Msgf("Report format must be 'template' if --report-template is specified")
+type scanFilters struct {
+	shouldSkip   sources.PrefilterFunc
+	fingerprints []fingerprint.Hash
+}
+
+func loadScanFilters(runtime *commandRuntime, cfg *config.Config, ignorePath, source string) (scanFilters, error) {
+	hashes, excluded, err := readIgnoreFile(runtime, ignorePath, source)
+	if err != nil {
+		return scanFilters{}, fmt.Errorf("unable to load ignore file: %w", err)
+	}
+	if cfg.Path != "" {
+		excluded = append(excluded, cfg.Path)
+	}
+	skip, err := prefilter.Compile(cfg.PrefilterExpr, prefilter.Options{
+		ExcludedPaths: excluded,
+		RegexEngine:   runtime.regexEngine(),
+		Logger:        runtime.Logger(),
+	})
+	if err != nil {
+		return scanFilters{}, fmt.Errorf("unable to compile source prefilter: %w", err)
+	}
+	return scanFilters{shouldSkip: skip, fingerprints: hashes}, nil
+}
+
+func readIgnoreFile(runtime *commandRuntime, explicitPath, source string) ([]fingerprint.Hash, []string, error) {
+	path := explicitPath
+	explicit := path != ""
+	if !explicit {
+		path = filepath.Join(".", ".betterleaksignore")
+		if source != "" {
+			info, err := os.Stat(source)
+			if err != nil {
+				return nil, nil, err
+			}
+			if info.IsDir() {
+				path = filepath.Join(source, ".betterleaksignore")
+			} else {
+				path = filepath.Join(filepath.Dir(source), ".betterleaksignore")
+			}
 		}
-
-		detector.ReportPath = reportPath
-		detector.Reporter = reporter
 	}
 
-	return detector
+	file, err := os.Open(path)
+	if err != nil {
+		if !explicit && os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		if explicit {
+			return nil, nil, fmt.Errorf("open %q: %w", path, err)
+		}
+		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s: %v\n", path, err)
+		return nil, nil, nil
+	}
+	defer file.Close()
+
+	hashes, diagnostics, readErr := fingerprint.Load(file)
+	for _, diagnostic := range diagnostics {
+		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s:%d: %s; entry ignored\n", path, diagnostic.Line, diagnostic.Reason)
+	}
+	if readErr != nil {
+		if explicit {
+			return nil, nil, fmt.Errorf("read %q: %w", path, readErr)
+		}
+		_, _ = fmt.Fprintf(runtime.stderr, "warning: %s: %v\n", path, readErr)
+	}
+
+	var excluded []string
+	if source != "" {
+		excluded = append(excluded, path)
+		ignorePath, ignoreErr := filepath.Abs(path)
+		if ignoreErr == nil {
+			excluded = append(excluded, ignorePath)
+		}
+		if info, err := os.Stat(source); err == nil && info.IsDir() {
+			sourcePath, sourceErr := filepath.Abs(source)
+			if sourceErr == nil && ignoreErr == nil {
+				if relative, err := filepath.Rel(sourcePath, ignorePath); err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+					excluded = append(excluded, relative)
+				}
+			}
+		}
+	}
+	return hashes, excluded, nil
 }
 
 func bytesConvert(bytes uint64) string {
@@ -568,97 +545,77 @@ func bytesConvert(bytes uint64) string {
 	return fmt.Sprintf("%s %s", stringValue, unit)
 }
 
-func findingSummaryAndExit(detector *detect.Detector, findings []report.Finding, exitCode int, start time.Time, err error) {
+func addScanSummary(total *pipeline.ScanSummary, next pipeline.ScanSummary) {
+	total.BytesInspected += next.BytesInspected
+	total.DetectedFindings += next.DetectedFindings
+	total.EmittedFindings += next.EmittedFindings
+	if total.ValidationCounts == nil {
+		total.ValidationCounts = make(map[report.ValidationStatus]int)
+	}
+	for status, count := range next.ValidationCounts {
+		total.ValidationCounts[status] += count
+	}
+}
+
+func findingSummaryAndExit(runtime *commandRuntime, summary pipeline.ScanSummary, validationEnabled bool, findings *findingCollector, exitCode int, start time.Time, err error) {
+	if err == nil {
+		err = runtime.Err()
+	}
+	findings.scan.State = report.ScanStateIncomplete
+	if err == nil {
+		findings.scan.State = report.ScanStateComplete
+	}
+	findings.scan.BytesScanned = summary.BytesInspected
+	// Resolve cancellation before finalization so interrupted reports cannot be
+	// marked complete. Close still writes their metadata and JSON delimiters.
+	if outputErr := findings.Close(); outputErr != nil {
+		runtime.fatal("failed to finish finding output", "error", outputErr)
+	}
+
 	if diagnosticsManager.Enabled {
-		logging.Debug().Msg("Finalizing diagnostics...")
+		runtime.Logger().Debug("Finalizing diagnostics...")
 		diagnosticsManager.StopDiagnostics()
 	}
 
-	if detector.ValidationPool != nil {
-		logging.Info().
-			Int("valid", detector.ValidationCounts["valid"]).
-			Int("needs_validation", detector.ValidationCounts["needs_validation"]).
-			Int("invalid", detector.ValidationCounts["invalid"]).
-			Int("revoked", detector.ValidationCounts["revoked"]).
-			Int("unknown", detector.ValidationCounts["unknown"]).
-			Int("errors", detector.ValidationCounts["error"]).
-			Msg("validation complete")
+	if validationEnabled {
+		runtime.Logger().Info("validation complete",
+			"valid", summary.ValidationCounts[report.ValidationStatusValid],
+			"needs_validation", summary.ValidationCounts[report.ValidationStatusNeedsValidation],
+			"invalid", summary.ValidationCounts[report.ValidationStatusInvalid],
+			"revoked", summary.ValidationCounts[report.ValidationStatusRevoked],
+			"unknown", summary.ValidationCounts[report.ValidationStatusUnknown],
+			"errors", summary.ValidationCounts[report.ValidationStatusError],
+			"unchecked", summary.ValidationCounts[report.ValidationStatusNone],
+		)
 	}
 
-	findings = detector.FilterByStatus(findings)
-	detect.RedactFindings(findings, detector.Redact)
-
-	totalBytes := detector.TotalBytes.Load()
+	totalBytes := summary.BytesInspected
 	bytesMsg := fmt.Sprintf("scanned ~%d bytes (%s)", totalBytes, bytesConvert(totalBytes))
 	if err == nil {
-		logging.Info().Msgf("%s in %s", bytesMsg, FormatDuration(time.Since(start)))
-		if len(findings) != 0 {
-			logging.Warn().Msgf("leaks found: %d", len(findings))
+		runtime.Logger().Info(fmt.Sprintf("%s in %s", bytesMsg, FormatDuration(time.Since(start))))
+		if findings.Count() != 0 {
+			runtime.Logger().Warn(fmt.Sprintf("leaks found: %d", findings.Count()))
 		} else {
-			logging.Info().Msg("no leaks found")
+			runtime.Logger().Info("no leaks found")
 		}
 	} else {
-		logging.Warn().Msg(bytesMsg)
-		logging.Warn().Msgf("partial scan completed in %s", FormatDuration(time.Since(start)))
-		if len(findings) != 0 {
-			logging.Warn().Msgf("%d leaks found in partial scan", len(findings))
+		runtime.Logger().Warn(bytesMsg)
+		runtime.Logger().Warn(fmt.Sprintf("incomplete scan ended after %s", FormatDuration(time.Since(start))))
+		if findings.Count() != 0 {
+			runtime.Logger().Warn(fmt.Sprintf("%d leaks found in incomplete scan", findings.Count()))
 		} else {
-			logging.Warn().Msg("no leaks found in partial scan")
-		}
-	}
-
-	// write report if desired
-	if detector.Reporter != nil {
-		var (
-			file      io.WriteCloser
-			reportErr error
-		)
-
-		if detector.ReportPath == report.StdoutReportPath {
-			file = os.Stdout
-		} else {
-			// Open the file.
-			if file, reportErr = os.Create(detector.ReportPath); reportErr != nil {
-				goto ReportEnd
-			}
-			defer func() {
-				_ = file.Close()
-			}()
-		}
-
-		// Write to the file.
-		if reportErr = detector.Reporter.Write(file, findings); reportErr != nil {
-			goto ReportEnd
-		}
-
-	ReportEnd:
-		if reportErr != nil {
-			logging.Fatal().Err(reportErr).Msg("failed to write report")
+			runtime.Logger().Warn("no leaks found in incomplete scan")
 		}
 	}
 
 	if err != nil {
-		os.Exit(1)
+		runtime.exit(1)
+		return
 	}
 
-	if len(findings) != 0 {
-		os.Exit(exitCode)
+	if findings.Count() != 0 {
+		runtime.exit(exitCode)
 	}
-}
-
-func fileExists(fileName string) bool {
-	// check for a .gitleaksignore file
-	info, err := os.Stat(fileName)
-	if err != nil && !os.IsNotExist(err) {
-		return false
-	}
-
-	if info != nil && err == nil {
-		if !info.IsDir() {
-			return true
-		}
-	}
-	return false
 }
 
 func FormatDuration(d time.Duration) string {

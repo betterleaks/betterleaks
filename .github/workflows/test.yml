@@ -22,7 +22,15 @@ jobs:
         # v6.3.0 (https://github.com/actions/setup-go/releases/tag/v6.3.0)
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
+
+      # v7.2.2 (https://github.com/goreleaser/goreleaser-action/releases/tag/v7.2.2)
+      - name: Check release configuration
+        if: matrix.platform == 'ubuntu-latest'
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89
+        with:
+          version: "~> v2"
+          args: check
 
       - name: Build
         run: go build ./...

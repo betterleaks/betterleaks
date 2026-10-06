@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ZohoOAuthToken() *config.Rule {
@@ -12,7 +12,7 @@ func ZohoOAuthToken() *config.Rule {
 	// token valid, but every non-success remains unknown rather than incorrectly
 	// rejecting a refresh token or a credential issued in another region.
 	r := config.Rule{
-		RuleID:      "zoho-oauth-token.1",
+		ID:          "zoho-oauth-token.1",
 		Confidence:  "high",
 		Description: "Zoho OAuth access or refresh token, which may allow access to Zoho APIs or minting of new access tokens.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"zoho"}, `1000\.`+utils.Hex("32")+`\.`+utils.Hex("32"), true),
@@ -23,7 +23,7 @@ func ZohoOAuthToken() *config.Rule {
   }); r.status == 200 && (r.body contains "\"users\"") ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	token := "1000." +
@@ -45,13 +45,13 @@ func ZohoOAuthToken() *config.Rule {
 
 func ZohoClientID() *config.Rule {
 	r := config.Rule{
-		RuleID:      "zoho-client-id.1",
+		ID:          "zoho-client-id.1",
 		Confidence:  "medium",
 		Description: "Zoho OAuth client ID, used as a component of the zoho-client-secret.1 composite rule.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"zoho"}, `1000\.`+utils.AlphaNumeric("30"), true),
 		Keywords:    []string{"zoho"},
 		SkipReport:  true,
-		Filter:      utils.MinEntropy(3.0),
+		FilterExpr:  utils.MinEntropy(3.0),
 	}
 
 	clientID := "1000." + secrets.NewSecretWithEntropy(`[A-Za-z0-9]{30}`, 3.0)
@@ -75,12 +75,12 @@ func ZohoClientSecret() *config.Rule {
 	// but all other responses remain unknown because invalid_client can also
 	// mean that a valid pair was sent to the wrong Zoho accounts region.
 	r := config.Rule{
-		RuleID:      "zoho-client-secret.1",
+		ID:          "zoho-client-secret.1",
 		Confidence:  "high",
 		Description: "Zoho OAuth client secret, which may allow OAuth client authentication when paired with the associated client ID.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"zoho"}, utils.Hex("42"), true),
 		Keywords:    []string{"zoho"},
-		Components: []*config.Component{
+		Components: []config.Component{
 			{RuleID: "zoho-client-id.1", Within: "5L"},
 		},
 		ValidateExpr: `let r = http.post("https://accounts.zoho.com/oauth/v2/token", {
@@ -94,7 +94,7 @@ func ZohoClientSecret() *config.Rule {
   r.status == 200 && (r.json?.error ?? "") == "invalid_code" ? {
     "result": "valid"
   } : validate.unknown(r)`,
-		Filter: utils.MinEntropy(3.5),
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	clientSecret := secrets.NewSecretWithEntropy(`[a-f0-9]{42}`, 3.5)
@@ -115,7 +115,7 @@ func ZohoZAPIKey() *config.Rule {
 	// requires that function's provider-owned URL, which cannot be reconstructed
 	// safely from the key alone.
 	r := config.Rule{
-		RuleID:      "zoho-zapi-key.1",
+		ID:          "zoho-zapi-key.1",
 		Confidence:  "high",
 		Description: "Zoho ZAPI key, which may authorize CRM functions, extensions, webhooks, or other Zoho APIs.",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -123,8 +123,8 @@ func ZohoZAPIKey() *config.Rule {
 			`(?:1001\.`+utils.Hex("32")+`\.`+utils.Hex("32")+`(?:-d)?|1003\.`+utils.Hex("32,64")+`)`,
 			true,
 		),
-		Keywords: []string{"zoho"},
-		Filter:   utils.MinEntropy(3.5),
+		Keywords:   []string{"zoho"},
+		FilterExpr: utils.MinEntropy(3.5),
 	}
 
 	keyV1 := "1001." +

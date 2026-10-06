@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func ZAIAPIKey() *config.Rule {
 	r := config.Rule{
-		RuleID:      "zai-api-key",
+		ID:          "zai-api-key",
 		Confidence:  "medium",
 		Description: "Detected a Z.ai API key, which may expose GLM model access and usage to unauthorized parties.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"zai", "z_ai", `z\.ai`, "glm", "zlm"}, utils.Hex("32")+`\.`+utils.AlphaNumeric("16"), true),
@@ -29,12 +29,10 @@ func ZAIAPIKey() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	}
 
-	tps := append(
-		utils.GenerateSampleSecrets("zai", "cbe5985d07804065b46efaf1daa82834.ZLV4IOHGbEEHPDt5"),
-	)
+	tps := utils.GenerateSampleSecrets("zai", "cbe5985d07804065b46efaf1daa82834.ZLV4IOHGbEEHPDt5")
 	fps := []string{}
 	return utils.Validate(r, tps, fps)
 }

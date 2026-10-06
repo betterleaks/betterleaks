@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 const pineconeValidateExpr = `let r = http.get("https://api.pinecone.io/indexes", {
@@ -23,7 +23,7 @@ const pineconeValidateExpr = `let r = http.get("https://api.pinecone.io/indexes"
 func PineconeAPIKeyV1() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "pinecone-api-key.1",
+		ID:          "pinecone-api-key.1",
 		Confidence:  "medium",
 		Description: "Pinecone API key version 1 (UUID format).",
 		Regex: utils.GenerateSemiGenericRegex(
@@ -33,7 +33,7 @@ func PineconeAPIKeyV1() *config.Rule {
 		),
 		Keywords:     []string{"pinecone"},
 		ValidateExpr: pineconeValidateExpr,
-		Filter:       utils.MinEntropy(3.0),
+		FilterExpr:   utils.MinEntropy(3.0),
 	}
 
 	// validate
@@ -50,13 +50,13 @@ func PineconeAPIKeyV1() *config.Rule {
 func PineconeAPIKeyV2() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:       "pinecone-api-key.2",
+		ID:           "pinecone-api-key.2",
 		Confidence:   "high",
 		Description:  "Pinecone API key version 2 (pcsk format).",
 		Regex:        utils.GenerateUniqueTokenRegex(`pcsk_[A-Za-z0-9]{5,6}_[A-Za-z0-9]{63}`, false),
 		Keywords:     []string{"pcsk_"},
 		ValidateExpr: pineconeValidateExpr,
-		Filter:       utils.MinEntropy(3.5),
+		FilterExpr:   utils.MinEntropy(3.5),
 	}
 
 	// validate

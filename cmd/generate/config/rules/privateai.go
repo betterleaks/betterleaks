@@ -1,15 +1,15 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func PrivateAIToken() *config.Rule {
 	// https://docs.private-ai.com/reference/latest/operation/metrics_metrics_get/
 	r := config.Rule{
-		RuleID:      "privateai-api-token",
+		ID:          "privateai-api-token",
 		Confidence:  "medium",
 		Description: "Identified a PrivateAI Token, posing a risk of unauthorized access to AI services and data manipulation.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"private[_-]?ai"}, `[a-z0-9]{32}`, false),
@@ -18,7 +18,7 @@ func PrivateAIToken() *config.Rule {
 			"private_ai",
 			"private-ai",
 		},
-		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
 
 	// validate

@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
 )
 
 func Cerebras() *config.Rule {
 	r := config.Rule{
-		RuleID:      "cerebras-api-key",
+		ID:          "cerebras-api-key",
 		Confidence:  "high",
 		Description: "Identified a Cerebras AI API Key, which may expose AI inference services to unauthorized access.",
 		Regex:       utils.GenerateUniqueTokenRegex(`csk-[a-z0-9]{48}`, true),
@@ -21,7 +21,7 @@ func Cerebras() *config.Rule {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	}
 
 	tps := utils.GenerateSampleSecrets("cerebras", "csk-"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("48"), 3.0))

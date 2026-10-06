@@ -1,16 +1,18 @@
 package rules
 
 import (
-	"github.com/betterleaks/betterleaks/cmd/generate/config/utils"
-	"github.com/betterleaks/betterleaks/cmd/generate/secrets"
-	"github.com/betterleaks/betterleaks/config"
-	"github.com/betterleaks/betterleaks/regexp"
+	"strings"
+
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
+	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
 func GenericCredential() *config.Rule {
 	// define rule
 	r := config.Rule{
-		RuleID:      "generic-api-key",
+		ID:          "generic-api-key",
 		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
 		Regex: utils.GenerateSemiGenericRegex([]string{
@@ -33,8 +35,12 @@ func GenericCredential() *config.Rule {
 			"secret",
 			"token",
 		},
-		Specificity: 0,
-		Filter: `// Provider checks use a fixed window around the match, clamped to its line.
+		Specificity: -100,
+		FilterExpr: `// Reject implausible values before preparing context and confidence.
+entropy(finding["secret"]) <= 3.5
+|| failsTokenEfficiency(finding["secret"])
+|| (
+// Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
   max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
   min(finding["match_end_idx"] + 50, finding["match_line_end_idx"])
@@ -42,7 +48,7 @@ let providerMatchContext = finding["fragment_raw"][
 
 // Recreate the generic rule's former [\w.-]{0,50} preamble. Only the
 // contiguous word, dot, and hyphen suffix immediately before the match counts.
-let genericMatchPrefix = filter.findMatch(
+let genericMatchPrefix = findMatch(
   finding["fragment_raw"][
     max(finding["match_start_idx"] - 50, finding["match_line_start_idx"]):
     finding["match_start_idx"]
@@ -55,19 +61,18 @@ let genericMatchContext =
   genericMatchPrefix +
   finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
 
-let level = filter.matchesAny(genericMatchContext, [
+let level = matchesAny(genericMatchContext, [
   ` + "`(?i)\\b[a-z0-9]+[_.-]+token\\b`" + `
 ]) ? "medium" : "low";
-let _ = filter.setConfidence(level);
+let _ = setConfidence(level);
 
 // big ol expression to filter out FPs
-entropy(finding["secret"]) <= 3.5
-|| filter.failsTokenEfficiency(finding["secret"])
-|| ` + genericAPIKeyFilter,
+` + genericAPIKeyFilter + `
+)`,
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("generic", "CLOJARS_34bf0e88955ff5a1c328d6a7491acc4f48e865a7b8dd4d70a70749037443") //gitleaks:allow
+	tps := utils.GenerateSampleSecrets("generic", "CLOJARS_34bf0e88955ff5a1c328d6a7491acc4f48e865a7b8dd4d70a70749037443") //betterleaks:allow
 	tps = append(tps, utils.GenerateSampleSecrets("generic", "Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB")...)
 	tps = append(tps,
 		// Access
@@ -114,7 +119,7 @@ _LIBCPP_CONSTEXPR_AFTER_CXX11 `,
 		`[DEBUG]		org.neo4j.neo4j-graphdb-api:jar:3.5.12:test`,
 		`apiUrl=apigee.corpint.com`,
 		`X-API-Name": "NRG0-Hermes-INTERNAL-API",`,
-		// TODO: Jetbrains IML files (requires line-level allowlist).
+		// TODO: Jetbrains IML files (requires a line-level filter).
 		// `<orderEntry type="library" scope="PROVIDED" name="Maven: org.apache.directory.api:api-asn1-api:1.0.0-M20" level="projcet" />`
 
 		// Auth
@@ -154,7 +159,7 @@ _LIBCPP_CONSTEXPR_AFTER_CXX11 `,
 		`-DKEYTAB_FILE=/tmp/app.keytab`,
 		`	doc.Security.KeySize = PdfEncryptionKeySize.Key128Bit;`,
 		`o.keySelector=n,o.haKey=!1,`,
-		// TODO: Requires line-level allowlists.
+		// TODO: Requires a line-level filter.
 		`                                "key_name": "prod5zyxlmy-cmk",`,
 		`                                "kms_key_id": "555ea4a3-d53a-4412-9c66-3a7cb667b0d6",`,
 		`	"key_vault_name": "web21prqodx24021",`,
@@ -222,7 +227,6 @@ jdbc.snowflake.url=`,
 }
 
 func newPlausibleSecret(regex string) string {
-	allowList := &config.Allowlist{StopWords: DefaultStopWords}
 	// attempt to generate a random secret,
 	// retrying until it contains at least one digit and no stop words
 	// TODO: currently the DefaultStopWords list contains many short words,
@@ -232,9 +236,19 @@ func newPlausibleSecret(regex string) string {
 		if !regexp.MustCompile(`[1-9]`).MatchString(secret) {
 			continue
 		}
-		if ok, _ := allowList.ContainsStopWord(secret); ok {
+		if containsStopWord(secret) {
 			continue
 		}
 		return secret
 	}
+}
+
+func containsStopWord(secret string) bool {
+	secret = strings.ToLower(secret)
+	for _, word := range DefaultStopWords {
+		if strings.Contains(secret, strings.ToLower(word)) {
+			return true
+		}
+	}
+	return false
 }
