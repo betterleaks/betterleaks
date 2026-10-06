@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"strings"
+
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
 	"github.com/betterleaks/betterleaks/v2/config"
@@ -193,7 +195,8 @@ func GitHubRefresh() *config.Rule {
 		ID:           "github-refresh-token",
 		Confidence:   "high",
 		Description:  "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services.",
-		Regex:        `ghr_[0-9a-zA-Z]{36}`,
+		Regex:        `(ghr_[0-9a-zA-Z]{76})(?:[^0-9a-zA-Z]|$)`,
+		ValueGroup:   1,
 		Keywords:     []string{"ghr_"},
 		ValidateExpr: githubTokenExpr,
 		RevokeExpr:   githubRevokeExpr,
@@ -201,9 +204,11 @@ func GitHubRefresh() *config.Rule {
 	}
 
 	// validate
-	tps := utils.GenerateSampleSecrets("github", "ghr_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("36"), 3))
+	tps := utils.GenerateSampleSecrets("github", "ghr_"+secrets.NewSecretWithEntropy(utils.AlphaNumeric("76"), 3))
 	fps := []string{
-		"ghr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+		"ghr_" + strings.Repeat("x", 76),
+		"ghr_" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("36"), 3),
+		"ghr_" + secrets.NewSecretWithEntropy(utils.AlphaNumeric("77"), 3),
 	}
 	return utils.Validate(r, tps, fps)
 }
