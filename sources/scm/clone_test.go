@@ -86,6 +86,8 @@ func TestAuthCloneConfigs(t *testing.T) {
 }
 
 func TestGitCloneEnv(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", "NUL")
+	t.Setenv("GIT_CONFIG_SYSTEM", "NUL")
 	env := gitCloneEnv([]GitConfig{{Key: "http.extraheader", Value: "Authorization: basic abc"}})
 	joined := strings.Join(env, "\n")
 
@@ -95,6 +97,8 @@ func TestGitCloneEnv(t *testing.T) {
 		"GIT_CONFIG_VALUE_0=Authorization: basic abc",
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_SYSTEM=/dev/null",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("gitCloneEnv() missing %q in %q", want, joined)
