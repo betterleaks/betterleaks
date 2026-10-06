@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"runtime"
 	"strings"
 )
 
@@ -149,12 +148,8 @@ func isSSHRemote(s string) bool {
 }
 
 func gitCloneEnv(configs []GitConfig) []string {
-	var nullDevice string
-	if runtime.GOOS == "windows" {
-		nullDevice = "NUL"
-	} else {
-		nullDevice = "/dev/null"
-	}
+	// Git recognizes /dev/null on Windows too; Git for Windows 2.56.0 rejects NUL.
+	const nullDevice = "/dev/null"
 	overrides := map[string]string{
 		"GIT_CONFIG_GLOBAL":      nullDevice,
 		"GIT_CONFIG_NOSYSTEM":    "1",

@@ -14,6 +14,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGitConfigIsolationEnv(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", "NUL")
+	t.Setenv("GIT_CONFIG_SYSTEM", "NUL")
+	env := gitConfigIsolationEnv()
+	var configPaths []string
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "GIT_CONFIG_GLOBAL=") || strings.HasPrefix(entry, "GIT_CONFIG_SYSTEM=") {
+			configPaths = append(configPaths, entry)
+		}
+	}
+	require.ElementsMatch(t, []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"}, configPaths)
+
+	// Exercise Git's config-path handling, including on Windows CI.
+	cmd := exec.CommandContext(t.Context(), "git", "config", "--list")
+	cmd.Dir = t.TempDir()
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+}
+
 func TestGitMergeSecrets(t *testing.T) {
 	for _, conflict := range []bool{false, true} {
 		t.Run(fmt.Sprintf("conflict=%t", conflict), func(t *testing.T) {
