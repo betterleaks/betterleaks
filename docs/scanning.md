@@ -62,6 +62,7 @@ not configuration options:
 | GitHub Actions runs | 4 |
 | Provider repositories or buckets | One target at a time |
 | URL and stdin | Serial |
+| Container images and layers | Serial input; detection uses the normal worker pool |
 
 Reading and detection overlap. When detection or finding output falls behind,
 yielding blocks, readers stop advancing, and bounded enumeration queues stop
@@ -107,6 +108,7 @@ count or shared budget is passed to sources.
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
 | S3 (and S3-compatible: R2, MinIO, etc.) | `betterleaks s3 <url>` |
+| Container images, historical layers, and metadata | `betterleaks container <image>` or `betterleaks container --archive image.tar` ([examples](#container)) |
 | Liveness of a known credential | `betterleaks validate --rule <rule-id>` |
 | Identity and permissions of a known credential | `betterleaks analyze --rule <rule-id>` |
 | Revoke a known credential | `betterleaks revoke --rule <rule-id>` |
@@ -262,9 +264,11 @@ CLI JSON reports contain `schema_version`, `findings`, and `scan`:
 ```
 
 `state` is `complete` when scanning finishes normally, even when findings or
-recoverable warnings (such as corrupt archives or permission-denied skips) are
-reported. It is `incomplete` when cancellation or a fatal scan error prevents
-normal completion, including failures before any findings are emitted.
+recoverable warnings (such as filesystem archive warnings or permission-denied
+skips) are reported. It is `incomplete` when cancellation or a source or detection
+error prevents full coverage, including failures before any findings are emitted.
+Container scans treat unreadable or corrupt nested archives as coverage errors,
+so those failures mark the report incomplete even if other files finish scanning.
 
 `num_findings` counts reported top-level findings after all filters, including
 `--status`. It equals the length of `findings` in JSON, or the number of finding
@@ -288,7 +292,7 @@ but excludes runtime settings; see
 [SDK cache hashes](config.md#configuration-hashes-for-sdk-caches).
 
 `source` records the resolved source `type` and selected `targets`. Types are
-`filesystem`, `git`, `url`, `github`, `gitlab`, `huggingface`, `s3`, and `stdin`;
+`filesystem`, `git`, `url`, `github`, `gitlab`, `huggingface`, `s3`, `container`, and `stdin`;
 auto-detection reports the selected type. Stdin omits `targets`. Filesystem
 targets reflect removal of nested paths and default to `["."]` when no path
 is supplied. Local paths retain their spelling. Remote URLs omit credentials,
@@ -1183,6 +1187,121 @@ betterleaks s3 -j 4 https://my-bucket.s3.us-east-1.amazonaws.com/
 ```
 
 Objects in `GLACIER`, `GLACIER_IR`, and `DEEP_ARCHIVE` storage classes are skipped before fetching, as are empty objects and directory markers (`key/`).
+
+---
+
+## `container`
+
+Scan Docker and OCI images without running them. `docker` is an alias for
+`container`. Use an explicit command; automatic source selection does not infer
+container images from registry references or saved archives.
+
+### Registry images and authentication
+
+```sh
+# Public image; ignore saved credentials and credential helpers
+betterleaks container ubuntu:24.04 --anonymous
+
+# Private image; use credentials from docker login
+docker login ghcr.io
+betterleaks container ghcr.io/example/app:latest
+
+# Select a platform instead of scanning every platform
+betterleaks container ubuntu:24.04 --platform linux/arm64
+
+# Multiple images; platform selections are also repeatable
+betterleaks container example/api:v1 example/worker:v1 \
+  --platform linux/amd64 --platform linux/arm64
+```
+
+Bare image references always select a registry. Registry scans do not require a
+running Docker daemon. Public images can be scanned without credentials; private
+images use Docker's standard credential configuration, including `DOCKER_CONFIG`
+and credential helpers. `--anonymous` disables credential lookup. Use
+`--plain-http` only for registries served over HTTP; it does not disable HTTPS
+certificate verification. Tags and digest-pinned references are supported.
+
+### Local images and saved archives
+
+```sh
+# Image in the local Docker daemon, using the Docker CLI's configured context
+betterleaks container --daemon wasilibs-build:latest
+
+# Docker save archive
+docker image save wasilibs-build:latest -o image.tar
+betterleaks container --archive image.tar
+
+# Compressed Docker/OCI archives and OCI layout directories
+betterleaks container --archive image.tar.gz --archive second-image.tar.zst
+betterleaks container --oci-layout ./image-layout
+```
+
+`--daemon` requires the Docker CLI and an accessible daemon. It exports the local
+image with `docker image save`; it does not pull a missing image. Archive and
+layout inputs need neither Docker nor registry credentials. Every image in an
+archive is scanned. Use `docker save` to retain layers and build metadata;
+`docker export` omits image history.
+
+Remote layers are streamed. Outer image archives and daemon exports are unpacked
+into a private temporary directory, removed on completion or failure. Nested
+archives may also use temporary storage. Original images and input archives are
+left in place.
+
+### Coverage and reports
+
+By default, scans traverse all platforms and historical layers, including file
+versions that later layers deleted or replaced. They also scan image config
+(including environment variables and labels), build history, manifest/index
+metadata, tar metadata, and artifact payloads reached through the image index.
+Platform filters accept `os/architecture[/variant]`; attestations marked
+`unknown/unknown` remain in scope.
+
+Findings carry container attributes for the image, platform, layer index,
+available digests, and whether a historical path is visible, overwritten,
+deleted, or unknown. Common detection, validation, analysis, redaction, and
+output flags apply:
+
+```sh
+# Redacted JSON report
+betterleaks container example/app:latest --redact --output image.json
+
+# Validate detected credentials and emit JSONL
+betterleaks container example/app:latest --validate --jsonl
+
+# Show resolution, platform selection, and periodic layer progress
+betterleaks container example/app:latest --log-level=debug
+```
+
+Debug progress reports stored layer bytes read, usually compressed. The final
+scanned-byte total measures detector input after exclusions and archive
+expansion; these numbers need not match. Default prefilters still exclude paths
+such as Python libraries and `node_modules`. See the
+[container coverage guide](container.md#coverage) for an exhaustive configuration.
+
+An image scan does not inspect running containers' writable layers, mounted
+volumes, runtime-injected environment variables, or build stages absent from the
+image. Registry enumeration and OCI referrers discovery are outside its scope.
+
+### Limits and incomplete scans
+
+| Flag | Default | Behavior |
+| :--- | :--- | :--- |
+| `--max-file-size` | Unlimited | Caps individual layer files and stored artifact blobs; sparse files use their expanded size |
+| `--max-archive-depth` | `8` | Bounds nesting within layer files; the outer image archive and filesystem layer do not consume this budget |
+| `--max-archive-size` | `20 GiB` | Caps expanded outer archives, including daemon exports; `0` selects this default |
+
+Sizes accept units such as `250MiB` or `30GiB`. These are not aggregate limits
+on expansion inside nested archives.
+
+Container scans use strict archive verification: missing or corrupt blobs,
+unreadable nested archives, checksum failures, and exceeded limits mark JSON/JSONL
+`scan.state` as `incomplete` and cause an unsuccessful exit. Findings already
+collected are preserved, and independent content continues where possible.
+Configured prefilter exclusions do not count as errors. Strict verification is
+automatic for containers; there is no `--strict-archives` flag.
+
+See [Container image scanning](container.md) for the complete provenance fields,
+format support, and SDK usage.
 
 ---
 
