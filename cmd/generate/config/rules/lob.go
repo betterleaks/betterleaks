@@ -12,7 +12,7 @@ func LobPubAPIToken() *config.Rule {
 		Description: "Detected a Lob Publishable API Key, posing a risk of exposing mail and print service integrations.",
 		ID:          "lob-pub-api-key",
 		Confidence:  "medium",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"lob"}, `(test|live)_pub_[a-f0-9]{31}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"lob"}, `(test|live)_pub_[a-f0-9]{31}`, true),
 
 		Keywords: []string{
 			"test_pub_",
@@ -31,7 +31,7 @@ func LobAPIToken() *config.Rule {
 		Description: "Uncovered a Lob API Key, which could lead to unauthorized access to mailing and address verification services.",
 		ID:          "lob-api-key",
 		Confidence:  "medium",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"lob"}, `(live|test)_[a-f0-9]{35}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"lob"}, `(live|test)_[a-f0-9]{35}`, true),
 		Keywords: []string{
 			"test_",
 			"live_",

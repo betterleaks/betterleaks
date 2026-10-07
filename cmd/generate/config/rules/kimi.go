@@ -11,7 +11,7 @@ func KimiAPIKey() *config.Rule {
 		ID:          "kimi-api-key",
 		Confidence:  "high",
 		Description: "Detected a Kimi API key, which may expose Moonshot AI model access and usage to unauthorized parties.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"kimi", "moonshot"}, `sk-[A-Za-z0-9_-]{48}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"kimi", "moonshot"}, `sk-[A-Za-z0-9_-]{48}`, true),
 		Keywords:    []string{"kimi", "moonshot"},
 		ValidateExpr: `let r = http.get("https://api.moonshot.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"],

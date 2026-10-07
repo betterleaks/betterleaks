@@ -36,7 +36,7 @@ func Auth0ClientID() *config.Rule {
 		ID:          "auth0-client-id.1",
 		Confidence:  "medium",
 		Description: "Auth0 client ID, used as a component of the Auth0 client-secret composite rule.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`auth0[_.-]?(?:client[_.-]?)?(?:id|identifier)`},
 			`[A-Za-z0-9_-]{32,60}`,
 			false,
@@ -67,7 +67,7 @@ func Auth0ClientSecret() *config.Rule {
 		ID:          "auth0-client-secret.1",
 		Confidence:  "high",
 		Description: "Auth0 client secret, which may allow an application to impersonate its OAuth client.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`auth0[_.-]?(?:client[_.-]?)?(?:secret|private|key|token)`},
 			`[A-Za-z0-9_-]{64,128}`,
 			false,

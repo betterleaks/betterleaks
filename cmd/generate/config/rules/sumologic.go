@@ -12,7 +12,7 @@ func SumoLogicAccessID() *config.Rule {
 		ID:          "sumologic-access-id",
 		Confidence:  "medium",
 		Description: "Discovered a SumoLogic Access ID, potentially compromising log management services and data analytics integrity.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"(?-i:[Ss]umo|SUMO)"}, "(?-i:su)[a-zA-Z0-9]{12}", true),
+		Regex:       utils.GenerateProviderRegex([]string{"(?-i:[Ss]umo|SUMO)"}, "(?-i:su)[a-zA-Z0-9]{12}", true),
 		Keywords: []string{
 			"sumo",
 		},
@@ -49,7 +49,7 @@ func SumoLogicAccessToken() *config.Rule {
 		ID:          "sumologic-access-token",
 		Confidence:  "medium",
 		Description: "Uncovered a SumoLogic Access Token, which could lead to unauthorized access to log data and analytics insights.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"(?-i:[Ss]umo|SUMO)"}, utils.AlphaNumeric("64"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"(?-i:[Ss]umo|SUMO)"}, utils.AlphaNumeric("64"), true),
 		Keywords: []string{
 			"sumo",
 		},

@@ -11,7 +11,7 @@ func Deepgram() *config.Rule {
 		ID:          "deepgram-api-key",
 		Confidence:  "high",
 		Description: "Detected a Deepgram API Key, which may expose speech recognition services and audio data to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"deepgram"}, utils.Hex("40"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"deepgram"}, utils.Hex("40"), true),
 		Keywords:    []string{"deepgram"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

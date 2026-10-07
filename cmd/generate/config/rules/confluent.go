@@ -12,7 +12,7 @@ func ConfluentSecretKey() *config.Rule {
 		ID:          "confluent-secret-key",
 		Confidence:  "high",
 		Description: "Found a Confluent Secret Key, potentially risking unauthorized operations and data access within Confluent services.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"confluent"}, utils.AlphaNumeric("64"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"confluent"}, utils.AlphaNumeric("64"), true),
 		Keywords: []string{
 			"confluent",
 		},
@@ -30,7 +30,7 @@ func ConfluentAccessToken() *config.Rule {
 		ID:          "confluent-access-token",
 		Confidence:  "high",
 		Description: "Identified a Confluent Access Token, which could compromise access to streaming data platforms and sensitive data flow.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"confluent"}, utils.AlphaNumeric("16"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"confluent"}, utils.AlphaNumeric("16"), true),
 		FilterExpr:  utils.MinEntropyAndTokenEfficiency,
 
 		Keywords: []string{

@@ -50,7 +50,7 @@ func ExoscaleAPISecret() *config.Rule {
 		ID:          "exoscale-api-secret",
 		Confidence:  "high",
 		Description: "Identified an Exoscale API secret, used as a component of the exoscale-api-key composite rule.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"exoscale"}, `[A-Za-z0-9_\-]{40,60}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"exoscale"}, `[A-Za-z0-9_\-]{40,60}`, true),
 		Keywords:    []string{"exoscale"},
 		FilterExpr:  utils.MinEntropy(4.0),
 		SkipReport:  true,

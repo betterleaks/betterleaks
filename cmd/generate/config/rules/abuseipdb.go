@@ -11,7 +11,7 @@ func AbuseIPDBAPIKey() *config.Rule {
 		ID:          "abuseipdb-api-key.1",
 		Confidence:  "high",
 		Description: "AbuseIPDB API key, which may allow access to IP reputation data and abuse-reporting APIs.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"abuseipdb"}, utils.Hex("80"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"abuseipdb"}, utils.Hex("80"), true),
 		Keywords:    []string{"abuseipdb"},
 		ValidateExpr: `let r = http.get("https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8&maxAgeInDays=1", {
     "Key": finding["secret"],

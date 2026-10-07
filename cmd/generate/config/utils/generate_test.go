@@ -1,10 +1,41 @@
 package utils
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/regexp"
 )
+
+func TestGenerateProviderRegexSeparators(t *testing.T) {
+	const secret = "aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY"
+	provider := regexp.MustCompile(GenerateProviderRegex([]string{"acme"}, `[a-zA-Z0-9]{32}`, false))
+	generic := regexp.MustCompile(GenerateSemiGenericRegex([]string{"acme"}, `[a-zA-Z0-9]{32}`, false))
+	for _, separator := range []string{" ", "\t", " \t ", "    ", "=", ":", ":=", "::=", ":::=", "||", "=>", "?=", ",", ">"} {
+		for _, key := range []string{"acme", "ACME_API_KEY", "--acme-token", `"acme_token"`} {
+			for _, quote := range []string{"", `"`, "'", "`"} {
+				raw := key + separator + quote + secret + quote
+				match := provider.FindStringSubmatch(raw)
+				if len(match) != 2 || match[1] != secret {
+					t.Errorf("provider capture for %q = %q, want %q", raw, match, secret)
+				}
+				if strings.Trim(separator, " \t") == "" && generic.MatchString(raw) {
+					t.Errorf("generic pattern accepted whitespace separator in %q", raw)
+				}
+			}
+		}
+	}
+	for _, separator := range []string{"", "\n", "\r\n", ";", "&"} {
+		raw := "acme" + separator + secret
+		if provider.MatchString(raw) {
+			t.Errorf("provider pattern accepted unsupported separator in %q", raw)
+		}
+	}
+	caseSensitive := regexp.MustCompile(GenerateProviderRegex([]string{"acme"}, `[a-z]{10}`, false))
+	if !caseSensitive.MatchString("ACME\tabcdefghij") || caseSensitive.MatchString("ACME\tABCDEFGHIJ") {
+		t.Fatal("provider whitespace matching changed identifier or secret case sensitivity")
+	}
+}
 
 func TestGenerateSemiGenericRegex(t *testing.T) {
 	tests := []struct {

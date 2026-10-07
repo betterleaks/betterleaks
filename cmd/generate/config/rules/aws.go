@@ -79,7 +79,7 @@ func AWSSecretAccessKey() *config.Rule {
 		ID:          "aws-secret-access-key",
 		Confidence:  "medium",
 		Description: "Identified an AWS secret access key, used as a component of the aws-access-token composite rule.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{"secret", "access", "key", "token"},
 			`[A-Za-z0-9/+=]{40}`,
 			false,

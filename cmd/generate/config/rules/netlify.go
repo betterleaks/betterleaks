@@ -12,7 +12,7 @@ func NetlifyAccessToken() *config.Rule {
 		ID:          "netlify-access-token",
 		Confidence:  "high",
 		Description: "Detected a Netlify Access Token, potentially compromising web hosting services and site management.",
-		Regex: utils.GenerateSemiGenericRegex([]string{"netlify"},
+		Regex: utils.GenerateProviderRegex([]string{"netlify"},
 			utils.AlphaNumericExtended("40,46"), true),
 
 		Keywords: []string{

@@ -63,7 +63,7 @@ func TwitchAPIToken() *config.Rule {
 		ID:           "twitch-api-token",
 		Confidence:   "medium",
 		Description:  "Discovered a Twitch API token, which could compromise streaming services and account integrations.",
-		Regex:        utils.GenerateSemiGenericRegex([]string{"twitch"}, utils.AlphaNumeric("30"), true),
+		Regex:        utils.GenerateProviderRegex([]string{"twitch"}, utils.AlphaNumeric("30"), true),
 		RevokeExpr:   twitchRevokeExpr,
 		Keywords: []string{
 			"twitch",

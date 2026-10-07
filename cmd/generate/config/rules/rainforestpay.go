@@ -12,7 +12,7 @@ func RainforestPayProductionAPIKey() *config.Rule {
 		ID:          "rainforest-pay-production-api-key",
 		Confidence:  "medium",
 		Description: "Rainforest Pay production API key.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`rainforest(?:[_. -]*pay)?(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
 			`apikey_[a-f0-9]{64}`,
 			false,

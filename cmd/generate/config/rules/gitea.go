@@ -11,7 +11,7 @@ func GiteaAccessToken() *config.Rule {
 		ID:          "gitea-access-token",
 		Confidence:  "high",
 		Description: "Detected a Gitea Access Token, which may expose self-hosted Git repositories and associated code to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"gitea[_.-]?(?:token|key|secret|access)"}, utils.Hex("40"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"gitea[_.-]?(?:token|key|secret|access)"}, utils.Hex("40"), true),
 		Keywords:    []string{"gitea"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

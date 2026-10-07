@@ -26,7 +26,7 @@ func PineconeAPIKeyV1() *config.Rule {
 		ID:          "pinecone-api-key.1",
 		Confidence:  "medium",
 		Description: "Pinecone API key version 1 (UUID format).",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`pinecone(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
 			`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`,
 			false,

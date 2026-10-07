@@ -59,7 +59,7 @@ func HoneycombAPIKey() *config.Rule {
 		ID:           "honeycomb-api-key",
 		Confidence:   "medium",
 		Description:  "Detected a Honeycomb API key, which may expose Honeycomb telemetry and environment data.",
-		Regex:        utils.GenerateSemiGenericRegex([]string{"honeycomb"}, `(?:`+utils.Hex("32")+`|`+utils.AlphaNumeric("22")+`)`, true),
+		Regex:        utils.GenerateProviderRegex([]string{"honeycomb"}, `(?:`+utils.Hex("32")+`|`+utils.AlphaNumeric("22")+`)`, true),
 		Keywords:     []string{"honeycomb"},
 		ValidateExpr: honeycombValidateExpr,
 		AnalyzeExpr:  honeycombAnalyzeExpr,

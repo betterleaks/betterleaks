@@ -20,6 +20,9 @@ func TestAssignmentGuardProof(t *testing.T) {
 		{`tokenSuffix[\w ]{0,20}[\s'"]{0,3}=([a-z]{10})`, false},
 		{`(?:token|other)[\w ]{0,20}[\s'"]{0,3}=([a-z]{10})`, false},
 		{`token[\w =]{0,20}[\s'"]{0,3}=([a-z]{10})`, false},
+		// Whitespace operators overlap the optional suffix/padding. The
+		// greedy guard must defer to regex matching rather than reject hits.
+		{`token[\w \t]{0,20}[\s'"]{0,3}(?:=|[ \t])([a-z]{10})`, false},
 		{`token[\w ]{0,20}[\s'"]{0,3}(?:=)?([a-z]{10})`, false},
 		{`token[\w ]*[\s'"]{0,3}=([a-z]{10})`, false},
 		{`.*token[\w ]{0,20}[\s'"]{0,3}=([a-z]{10})`, false},

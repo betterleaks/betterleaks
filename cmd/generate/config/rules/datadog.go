@@ -11,7 +11,7 @@ func DatadogAPIKey() *config.Rule {
 		ID:          "datadog-api-key",
 		Confidence:  "high",
 		Description: "Detected a Datadog API key, potentially risking monitoring and analytics data exposure and manipulation.",
-		Regex: utils.GenerateSemiGenericRegex([]string{"datadog"},
+		Regex: utils.GenerateProviderRegex([]string{"datadog"},
 			utils.AlphaNumeric("32"), true),
 		Keywords: []string{
 			"datadog",
@@ -38,7 +38,7 @@ func DatadogApplicationKey() *config.Rule {
 		ID:          "datadog-application-key",
 		Confidence:  "high",
 		Description: "Detected a Datadog application key, which may expose Datadog account and monitoring data when paired with an API key.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"datadog"}, `[A-Za-z0-9-]{40}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"datadog"}, `[A-Za-z0-9-]{40}`, true),
 		Keywords: []string{
 			"datadog",
 		},

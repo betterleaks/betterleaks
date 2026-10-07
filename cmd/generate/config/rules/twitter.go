@@ -12,7 +12,7 @@ func TwitterAPIKey() *config.Rule {
 		Description: "Identified a Twitter API Key, which may compromise Twitter application integrations and user data security.",
 		ID:          "twitter-api-key",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, utils.AlphaNumeric("25"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"twitter"}, utils.AlphaNumeric("25"), true),
 		Keywords:    []string{"twitter"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -28,7 +28,7 @@ func TwitterAPISecret() *config.Rule {
 		Description: "Found a Twitter API Secret, risking the security of Twitter app integrations and sensitive data access.",
 		ID:          "twitter-api-secret",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, utils.AlphaNumeric("50"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"twitter"}, utils.AlphaNumeric("50"), true),
 		Keywords:    []string{"twitter"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -44,7 +44,7 @@ func TwitterBearerToken() *config.Rule {
 		Description: "Discovered a Twitter Bearer Token, potentially compromising API access and data retrieval from Twitter.",
 		ID:          "twitter-bearer-token",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, "A{22}[a-zA-Z0-9%]{80,100}", true),
+		Regex:       utils.GenerateProviderRegex([]string{"twitter"}, "A{22}[a-zA-Z0-9%]{80,100}", true),
 
 		Keywords:   []string{"twitter"},
 		FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
@@ -61,7 +61,7 @@ func TwitterAccessToken() *config.Rule {
 		Description: "Detected a Twitter Access Token, posing a risk of unauthorized account operations and social media data exposure.",
 		ID:          "twitter-access-token",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, "[0-9]{15,25}-[a-zA-Z0-9]{20,40}", true),
+		Regex:       utils.GenerateProviderRegex([]string{"twitter"}, "[0-9]{15,25}-[a-zA-Z0-9]{20,40}", true),
 		Keywords:    []string{"twitter"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -77,7 +77,7 @@ func TwitterAccessSecret() *config.Rule {
 		Description: "Uncovered a Twitter Access Secret, potentially risking unauthorized Twitter integrations and data breaches.",
 		ID:          "twitter-access-secret",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"twitter"}, utils.AlphaNumeric("45"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"twitter"}, utils.AlphaNumeric("45"), true),
 		Keywords:    []string{"twitter"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

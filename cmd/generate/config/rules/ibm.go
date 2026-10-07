@@ -10,7 +10,7 @@ func IBMCloudUserAPIKey() *config.Rule {
 		ID:          "ibm-cloud-user-api-key",
 		Confidence:  "high",
 		Description: "Detected an IBM Cloud user API key, which may expose IBM Cloud account resources.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"ibm(?:cloud)?", "bx"}, utils.AlphaNumericExtendedShort("42,44"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"ibm(?:cloud)?", "bx"}, utils.AlphaNumericExtendedShort("42,44"), true),
 		Keywords:    []string{"ibm"},
 		ValidateExpr: `let r = http.get("https://iam.cloud.ibm.com/v1/apikeys/details?apikey=" + finding["secret"], {
     "Authorization": "Basic Yng6Yng=",

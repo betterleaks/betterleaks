@@ -14,7 +14,7 @@ func PostmarkAPIToken() *config.Rule {
 		ID:          "postmark-api-token.1",
 		Confidence:  "high",
 		Description: "Postmark server or account API token, which may allow access to email delivery and account configuration.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"postmark"}, utils.Hex8_4_4_4_12(), true),
+		Regex:       utils.GenerateProviderRegex([]string{"postmark"}, utils.Hex8_4_4_4_12(), true),
 		Keywords:    []string{"postmark"},
 		ValidateExpr: `let server = http.get("https://api.postmarkapp.com/server", {
     "X-Postmark-Server-Token": finding["secret"],

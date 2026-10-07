@@ -10,7 +10,7 @@ func EtsyAccessToken() *config.Rule {
 		ID:          "etsy-open-api-key",
 		Confidence:  "high",
 		Description: "Found an Etsy Open API key, potentially compromising Etsy app access and shop integrations.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"etsy", "x-api-key"}, utils.AlphaNumeric("24")+`:`+utils.AlphaNumeric("10,64"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"etsy", "x-api-key"}, utils.AlphaNumeric("24")+`:`+utils.AlphaNumeric("10,64"), true),
 		Keywords: []string{
 			"etsy",
 			"x-api-key",

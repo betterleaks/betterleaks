@@ -12,7 +12,7 @@ func CoinbaseAccessToken() *config.Rule {
 		ID:          "coinbase-access-token",
 		Confidence:  "medium",
 		Description: "Detected a Coinbase Access Token, posing a risk of unauthorized access to cryptocurrency accounts and financial transactions.",
-		Regex: utils.GenerateSemiGenericRegex([]string{"coinbase"},
+		Regex: utils.GenerateProviderRegex([]string{"coinbase"},
 			utils.AlphaNumericExtendedShort("64"), true),
 		Keywords: []string{
 			"coinbase",

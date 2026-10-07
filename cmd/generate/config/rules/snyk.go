@@ -12,7 +12,7 @@ func Snyk() *config.Rule {
 		ID:          "snyk-api-token",
 		Confidence:  "high",
 
-		Regex:    utils.GenerateSemiGenericRegex([]string{"snyk[_.-]?(?:(?:api|oauth)[_.-]?)?(?:key|token)"}, utils.Hex8_4_4_4_12(), true),
+		Regex:    utils.GenerateProviderRegex([]string{"snyk[_.-]?(?:(?:api|oauth)[_.-]?)?(?:key|token)"}, utils.Hex8_4_4_4_12(), true),
 		Keywords: []string{"snyk"},
 	}
 

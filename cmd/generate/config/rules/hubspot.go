@@ -12,7 +12,7 @@ func HubSpot() *config.Rule {
 		Description: "Found a HubSpot API Token, posing a risk to CRM data integrity and unauthorized marketing operations.",
 		ID:          "hubspot-api-key",
 		Confidence:  "high",
-		Regex: utils.GenerateSemiGenericRegex([]string{"hubspot"},
+		Regex: utils.GenerateProviderRegex([]string{"hubspot"},
 			`[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}`, true),
 
 		Keywords: []string{"hubspot"},

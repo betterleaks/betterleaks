@@ -34,7 +34,7 @@ func EBayClientSecret() *config.Rule {
 		ID:          "ebay-client-secret",
 		Confidence:  "high",
 		Description: "eBay client secret.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`ebay(?:[_. -]*(?:client|api))?[_. -]*(?:secret|key)`},
 			`PRD-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4,12}`,
 			false,

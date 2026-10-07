@@ -12,7 +12,7 @@ func AdafruitAPIKey() *config.Rule {
 		Description: "Identified a potential Adafruit API Key, which could lead to unauthorized access to Adafruit services and sensitive data exposure.",
 		ID:          "adafruit-api-key",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"adafruit"}, utils.AlphaNumericExtendedShort("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"adafruit"}, utils.AlphaNumericExtendedShort("32"), true),
 		Keywords:    []string{"adafruit"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

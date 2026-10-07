@@ -11,7 +11,7 @@ func VoyageAIAPIKey() *config.Rule {
 		ID:          "voyageai-api-key",
 		Confidence:  "medium",
 		Description: "Detected a Voyage AI API key, which may expose embedding and retrieval model access to unauthorized parties.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"voyage"}, `(?:pa|al)-[A-Za-z0-9_-]{43}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"voyage"}, `(?:pa|al)-[A-Za-z0-9_-]{43}`, false),
 		Keywords:    []string{"voyage"},
 		ValidateExpr: `let r = http.post("https://api.voyageai.com/v1/embeddings", {
     "Authorization": "Bearer " + finding["secret"],
