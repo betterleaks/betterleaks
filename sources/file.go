@@ -45,6 +45,9 @@ type File struct {
 	// DetectArchive also identifies archives by content, for downloads whose
 	// paths do not have a filename extension. Inherited by nested archive entries.
 	DetectArchive bool
+	// StrictArchives reports archive read failures and depth limits through
+	// yield, marking coverage incomplete instead of only logging a warning.
+	StrictArchives bool
 	// outerPaths is the list of container paths (e.g. archives) that lead to
 	// this file
 	outerPaths []string
@@ -53,6 +56,9 @@ type File struct {
 	// prefiltered marks a filesystem file accepted by its walker. The
 	// walker owns its filtering; archive entries are checked independently.
 	prefiltered bool
+	// decompressed keeps a compressed filename from identifying its already
+	// decoded stream as the same format again. Inspect this stream by content.
+	decompressed bool
 }
 
 // Fragments yields fragments for the this source
@@ -97,7 +103,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	// inspection because their compression is not always reflected in the name.
 	if s.DetectArchive {
 		format, stream, err = archives.Identify(ctx, "", stream)
-		if errors.Is(err, archives.NoMatch) {
+		if errors.Is(err, archives.NoMatch) && !s.decompressed {
 			format, _, err = archives.Identify(ctx, archiveName, nil)
 		}
 	} else if filepath.Ext(s.Path) == ".tar" {
@@ -106,12 +112,19 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 		format, _, err = archives.Identify(ctx, archiveName, nil)
 	}
 
+	if s.StrictArchives && err != nil && !errors.Is(err, archives.NoMatch) {
+		return yield(Fragment{}, fmt.Errorf("identify archive %q: %w", s.FullPath(), err))
+	}
+
 	// Process the file as an archive if there's no error && Identify returns
 	// a format; but if there's an error or no format, just swallow the error
 	// and fall back on treating it like a normal file and let fileFragments
 	// decide what to do with it.
 	if err == nil && format != nil {
 		if s.archiveDepth+1 > s.MaxArchiveDepth {
+			if s.StrictArchives {
+				return yield(Fragment{}, fmt.Errorf("archive %q exceeds max archive depth %d", s.FullPath(), s.MaxArchiveDepth))
+			}
 			// Warn if the feature is enabled; else emit a trace log.
 			if s.MaxArchiveDepth != 0 {
 				logging.OrDiscard(s.Logger).Warn("skipping archive: exceeds max archive depth",
@@ -135,6 +148,9 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 			return nil
 		}
 		logging.OrDiscard(s.Logger).Warn("skipping unknown archive type", "path", s.FullPath())
+		if s.StrictArchives {
+			return yield(Fragment{}, fmt.Errorf("unsupported archive type at %q", s.FullPath()))
+		}
 	}
 
 	isArchiveContent := s.archiveDepth > 0
@@ -152,8 +168,40 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 	defer func() {
 		if r := recover(); r != nil {
 			logging.OrDiscard(s.Logger).Warn("skipping archive: panic during extraction", "path", s.FullPath(), "panic", fmt.Sprint(r))
+			s.archiveFailure(yield, fmt.Errorf("archive extraction panic: %v", r))
 		}
 	}()
+
+	// CompressedArchive stops at the inner archive's EOF, which may precede
+	// the compression checksum. In strict mode own the decoder and drain it.
+	if compressed, ok := extractor.(archives.CompressedArchive); ok && s.StrictArchives {
+		inner, err := compressed.Compression.OpenReader(reader)
+		if err != nil {
+			s.archiveFailure(yield, err)
+			return
+		}
+		var stopped error
+		emit := yield
+		yield = func(fragment Fragment, err error) error {
+			if stopped == nil {
+				stopped = emit(fragment, err)
+			}
+			return stopped
+		}
+		defer func() {
+			if err := inner.Close(); err != nil && stopped == nil {
+				s.archiveFailure(yield, err)
+			}
+		}()
+		defer func() {
+			if stopped == nil && ctx.Err() == nil {
+				if err := drainArchive(ctx, inner); err != nil {
+					s.archiveFailure(yield, err)
+				}
+			}
+		}()
+		extractor, reader = compressed.Extraction, inner
+	}
 
 	if _, isSeekReaderAt := reader.(seekReaderAt); !isSeekReaderAt {
 		switch extractor.(type) {
@@ -161,6 +209,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			tmpfile, err := os.CreateTemp("", "betterleaks-archive-")
 			if err != nil {
 				logging.OrDiscard(s.Logger).Warn("could not create archive tmp file", "error", err, "path", s.FullPath())
+				s.archiveFailure(yield, err)
 				return
 			}
 			defer func() {
@@ -171,6 +220,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			_, err = io.Copy(tmpfile, reader)
 			if err != nil {
 				logging.OrDiscard(s.Logger).Warn("could not copy archive file", "error", err, "path", s.FullPath())
+				s.archiveFailure(yield, err)
 				return
 			}
 
@@ -188,7 +238,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		innerReader, err := d.Open()
 		if err != nil {
 			logging.OrDiscard(s.Logger).Warn("could not open archive inner file", "error", err, "path", s.FullPath())
-			return nil
+			return s.archiveFailure(yield, err)
 		}
 		defer innerReader.Close()
 
@@ -209,6 +259,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 			outerPaths:      append(s.outerPaths, filepath.ToSlash(s.Path)),
 			MaxArchiveDepth: s.MaxArchiveDepth,
 			DetectArchive:   s.DetectArchive,
+			StrictArchives:  s.StrictArchives,
 			archiveDepth:    s.archiveDepth + 1,
 		}
 
@@ -217,31 +268,78 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 	if err != nil {
 		logging.OrDiscard(s.Logger).Warn("error reading archive", "error", err, "path", s.FullPath())
+		s.archiveFailure(yield, err)
 	}
 }
 
-// decompressorFragments recursively crawls archives and yields fragments
+// decompressorFragments inspects each decoded stream for further archives or
+// compression. A compression-only wrapper consumes one archive-depth level.
 func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) {
 	// Register recovery before cleanup so it runs last and can also catch a
 	// panic from closing a malformed decompressor reader.
 	defer func() {
 		if r := recover(); r != nil {
 			logging.OrDiscard(s.Logger).Warn("skipping compressed file: panic during decompression", "path", s.FullPath(), "panic", fmt.Sprint(r))
+			s.archiveFailure(yield, fmt.Errorf("archive decompression panic: %v", r))
 		}
 	}()
 
 	innerReader, err := decompressor.OpenReader(reader)
 	if err != nil {
 		logging.OrDiscard(s.Logger).Warn("could not read compressed file", "error", err, "path", s.FullPath())
+		s.archiveFailure(yield, err)
 		return
 	}
 	defer func() {
-		_ = innerReader.Close()
+		if err := innerReader.Close(); err != nil {
+			s.archiveFailure(yield, err)
+		}
 	}()
 
-	if err := s.fileFragments(ctx, innerReader, true, yield); err != nil {
+	inner := *s
+	inner.Content = innerReader
+	inner.archiveDepth++
+	inner.DetectArchive = true
+	inner.decompressed = true
+	if err := inner.Fragments(ctx, yield); err != nil {
 		logging.OrDiscard(s.Logger).Warn("error reading compressed file", "error", err, "path", s.FullPath())
+		s.archiveFailure(yield, err)
+		return
 	}
+	if s.StrictArchives && ctx.Err() == nil {
+		if err := drainArchive(ctx, innerReader); err != nil {
+			s.archiveFailure(yield, err)
+		}
+	}
+}
+
+// Drain through Read, not an optional WriterTo fast path. In particular, LZ4's
+// WriterTo returns EOF as an error after Read has exhausted the stream. Read
+// also retains any partially consumed decoder buffer when checking trailers.
+func drainArchive(ctx context.Context, reader io.Reader) error {
+	_, err := io.Copy(io.Discard, archiveDrainReader{ctx: ctx, reader: reader})
+	return err
+}
+
+type archiveDrainReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r archiveDrainReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
+}
+
+func (s *File) archiveFailure(yield FragmentsFunc, err error) error {
+	if s.StrictArchives {
+		// Fragments' wrapper retains callback errors, including errors returned
+		// inside the archive library's callback or panic recovery.
+		return yield(Fragment{}, fmt.Errorf("archive %q: %w", s.FullPath(), err))
+	}
+	return nil
 }
 
 // fileFragments adds filesystem policy and metadata to source-neutral reader
@@ -268,6 +366,9 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 		if readErr != nil {
 			if isArchiveContent {
 				logging.OrDiscard(s.Logger).Warn("could not read archive content", "error", readErr, "path", fullPath)
+				if s.StrictArchives {
+					return yield(fragment, fmt.Errorf("archive content %q: %w", fullPath, readErr))
+				}
 				return nil
 			}
 			return yield(fragment, fmt.Errorf("could not read file: %w", readErr))

@@ -50,6 +50,7 @@ func TestScanFlagsAreCommandLocal(t *testing.T) {
 		commandNode(t, parser.Model.Node, "gitlab"),
 		commandNode(t, parser.Model.Node, "huggingface"),
 		commandNode(t, parser.Model.Node, "s3"),
+		commandNode(t, parser.Model.Node, "container"),
 		commandNode(t, parser.Model.Node, "stdin"),
 	}
 	validateNode := commandNode(t, parser.Model.Node, "validate")

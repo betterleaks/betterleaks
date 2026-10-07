@@ -1,6 +1,8 @@
 package sources
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -198,4 +200,60 @@ func TestFile_Fragments_marksFirstFragment(t *testing.T) {
 	require.Equal(t, "bb\n\n", fragments[1].Raw)
 	require.Equal(t, "true", fragments[0].Attr(AttrFSFirstFragment))
 	require.Equal(t, "false", fragments[1].Attr(AttrFSFirstFragment))
+}
+
+func TestFileLZ4StrictEndOfStream(t *testing.T) {
+	const text = "Package: example\nDescription: package-index-test-content\n"
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "Packages", Mode: 0600, Size: int64(len(text))}))
+	_, err := tw.Write([]byte(text))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	for _, tc := range []struct {
+		name    string
+		content []byte
+	}{
+		{"plain", []byte(text)},
+		{"empty", nil},
+		{"tar", archive.Bytes()},
+	} {
+		for _, damage := range []string{"none", "checksum", "truncated"} {
+			t.Run(tc.name+"/"+damage, func(t *testing.T) {
+				var compressed bytes.Buffer
+				w, err := (archives.Lz4{}).OpenWriter(&compressed)
+				require.NoError(t, err)
+				_, err = w.Write(tc.content)
+				require.NoError(t, err)
+				require.NoError(t, w.Close())
+				data := compressed.Bytes()
+				switch damage {
+				case "checksum":
+					data[len(data)-1] ^= 0xff
+				case "truncated":
+					data = data[:len(data)-2]
+				}
+				src := &File{Content: bytes.NewReader(data), Path: "Packages.lz4", DetectArchive: true, StrictArchives: true, MaxArchiveDepth: 8}
+				var content strings.Builder
+				var errs []error
+				err = src.Fragments(t.Context(), func(fragment Fragment, err error) error {
+					if err != nil {
+						errs = append(errs, err)
+					} else {
+						content.WriteString(fragment.Raw)
+					}
+					return nil
+				})
+				require.NoError(t, err)
+				if damage == "none" {
+					require.Empty(t, errs)
+					if tc.name != "empty" {
+						require.Contains(t, content.String(), text)
+					}
+				} else {
+					require.NotEmpty(t, errs)
+				}
+			})
+		}
+	}
 }

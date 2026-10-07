@@ -169,6 +169,12 @@ func escapeSnippet(s string) string {
 	return b.String()
 }
 
+// escapeInline keeps untrusted metadata on a single terminal line. Snippets
+// preserve tabs and newlines for layout; metadata must display them literally.
+func escapeInline(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(escapeSnippet(s), "\t", `\t`), "\n", `\n`)
+}
+
 // normalizeSnippet changes presentation only. Preserve the column hint through
 // escaping so repeated secrets still highlight the correct occurrence.
 func normalizeSnippet(f Finding) Finding {
@@ -730,13 +736,13 @@ func (p *prettyRenderer) meta(f Finding, noColor bool, redact uint) {
 		}
 		p.println("│")
 		if f.Location.Path != "" {
-			p.dotLeader("path", f.Location.Path, maxKey)
+			p.dotLeader("path", escapeInline(f.Location.Path), maxKey)
 		}
 		if f.Confidence != "" {
-			p.dotLeader("confidence", strings.ToUpper(f.Confidence), maxKey)
+			p.dotLeader("confidence", escapeInline(strings.ToUpper(f.Confidence)), maxKey)
 		}
 		if len(encodings) > 0 {
-			p.dotLeader("encoding", strings.Join(encodings, ", "), maxKey)
+			p.dotLeader("encoding", escapeInline(strings.Join(encodings, ", ")), maxKey)
 		}
 	}
 	attributes := reportAttributes(f.Attributes)
@@ -749,13 +755,11 @@ func (p *prettyRenderer) meta(f Finding, noColor bool, redact uint) {
 		keys := make([]string, 0, len(attributes))
 		for k := range attributes {
 			keys = append(keys, k)
-			if len(k) > maxK {
-				maxK = len(k)
-			}
+			maxK = max(maxK, len(escapeInline(k)))
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			p.dotLeader(k, attributes[k], maxK)
+			p.dotLeader(escapeInline(k), escapeInline(attributes[k]), maxK)
 		}
 	}
 	if !f.Analysis.IsZero() {
