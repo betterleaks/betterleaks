@@ -353,6 +353,7 @@ func main() {
 		rules.NewRelicInsertKey(),
 		rules.Notion(),
 		rules.NPM(),
+		rules.NugetAPIKey(),
 		rules.NugetConfigPassword(),
 		rules.NvidiaAPIKey(),
 		rules.NylasAPIKey(),
