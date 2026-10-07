@@ -13,14 +13,14 @@ func HoneycombAPIKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"honeycomb"}, `(?:`+utils.Hex("32")+`|`+utils.AlphaNumeric("22")+`)`, true),
 		Keywords:    []string{"honeycomb"},
 		ValidateExpr: `let r = http.get("https://api.honeycomb.io/1/auth", {
-    "X-Honeycomb-Team": finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"team\"") ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+  "X-Honeycomb-Team": finding["secret"],
+  "Accept": "application/json"
+}); r.status == 200 && r.json?.team != nil ? {
+  "result": "valid"
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 

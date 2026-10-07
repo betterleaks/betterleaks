@@ -6,26 +6,28 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
+const figmaValidateExpr = `let r = http.get("https://api.figma.com/v1/me", {
+  "X-Figma-Token": finding["secret"]
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.id ?? "") != "" ? {
+  "result": "valid",
+  "email": (r.json?.email ?? ""),
+  "handle": (r.json?.handle ?? ""),
+  "id": (r.json?.id ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`
+
 func FigmaPersonalAccessToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		Description: "Uncovered a Figma Personal Access Token, which may compromise design assets and team collaboration.",
-		RuleID:      "figma-personal-access-token",
-		Confidence:  "high",
-		Regex:       utils.GenerateUniqueTokenRegex(`figd_[A-Z0-9_-]{38,42}`, true),
-		Keywords:    []string{"figd_"},
-		ValidateExpr: `let r = http.get("https://api.figma.com/v1/me", {
-    "X-Figma-Token": finding["secret"]
-  }); r.status == 200 && !(r.body contains "Invalid token") ? {
-    "result": "valid",
-    "email": (r.json?.email ?? ""),
-    "handle": (r.json?.handle ?? ""),
-    "id": (r.json?.id ?? "")
-  } : r.status in [401, 403] || (r.body contains "Invalid token") ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-		Filter: `entropy(finding["secret"]) <= 3.5`,
+		Description:  "Uncovered a Figma Personal Access Token, which may compromise design assets and team collaboration.",
+		RuleID:       "figma-personal-access-token",
+		Confidence:   "high",
+		Regex:        utils.GenerateUniqueTokenRegex(`figd_[A-Z0-9_-]{38,42}`, true),
+		Keywords:     []string{"figd_"},
+		ValidateExpr: figmaValidateExpr,
+		Filter:       `entropy(finding["secret"]) <= 3.5`,
 	}
 
 	// validate
@@ -40,22 +42,12 @@ func FigmaPersonalAccessToken() *config.Rule {
 func FigmaPersonalAccessHeaderToken() *config.Rule {
 	// define rule
 	r := config.Rule{
-		Description: "Uncovered a Figma Personal Access Token in a header, which may compromise design assets and team collaboration.",
-		RuleID:      "figma-personal-access-header-token",
-		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"x-figma-token", "xfigmatoken", "x_figma_token"}, `[0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}`, true),
-		Keywords:    []string{"X-Figma-Token", "xfigmatoken", "x_figma_token"},
-		ValidateExpr: `let r = http.get("https://api.figma.com/v1/me", {
-    "X-Figma-Token": finding["secret"]
-  }); r.status == 200 && !(r.body contains "Invalid token") ? {
-    "result": "valid",
-    "email": (r.json?.email ?? ""),
-    "handle": (r.json?.handle ?? ""),
-    "id": (r.json?.id ?? "")
-  } : r.status in [401, 403] || (r.body contains "Invalid token") ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+		Description:  "Uncovered a Figma Personal Access Token in a header, which may compromise design assets and team collaboration.",
+		RuleID:       "figma-personal-access-header-token",
+		Confidence:   "high",
+		Regex:        utils.GenerateSemiGenericRegex([]string{"x-figma-token", "xfigmatoken", "x_figma_token"}, `[0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}`, true),
+		Keywords:     []string{"X-Figma-Token", "xfigmatoken", "x_figma_token"},
+		ValidateExpr: figmaValidateExpr,
 	}
 
 	// validate

@@ -14,14 +14,15 @@ func BitlyAccessToken() *config.Rule {
 		Regex:       regexp.MustCompile(`(?i)\bbitly(?:.|[\n\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN)(?:.|[\n\r]){0,32}?([a-f0-9]{40})\b`),
 		Keywords:    []string{"bitly"},
 		ValidateExpr: `let r = http.get("https://api-ssl.bitly.com/v4/user", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains "\"login\":") ? {
-    "result": "valid",
-    "login": (r.json?.login ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.login ?? "") != "" ? {
+  "result": "valid",
+  "login": (r.json?.login ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 

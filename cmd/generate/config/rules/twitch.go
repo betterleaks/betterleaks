@@ -17,6 +17,14 @@ func TwitchAPIToken() *config.Rule {
 			"twitch",
 		},
 		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
+		ValidateExpr: `let r = http.get("https://id.twitch.tv/oauth2/validate", {
+  "Authorization": "OAuth " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.client_id) == "string" && r.json.client_id != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+`,
 	}
 
 	// validate

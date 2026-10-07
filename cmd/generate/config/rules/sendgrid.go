@@ -17,6 +17,14 @@ func SendGridAPIToken() *config.Rule {
 			"SG.",
 		},
 		Filter: `entropy(finding["secret"]) <= 2.0`,
+		ValidateExpr: `let r = http.get("https://api.sendgrid.com/v3/scopes", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.scopes) == "array" && all(r.json.scopes, {type(#) == "string"}) ? {
+  "result": "valid"
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+`,
 	}
 
 	// validate

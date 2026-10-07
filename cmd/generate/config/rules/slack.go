@@ -10,6 +10,25 @@ import (
 )
 
 // https://api.slack.com/authentication/token-types#bot
+const slackValidateExpr = `let r = http.post("https://slack.com/api/auth.test", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+let provider_error = r.json?.error ?? "";
+r.status == 200 && (r.json?.ok ?? false) ? {
+  "result": "valid"
+} : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
+  "result": "revoked",
+  "reason": provider_error
+} : provider_error in ["invalid_auth", "not_authed"] || r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": provider_error == "" ? "Unauthorized" : provider_error
+} : {
+  "result": "unknown",
+  "reason": provider_error == "" ? "Unexpected provider response" : provider_error
+}
+`
+
 func SlackBotToken() *config.Rule {
 	// define rule
 	r := config.Rule{
@@ -20,7 +39,8 @@ func SlackBotToken() *config.Rule {
 		Keywords: []string{
 			"xoxb",
 		},
-		Filter: `entropy(finding["secret"]) <= 3.0`,
+		Filter:       `entropy(finding["secret"]) <= 3.0`,
+		ValidateExpr: slackValidateExpr,
 	}
 
 	// validate
@@ -50,9 +70,10 @@ func SlackUserToken() *config.Rule {
 		Confidence:  "high",
 		Description: "Found a Slack User token, posing a risk of unauthorized user impersonation and data access within Slack workspaces.",
 		// The last segment seems to be consistently 32 characters. I've made it 28-34 just in case.
-		Regex:    regexp.MustCompile(`xox[pe](?:-[0-9]{10,13}){3}-[a-zA-Z0-9-]{28,34}`),
-		Keywords: []string{"xoxp-", "xoxe-"},
-		Filter:   `entropy(finding["secret"]) <= 2.0`,
+		Regex:        regexp.MustCompile(`xox[pe](?:-[0-9]{10,13}){3}-[a-zA-Z0-9-]{28,34}`),
+		Keywords:     []string{"xoxp-", "xoxe-"},
+		Filter:       `entropy(finding["secret"]) <= 2.0`,
+		ValidateExpr: slackValidateExpr,
 	}
 
 	// validate
@@ -165,7 +186,8 @@ func SlackLegacyBotToken() *config.Rule {
 		Keywords: []string{
 			"xoxb",
 		},
-		Filter: `entropy(finding["secret"]) <= 2.0`,
+		Filter:       `entropy(finding["secret"]) <= 2.0`,
+		ValidateExpr: slackValidateExpr,
 	}
 
 	tps := utils.GenerateSampleSecrets("slack", "xoxb-263594206564-FGqddMF8t08v8N7Oq4i57vs1")

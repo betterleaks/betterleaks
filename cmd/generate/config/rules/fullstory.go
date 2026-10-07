@@ -19,14 +19,13 @@ func FullStoryAPIKey() *config.Rule {
 		),
 		Keywords: []string{"fullstory", "fs_api"},
 		ValidateExpr: `let r = http.get("https://api.fullstory.com/me", {
-    "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":")),
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+  "Authorization": "Basic " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.role) == "string" && r.json.role != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+`,
 		Filter: utils.MinEntropy(3.3),
 	}
 

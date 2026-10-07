@@ -13,16 +13,16 @@ func ClickUpPersonalAPIToken() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"clickup"}, `pk_`+utils.Numeric("8,9")+`_`+utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"clickup"},
 		ValidateExpr: `let r = http.get("https://api.clickup.com/api/v2/user", {
-    "Accept": "application/json",
-    "Authorization": finding["secret"]
-  }); r.status == 200 ? {
-    "result": "valid",
-    "username": (r.json?.user?.username ?? ""),
-    "email": (r.json?.user?.email ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+  "Authorization": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.user) == "map" && (r.json?.user?.id ?? "") != "" ? {
+  "result": "valid",
+  "username": (r.json?.user?.username ?? ""),
+  "email": (r.json?.user?.email ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.5),
 	}
 

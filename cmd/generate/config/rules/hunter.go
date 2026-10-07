@@ -14,14 +14,14 @@ func HunterAPIKey() *config.Rule {
 		Regex:       utils.GenerateSemiGenericRegex([]string{"hunter"}, utils.Hex("40"), false),
 		Keywords:    []string{"hunter"},
 		ValidateExpr: `let r = http.get("https://api.hunter.io/v2/account", {
-    "X-API-KEY": finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"data\"") ? {
-    "result": "valid"
-  } : r.status == 401 && (r.body contains "authentication_failed") ? {
-    "result": "invalid",
-    "reason": "No user found for the API key"
-  } : validate.unknown(r)`,
+  "X-API-KEY": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && (r.json?.data?.email ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.5),
 	}
 

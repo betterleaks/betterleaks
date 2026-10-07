@@ -17,6 +17,21 @@ func RubyGemsAPIToken() *config.Rule {
 			"rubygems_",
 		},
 		Filter: `entropy(finding["secret"]) <= 2.0`,
+		ValidateExpr: `let r = http.get("https://rubygems.org/api/v1/gems.json", {
+    "Authorization": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 403 && (r.body contains "invalid API key") ? {
+    "result": "revoked",
+    "reason": "API key was deleted"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "API key lacks the index scope"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
 	}
 
 	// validate
