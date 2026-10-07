@@ -438,7 +438,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 				// TODO: could other optimizations be introduced here?
 				if mimetype, err := filetype.Match(s.Buffer[:n]); err != nil {
 					if isArchiveContent {
-						logging.Warn().Err(err).Str("path", fullPath).Msg("could not determine archive content type")
+						s.logger().Warn().Err(err).Str("path", fullPath).Msg("could not determine archive content type")
 						return nil
 					}
 					return yield(
@@ -446,7 +446,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 						fmt.Errorf("could not read file: could not determine type: %w", err),
 					)
 				} else if mimetype.MIME.Type == "application" {
-					logging.Debug().
+					s.logger().Debug().
 						Str("mime_type", mimetype.MIME.Value).
 						Str("path", fullPath).
 						Msgf("skipping binary file")
@@ -497,7 +497,7 @@ func (s *File) fileFragments(ctx context.Context, reader *bufio.Reader, isArchiv
 					}
 					return s.archiveFailure(yield, err)
 				} else {
-					logging.Warn().Err(err).Msgf("issue reading file")
+					s.logger().Warn().Err(err).Str("path", fullPath).Msg("issue reading file")
 				}
 			}
 

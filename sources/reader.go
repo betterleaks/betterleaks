@@ -59,6 +59,7 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 	defer putReader(reader)
 
 	nextLine := 1
+	emptyReads := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -66,11 +67,20 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 
 		n, readErr := reader.Read(buffer)
 		if n == 0 {
-			if readErr != nil && !errors.Is(readErr, io.EOF) {
+			if readErr == nil {
+				// Match bufio's bounded retries without treating an empty read as EOF.
+				emptyReads++
+				if emptyReads >= 100 {
+					return yield(Fragment{StartLine: nextLine}, io.ErrNoProgress)
+				}
+				continue
+			}
+			if !errors.Is(readErr, io.EOF) {
 				return yield(Fragment{StartLine: nextLine}, readErr)
 			}
-			return nil
+			return ctx.Err()
 		}
+		emptyReads = 0
 
 		chunk := buffer[:n]
 
