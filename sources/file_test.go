@@ -1,6 +1,9 @@
 package sources
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -10,6 +13,52 @@ import (
 	"github.com/mholt/archives"
 	"github.com/stretchr/testify/require"
 )
+
+// Both directory and container scans must expand recognized archives and
+// nested compression, including the common .tgz alias.
+func TestFile_ArchiveDiscovery(t *testing.T) {
+	const content = "ARCHIVE_TEST_SECRET\n"
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "token.txt", Mode: 0600, Size: int64(len(content))}))
+	_, err := io.WriteString(tw, content)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	compress := func(data []byte) []byte {
+		var b bytes.Buffer
+		w := gzip.NewWriter(&b)
+		_, err := w.Write(data)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		return b.Bytes()
+	}
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{
+		{"archive.tgz", compress(archive.Bytes())},
+		{"nested.gz", compress(compress([]byte(content)))},
+		{"archive.tar.gz", compress(archive.Bytes())},
+		{"plain.txt.gz", compress([]byte(content))},
+	} {
+		for _, detect := range []bool{false, true} {
+			mode := "directory"
+			if detect {
+				mode = "container"
+			}
+			t.Run(tc.name+"/"+mode, func(t *testing.T) {
+				s := File{Path: tc.name, Content: bytes.NewReader(tc.data), MaxArchiveDepth: 8, DetectArchive: detect, StrictArchives: detect}
+				var fragments []string
+				require.NoError(t, s.Fragments(t.Context(), func(f Fragment, err error) error {
+					require.NoError(t, err)
+					fragments = append(fragments, f.Raw)
+					return nil
+				}))
+				require.Equal(t, []string{content}, fragments)
+			})
+		}
+	}
+}
 
 // panicReader panics on the first Read, emulating a decompressor that blows up
 // on malformed content after OpenReader already succeeded.
