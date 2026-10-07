@@ -25,10 +25,33 @@ func TestContainerCLIOptions(t *testing.T) {
 		require.Equal(t, sizeFlag(1<<30), cli.Container.MaxFileSize)
 		require.Equal(t, 8, cli.Container.MaxArchiveDepth)
 		require.Equal(t, redactFlag(100), cli.Container.Redact)
+		require.Empty(t, cli.Container.Daemon)
 	}
 	for _, args := range [][]string{{"container"}, {"container", "--daemon", "--archive", "x"}, {"container", "image", "--platform", "amd64"}, {"container", "image", "--max-archive-depth", "-1"}, {"container", "image", "--status", "valid"}} {
 		_, err := parseCLIForTest(t, args...)
 		require.Error(t, err)
+	}
+}
+
+func TestContainerCLIDaemonSelection(t *testing.T) {
+	for _, daemon := range []string{"docker", "podman"} {
+		for _, flag := range [][]string{{"--daemon", daemon}, {"--daemon=" + daemon}} {
+			args := append([]string{"container", "example:local"}, flag...)
+			cli, err := parseCLIForTest(t, args...)
+			require.NoError(t, err)
+			require.Equal(t, daemon, cli.Container.source().Daemon)
+			require.Equal(t, []string{"example:local"}, cli.Container.Images)
+		}
+	}
+	for _, args := range [][]string{
+		{"container", "example:local", "--daemon"},
+		{"container", "example:local", "--daemon="},
+		{"container", "--daemon", "example:local"},
+		{"container", "example:local", "--daemon", "unknown"},
+		{"container", "--daemon", "podman", "--archive", "image.tar"},
+	} {
+		_, err := parseCLIForTest(t, args...)
+		require.Error(t, err, "args: %v", args)
 	}
 }
 

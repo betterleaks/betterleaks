@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"errors"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources/container"
 )
@@ -12,7 +14,7 @@ type ContainerCmd struct {
 	Images          []string `arg:"" optional:"" name:"image" help:"Registry image references (all platforms and layers by default)."`
 	Archive         []string `group:"source" name:"archive" sep:"none" help:"Docker save or OCI image archive (repeatable; compression detected automatically)."`
 	OCILayout       []string `group:"source" name:"oci-layout" sep:"none" help:"OCI image layout directory (repeatable)."`
-	Daemon          bool     `group:"source" help:"Export image references from the local Docker daemon using docker image save."`
+	Daemon          string   `group:"source" placeholder:"RUNTIME" help:"Export local images using the selected runtime: docker or podman."`
 	Platform        []string `group:"source" sep:"none" help:"Select os/architecture[/variant] (repeatable; default: all platforms)."`
 	Anonymous       bool     `group:"source" help:"Ignore Docker registry credentials and credential helpers."`
 	PlainHTTP       bool     `group:"source" name:"plain-http" help:"Use unencrypted HTTP for registry access."`
@@ -36,9 +38,12 @@ func (c *ContainerCmd) source() *container.Source {
 	}
 }
 
-func (c *ContainerCmd) Validate() error {
+func (c *ContainerCmd) Validate(ctx *kong.Context) error {
 	if err := c.ScanFlags.Validate(); err != nil {
 		return err
+	}
+	if flagWasSet(ctx, "daemon") && c.Daemon == "" {
+		return errors.New("--daemon requires docker or podman")
 	}
 	return c.source().Validate()
 }
@@ -58,9 +63,9 @@ func (c *ContainerCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	src := c.source()
 	src.Logger, src.Prefilter = runtime.Logger(), filters.shouldSkip
 	targets := append([]string(nil), c.Images...)
-	if c.Daemon {
+	if c.Daemon != "" {
 		for i := range targets {
-			targets[i] = "daemon:" + targets[i]
+			targets[i] = "daemon:" + c.Daemon + ":" + targets[i]
 		}
 	}
 	for _, p := range c.Archive {

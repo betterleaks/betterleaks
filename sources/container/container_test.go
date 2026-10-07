@@ -599,30 +599,54 @@ func TestRegistryAuthenticationAndAnonymous(t *testing.T) {
 	require.Zero(t, k.calls.Load())
 }
 
+func TestDaemonValidation(t *testing.T) {
+	for _, daemon := range []string{"", "docker", "podman"} {
+		require.NoError(t, (&Source{Images: []string{"example:local"}, Daemon: daemon}).Validate())
+	}
+	for _, daemon := range []string{"unknown", "/usr/bin/docker", "docker image save"} {
+		err := (&Source{Images: []string{"example:local"}, Daemon: daemon}).Validate()
+		require.ErrorContains(t, err, "expected docker or podman")
+	}
+	for _, daemon := range []string{"docker", "podman"} {
+		err := (&Source{Archives: []string{"image.tar"}, Daemon: daemon}).Validate()
+		require.ErrorContains(t, err, "requires an image reference")
+	}
+}
+
 func TestDaemonExportAndTemporaryCleanup(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("POSIX mock Docker executable")
+		t.Skip("POSIX mock container CLI")
 	}
-	f := newFixture(t)
-	f.setIndex(f.image("amd64", [][]byte{tarBytes(t, tarEntry{name: "file", content: "daemon-secret"})}, "gzip"))
-	dir := t.TempDir()
-	archive := filepath.Join(dir, "input.tar")
-	require.NoError(t, os.WriteFile(archive, f.archive(), 0600))
-	// The mock verifies argv and exports a real OCI image archive. No daemon
-	// is required, and a nonzero Docker exit is tested after valid content.
-	script := "#!/bin/sh\n[ \"$1\" = image ] && [ \"$2\" = save ] && [ \"$3\" = -- ] && [ \"$4\" = example:local ] || exit 2\ncat \"$CONTAINER_TEST_ARCHIVE\"\nexit \"${CONTAINER_TEST_EXIT:-0}\"\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0700))
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CONTAINER_TEST_ARCHIVE", archive)
-	temp := t.TempDir()
-	t.Setenv("TMPDIR", temp)
-	fs, errs := collect(t, &Source{Images: []string{"example:local"}, Daemon: true})
-	require.Empty(t, errs)
-	find(t, fs, ResourceFile, "/file", "daemon-secret")
-	t.Setenv("CONTAINER_TEST_EXIT", "9")
-	_, errs = collect(t, &Source{Images: []string{"example:local"}, Daemon: true})
-	require.NotEmpty(t, errs)
-	files, err := os.ReadDir(temp)
-	require.NoError(t, err)
-	require.Empty(t, files)
+	for _, daemon := range []string{"docker", "podman"} {
+		t.Run(daemon, func(t *testing.T) {
+			f := newFixture(t)
+			f.setIndex(f.image("amd64", [][]byte{tarBytes(t, tarEntry{name: "file", content: "daemon-secret"})}, "gzip"))
+			dir := t.TempDir()
+			archive := filepath.Join(dir, "input.tar")
+			require.NoError(t, os.WriteFile(archive, f.archive(), 0600))
+			// The mock verifies argv and exports a real OCI image archive. No daemon
+			// is required, and a nonzero CLI exit is tested after valid content.
+			script := "#!/bin/sh\n[ \"$1\" = image ] && [ \"$2\" = save ] && [ \"$3\" = -- ] && [ \"$4\" = example:local ] || exit 2\ncat \"$CONTAINER_TEST_ARCHIVE\"\nexit \"${CONTAINER_TEST_EXIT:-0}\"\n"
+			require.NoError(t, os.WriteFile(filepath.Join(dir, daemon), []byte(script), 0700))
+			for _, other := range []string{"docker", "podman"} {
+				if other != daemon {
+					require.NoError(t, os.WriteFile(filepath.Join(dir, other), []byte("#!/bin/sh\nexit 99\n"), 0700))
+				}
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("CONTAINER_TEST_ARCHIVE", archive)
+			temp := t.TempDir()
+			t.Setenv("TMPDIR", temp)
+			fs, errs := collect(t, &Source{Images: []string{"example:local"}, Daemon: daemon})
+			require.Empty(t, errs)
+			found := find(t, fs, ResourceFile, "/file", "daemon-secret")
+			require.Equal(t, "daemon:"+daemon+":example:local", found.Attr(AttrImage))
+			t.Setenv("CONTAINER_TEST_EXIT", "9")
+			_, errs = collect(t, &Source{Images: []string{"example:local"}, Daemon: daemon})
+			require.NotEmpty(t, errs)
+			files, err := os.ReadDir(temp)
+			require.NoError(t, err)
+			require.Empty(t, files)
+		})
+	}
 }

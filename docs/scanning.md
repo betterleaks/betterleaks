@@ -1225,7 +1225,10 @@ certificate verification. Tags and digest-pinned references are supported.
 
 ```sh
 # Image in the local Docker daemon, using the Docker CLI's configured context
-betterleaks container --daemon wasilibs-build:latest
+betterleaks container --daemon docker wasilibs-build:latest
+
+# Image in the local Podman image store
+betterleaks container --daemon podman wasilibs-build:latest
 
 # Docker save archive
 docker image save wasilibs-build:latest -o image.tar
@@ -1236,11 +1239,13 @@ betterleaks container --archive image.tar.gz --archive second-image.tar.zst
 betterleaks container --oci-layout ./image-layout
 ```
 
-`--daemon` requires the Docker CLI and an accessible daemon. It exports the local
-image with `docker image save`; it does not pull a missing image. Archive and
-layout inputs need neither Docker nor registry credentials. Every image in an
-archive is scanned. Use `docker save` to retain layers and build metadata;
-`docker export` omits image history.
+`--daemon` requires an explicit `docker` or `podman` value and the corresponding
+CLI with access to its image store. It exports the local image with
+`docker image save` or `podman image save`; it does not pull a missing image.
+Omitting `--daemon` selects registry scanning for image references. Archive and
+layout inputs need neither a container runtime nor registry credentials. Every
+image in an archive is scanned. Use `docker save` or `podman save` to retain
+layers and build metadata; `docker export` and `podman export` omit image history.
 
 Remote layers are streamed. Outer image archives and daemon exports are unpacked
 into a private temporary directory, removed on completion or failure. Nested
@@ -1373,11 +1378,11 @@ src := &container.Source{
 summary, err := scanner.Scan(ctx, src, handleFinding)
 ```
 
-`Archives` and `Layouts` select local inputs; `Daemon` exports `Images` through
-the Docker CLI. `Keychain` and `Transport` allow custom registry authentication
-and HTTP transport, while `Anonymous` disables credential lookup. The zero value
-of `MaxArchiveDepth` disables nested archive traversal; the CLI supplies its
-default explicitly.
+`Archives` and `Layouts` select local inputs; set `Daemon` to `"docker"` or
+`"podman"` to export `Images` through that CLI. `Keychain` and `Transport` allow
+custom registry authentication and HTTP transport, while `Anonymous` disables
+credential lookup. The zero value of `MaxArchiveDepth` disables nested archive
+traversal; the CLI supplies its default explicitly.
 
 For direct `Fragments` callers, recoverable coverage failures arrive through the
 callback's error argument. A non-nil callback return stops traversal. A nil

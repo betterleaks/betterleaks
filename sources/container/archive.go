@@ -31,10 +31,10 @@ func (r *session) archive(ctx context.Context, file string) error {
 }
 
 func (r *session) daemon(ctx context.Context, ref string) error {
-	r.debug(ctx, "exporting container image from Docker daemon", "image", ref)
-	// Use Docker's configured context and credential/socket handling. Export
+	r.debug(ctx, "exporting local container image", "runtime", r.s.Daemon, "image", ref)
+	// Use the selected CLI's configured connection and credential handling. Export
 	// exactly the requested local image; there is no registry fallback.
-	cmd := exec.CommandContext(ctx, "docker", "image", "save", "--", ref)
+	cmd := exec.CommandContext(ctx, r.s.Daemon, "image", "save", "--", ref)
 	stderr := &daemonDiagnostic{}
 	cmd.Stderr = stderr
 	stdout, err := cmd.StdoutPipe()
@@ -42,9 +42,9 @@ func (r *session) daemon(ctx context.Context, ref string) error {
 		return err
 	}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start docker image save: %w", err)
+		return fmt.Errorf("start %s image save: %w", r.s.Daemon, err)
 	}
-	err = r.unpack(ctx, stdout, "daemon:"+ref)
+	err = r.unpack(ctx, stdout, "daemon:"+r.s.Daemon+":"+ref)
 	if err != nil {
 		_ = cmd.Process.Kill()
 	}
@@ -56,12 +56,12 @@ func (r *session) daemon(ctx context.Context, ref string) error {
 		// Preserve the producer's explanation instead of replacing it with
 		// the secondary missing/truncated-archive error. The session sanitizes
 		// URLs in all yielded diagnostics before handing them to the scanner.
-		return errors.Join(fmt.Errorf("docker image save failed: %w: %s", waitErr, stderr.String()), err)
+		return errors.Join(fmt.Errorf("%s image save failed: %w: %s", r.s.Daemon, waitErr, stderr.String()), err)
 	}
 	return err
 }
 
-// Docker can emit arbitrary amounts of stderr. Keep a bounded diagnostic while
+// The CLI can emit arbitrary amounts of stderr. Keep a bounded diagnostic while
 // accepting every write so its stderr pipe cannot block the export process.
 type daemonDiagnostic struct {
 	buffer    bytes.Buffer

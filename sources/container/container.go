@@ -27,16 +27,18 @@ import (
 // including artifacts attached through an image index. Archive inputs contain
 // Docker save or OCI layout tar streams; Layouts are OCI layout directories.
 // Registry authentication uses Docker's standard keychain unless Anonymous or
-// Keychain is set. Daemon requires the Docker CLI and never pulls images.
+// Keychain is set. Daemon selects the docker or podman CLI and never pulls
+// images; an empty Daemon selects registry scanning.
 type Source struct {
-	Images, Archives, Layouts    []string
-	Platforms                    []string
-	Daemon, Anonymous, PlainHTTP bool
-	Keychain                     authn.Keychain
-	Transport                    http.RoundTripper
-	Logger                       *slog.Logger
-	Prefilter                    sources.PrefilterFunc
-	MaxArchiveDepth              int
+	Images, Archives, Layouts []string
+	Platforms                 []string
+	Daemon                    string
+	Anonymous, PlainHTTP      bool
+	Keychain                  authn.Keychain
+	Transport                 http.RoundTripper
+	Logger                    *slog.Logger
+	Prefilter                 sources.PrefilterFunc
+	MaxArchiveDepth           int
 	// MaxFileSize limits individual layer files (zero is unlimited). Exceeding
 	// a configured limit is a source error, so reports cannot claim completeness.
 	MaxFileSize int64
@@ -52,7 +54,10 @@ func (s *Source) Validate() error {
 	if s.MaxFileSize < 0 || s.MaxArchiveSize < 0 || s.MaxArchiveDepth < 0 {
 		return errors.New("container size and archive depth limits must be non-negative")
 	}
-	if s.Daemon && len(s.Images) == 0 {
+	if s.Daemon != "" && s.Daemon != "docker" && s.Daemon != "podman" {
+		return fmt.Errorf("invalid --daemon %q: expected docker or podman", s.Daemon)
+	}
+	if s.Daemon != "" && len(s.Images) == 0 {
 		return errors.New("--daemon requires an image reference")
 	}
 	for _, p := range s.Platforms {
@@ -118,7 +123,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	}
 	for _, ref := range s.Images {
 		if err := visit(ref, func() error {
-			if s.Daemon {
+			if s.Daemon != "" {
 				return r.daemon(ctx, ref)
 			}
 			return r.registry(ctx, ref)

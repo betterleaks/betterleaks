@@ -223,17 +223,26 @@ func TestNestedCompressionTrailerValidation(t *testing.T) {
 
 func TestDaemonFailureDiagnostic(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("POSIX mock Docker executable")
+		t.Skip("POSIX mock container CLI")
 	}
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\necho 'No such image: review:missing https://user:password@example.test/image?token=secret' >&2\nexit 1\n"), 0700))
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	_, errs := collect(t, &Source{Images: []string{"review:missing"}, Daemon: true})
-	require.NotEmpty(t, errs)
-	require.ErrorContains(t, errs[0], "docker image save failed")
-	require.ErrorContains(t, errs[0], "No such image: review:missing")
-	require.NotContains(t, errs[0].Error(), "password")
-	require.NotContains(t, errs[0].Error(), "token=secret")
+	for _, daemon := range []string{"docker", "podman"} {
+		t.Run(daemon, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, daemon), []byte("#!/bin/sh\necho 'No such image: review:missing https://user:password@example.test/image?token=secret' >&2\nexit 1\n"), 0700))
+			for _, other := range []string{"docker", "podman"} {
+				if other != daemon {
+					require.NoError(t, os.WriteFile(filepath.Join(dir, other), []byte("#!/bin/sh\nexit 99\n"), 0700))
+				}
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			_, errs := collect(t, &Source{Images: []string{"review:missing"}, Daemon: daemon})
+			require.NotEmpty(t, errs)
+			require.ErrorContains(t, errs[0], daemon+" image save failed")
+			require.ErrorContains(t, errs[0], "No such image: review:missing")
+			require.NotContains(t, errs[0].Error(), "password")
+			require.NotContains(t, errs[0].Error(), "token=secret")
+		})
+	}
 }
 
 func TestDaemonDiagnosticBound(t *testing.T) {
@@ -397,22 +406,31 @@ func TestWhiteoutBeforeSameLayerReplacement(t *testing.T) {
 
 func TestDaemonReferenceIsOneLiteralArgument(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("POSIX mock Docker executable")
+		t.Skip("POSIX mock container CLI")
 	}
-	f := newFixture(t)
-	f.setIndex(f.image("amd64", nil, "tar"))
-	dir := t.TempDir()
-	archive := filepath.Join(dir, "image.tar")
-	require.NoError(t, os.WriteFile(archive, f.archive(), 0600))
-	marker := filepath.Join(dir, "must-not-exist")
-	ref := "app:local; touch " + marker + " # $(touch " + marker + ")"
-	script := "#!/bin/sh\n[ \"$#\" = 4 ] && [ \"$1\" = image ] && [ \"$2\" = save ] && [ \"$3\" = -- ] && [ \"$4\" = \"$CONTAINER_TEST_REF\" ] || exit 2\ncat \"$CONTAINER_TEST_ARCHIVE\"\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0700))
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CONTAINER_TEST_REF", ref)
-	t.Setenv("CONTAINER_TEST_ARCHIVE", archive)
-	_, errs := collect(t, &Source{Images: []string{ref}, Daemon: true})
-	require.Empty(t, errs)
-	_, err := os.Stat(marker)
-	require.True(t, os.IsNotExist(err))
+	for _, daemon := range []string{"docker", "podman"} {
+		t.Run(daemon, func(t *testing.T) {
+			f := newFixture(t)
+			f.setIndex(f.image("amd64", nil, "tar"))
+			dir := t.TempDir()
+			archive := filepath.Join(dir, "image.tar")
+			require.NoError(t, os.WriteFile(archive, f.archive(), 0600))
+			marker := filepath.Join(dir, "must-not-exist")
+			ref := "app:local; touch " + marker + " # $(touch " + marker + ")"
+			script := "#!/bin/sh\n[ \"$#\" = 4 ] && [ \"$1\" = image ] && [ \"$2\" = save ] && [ \"$3\" = -- ] && [ \"$4\" = \"$CONTAINER_TEST_REF\" ] || exit 2\ncat \"$CONTAINER_TEST_ARCHIVE\"\n"
+			require.NoError(t, os.WriteFile(filepath.Join(dir, daemon), []byte(script), 0700))
+			for _, other := range []string{"docker", "podman"} {
+				if other != daemon {
+					require.NoError(t, os.WriteFile(filepath.Join(dir, other), []byte("#!/bin/sh\nexit 99\n"), 0700))
+				}
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("CONTAINER_TEST_REF", ref)
+			t.Setenv("CONTAINER_TEST_ARCHIVE", archive)
+			_, errs := collect(t, &Source{Images: []string{ref}, Daemon: daemon})
+			require.Empty(t, errs)
+			_, err := os.Stat(marker)
+			require.True(t, os.IsNotExist(err))
+		})
+	}
 }
