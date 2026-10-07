@@ -16,14 +16,14 @@ func CircleCIPersonalToken() *config.Rule {
 		Keywords:    []string{"CCIPAT_"},
 		Filter:      `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://circleci.com/api/v2/me", {
-    "Accept": "application/json",
-    "Circle-Token": finding["secret"]
-  }); r.status == 200 && (r.json?.id ?? "") != "" ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+  "Circle-Token": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`,
 	}
 
 	// validate

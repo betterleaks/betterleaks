@@ -566,16 +566,14 @@ confidence = "high"
 keywords = ["apify_api_"]
 validate = '''
 let r = http.get("https://api.apify.com/v2/users/me", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  });
-r.status == 200 && ((r.body contains "\"data\"") && (r.body contains "\"username\"")) ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && (r.json?.data?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1167,14 +1165,15 @@ confidence = "high"
 keywords = ["bitly"]
 validate = '''
 let r = http.get("https://api-ssl.bitly.com/v4/user", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains "\"login\":") ? {
-    "result": "valid",
-    "login": (r.json?.login ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.login ?? "") != "" ? {
+  "result": "valid",
+  "login": (r.json?.login ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.3 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -1247,19 +1246,20 @@ keywords = [
 ]
 validate = '''
 let r = http.get("https://api.box.com/2.0/users/me", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  });
-r.status == 200 && ((r.body contains "\"id\"")) ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
-filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+let prefix = filter.findMatch(finding["fragment_raw"][finding["match_line_start_idx"]:finding["match_start_idx"]], "[\\w.-]*$");
+let identifier = prefix + filter.findMatch(finding["match"], "^[\\w .-]+");
+lower(identifier) contains "client" || entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
+
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1361,16 +1361,14 @@ confidence = "high"
 keywords = ["bkua_"]
 validate = '''
 let r = http.get("https://api.buildkite.com/v2/access-token", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  });
-r.status == 200 && ((r.body contains "\"scopes\"")) ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+}); r.status == 200 && r.json?.scopes != nil ? {
+  "result": "valid"
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1523,14 +1521,14 @@ confidence = "high"
 keywords = ["ccipat_"]
 validate = '''
 let r = http.get("https://circleci.com/api/v2/me", {
-    "Accept": "application/json",
-    "Circle-Token": finding["secret"]
-  }); r.status == 200 && (r.json?.id ?? "") != "" ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Circle-Token": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -1682,16 +1680,16 @@ confidence = "high"
 keywords = ["clickup"]
 validate = '''
 let r = http.get("https://api.clickup.com/api/v2/user", {
-    "Accept": "application/json",
-    "Authorization": finding["secret"]
-  }); r.status == 200 ? {
-    "result": "valid",
-    "username": (r.json?.user?.username ?? ""),
-    "email": (r.json?.user?.email ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.user) == "map" && (r.json?.user?.id ?? "") != "" ? {
+  "result": "valid",
+  "username": (r.json?.user?.username ?? ""),
+  "email": (r.json?.user?.email ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -1711,17 +1709,106 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# cloudflare-account-id.1
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cloudflare-account-id.1"
+description = "Detected a Cloudflare account ID, used as a component of Cloudflare API key validation."
+regex = '''(?i:(?:account[_. -]*id)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = [
+    "account_id",
+    "account-id",
+    "account id",
+    "accountid",
+]
+skipReport = true
+
+# ──────────────────────────────────────────────────────────────────────────────
 # cloudflare-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
 id = "cloudflare-api-key"
-description = "Detected a Cloudflare API Key, potentially compromising cloud application deployments and operational security."
+description = "Detected a Cloudflare API key version 1 (legacy format), potentially compromising cloud application deployments and operational security."
 regex = '''(?i)(?:cloudflare)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9_-]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["cloudflare"]
+validate = '''
+let account_token = finding["secret"] startsWith "cfat_";
+let account_id = components["cloudflare-account-id.1"]?.secret ?? "";
+account_token && account_id == "" ? {
+  "result": "needs_validation",
+  "reason": "Cloudflare account token verification requires an account ID"
+} : (
+  let r = http.get("https://api.cloudflare.com/client/v4" + (account_token ? "/accounts/" + account_id : "/user") + "/tokens/verify", {
+    "Accept": "application/json",
+    "Authorization": "Bearer " + finding["secret"]
+  });
+  let provider_result = r.json?.result ?? {};
+  let token_status = provider_result["status"] ?? "";
+  r.status == 200 && (r.json?.success ?? false) && token_status == "active" && (provider_result["id"] ?? "") != "" ? {
+    "result": "valid",
+    "token_id": provider_result["id"],
+    "token_type": account_token ? "account" : "user",
+    "account_id": account_id
+  } : r.status == 200 && token_status in ["disabled", "expired"] ? {
+    "result": "revoked",
+    "reason": token_status == "expired" ? "Token expired" : "Token disabled"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# cloudflare-api-key.2
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cloudflare-api-key.2"
+description = "Detected a Cloudflare API key version 2 (cfut/cfat format), potentially granting access to Cloudflare account and service resources."
+regex = '''\b(cf[ua]t_[A-Za-z0-9]{40}[a-f0-9]{8})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = [
+    "cfut_",
+    "cfat_",
+]
+validate = '''
+let account_token = finding["secret"] startsWith "cfat_";
+let account_id = components["cloudflare-account-id.1"]?.secret ?? "";
+account_token && account_id == "" ? {
+  "result": "needs_validation",
+  "reason": "Cloudflare account token verification requires an account ID"
+} : (
+  let r = http.get("https://api.cloudflare.com/client/v4" + (account_token ? "/accounts/" + account_id : "/user") + "/tokens/verify", {
+    "Accept": "application/json",
+    "Authorization": "Bearer " + finding["secret"]
+  });
+  let provider_result = r.json?.result ?? {};
+  let token_status = provider_result["status"] ?? "";
+  r.status == 200 && (r.json?.success ?? false) && token_status == "active" && (provider_result["id"] ?? "") != "" ? {
+    "result": "valid",
+    "token_id": provider_result["id"],
+    "token_type": account_token ? "account" : "user",
+    "account_id": account_id
+  } : r.status == 200 && token_status in ["disabled", "expired"] ? {
+    "result": "revoked",
+    "reason": token_status == "expired" ? "Token expired" : "Token disabled"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+)
+'''
+filter = '''
+filter.entropy(finding["secret"]) < 3.0 || filter.tokenRatio(finding["secret"]) >= 2.5
+'''
+components = [
+    { id = "cloudflare-account-id.1", optional = true, within = "5L" },
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # cloudflare-global-api-key
@@ -2787,6 +2874,9 @@ let r = http.get("https://api.elastic-cloud.com/api/v1/deployments", {
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # elevenlabs-api-key
@@ -2876,6 +2966,9 @@ let ts = time.nowUnix(); (let sig = crypto.hmacSha256(
         "reason": "Unauthorized"
       } : validate.unknown(r)))
 '''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
 components = [
     { id = "exoscale-api-secret", within = "5L" },
 ]
@@ -2890,6 +2983,9 @@ regex = '''(?i)(?:exoscale)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=
 confidence = "high"
 keywords = ["exoscale"]
 skipReport = true
+filter = '''
+entropy(finding["secret"]) < 4.0
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # facebook-access-token
@@ -2976,14 +3072,18 @@ regex = '''(?i)(?:fastly)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|
 confidence = "high"
 keywords = ["fastly"]
 validate = '''
-let r = http.get("https://api.fastly.com/current_user", {
+let r = http.get("https://api.fastly.com/tokens/self", {
+    "Accept": "application/json",
     "Fastly-Key": finding["secret"]
-  }); r.status == 200 ? {
+  }); r.status == 200 && (r.json?.id ?? "") != "" ? {
     "result": "valid",
     "login": (r.json?.login ?? ""),
     "name": (r.json?.name ?? ""),
     "customer_id": (r.json?.customer_id ?? "")
-  } : r.status in [401, 403] ? {
+  } : r.status == 401 ? {
+    "result": "revoked",
+    "reason": "Token expired"
+  } : r.status == 403 ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
@@ -3007,16 +3107,16 @@ keywords = [
 ]
 validate = '''
 let r = http.get("https://api.figma.com/v1/me", {
-    "X-Figma-Token": finding["secret"]
-  }); r.status == 200 && !(r.body contains "Invalid token") ? {
-    "result": "valid",
-    "email": (r.json?.email ?? ""),
-    "handle": (r.json?.handle ?? ""),
-    "id": (r.json?.id ?? "")
-  } : r.status in [401, 403] || (r.body contains "Invalid token") ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "X-Figma-Token": finding["secret"]
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.id ?? "") != "" ? {
+  "result": "valid",
+  "email": (r.json?.email ?? ""),
+  "handle": (r.json?.handle ?? ""),
+  "id": (r.json?.id ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3030,16 +3130,16 @@ confidence = "high"
 keywords = ["figd_"]
 validate = '''
 let r = http.get("https://api.figma.com/v1/me", {
-    "X-Figma-Token": finding["secret"]
-  }); r.status == 200 && !(r.body contains "Invalid token") ? {
-    "result": "valid",
-    "email": (r.json?.email ?? ""),
-    "handle": (r.json?.handle ?? ""),
-    "id": (r.json?.id ?? "")
-  } : r.status in [401, 403] || (r.body contains "Invalid token") ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "X-Figma-Token": finding["secret"]
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.id ?? "") != "" ? {
+  "result": "valid",
+  "email": (r.json?.email ?? ""),
+  "handle": (r.json?.handle ?? ""),
+  "id": (r.json?.id ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.5
@@ -3237,14 +3337,13 @@ keywords = [
 ]
 validate = '''
 let r = http.get("https://api.fullstory.com/me", {
-    "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":")),
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Basic " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.role) == "string" && r.json.role != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+
 '''
 filter = '''
 entropy(finding["secret"]) < 3.3
@@ -3472,6 +3571,10 @@ keywords = [
     "token",
 ]
 filter = '''
+// Reject implausible values before preparing context and confidence.
+entropy(finding["secret"]) <= 3.5
+|| filter.failsTokenEfficiency(finding["secret"])
+|| (
 // Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
   max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
@@ -3499,9 +3602,7 @@ let level = filter.matchesAny(genericMatchContext, [
 let _ = filter.setConfidence(level);
 
 // big ol expression to filter out FPs
-entropy(finding["secret"]) <= 3.5
-|| filter.failsTokenEfficiency(finding["secret"])
-|| matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
+matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
 || (containsAny(finding["secret"], [
   "000000",
   "aaaaaa",
@@ -5030,6 +5131,7 @@ entropy(finding["secret"]) <= 3.5
 || (matchesAny(finding["secret"], [`^test_[a-zA-Z0-9]{27}$`]) && filter.containsAny(providerMatchContext, ["paddle"]))
 || (matchesAny(finding["secret"], [`^live_[a-zA-Z0-9]{27}$`]) && filter.containsAny(providerMatchContext, ["paddle"]))
 || (matchesAny(finding["secret"], [`^pk_live_[0-9A-F]{16}$`]) && filter.containsAny(providerMatchContext, ["magic"]))
+)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5646,7 +5748,8 @@ regex = '''glpat-[\w-]{20}'''
 confidence = "high"
 keywords = ["glpat-"]
 validate = '''
-let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+let r = http.get(base_url + "/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
@@ -5670,7 +5773,8 @@ regex = '''\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b'''
 confidence = "high"
 keywords = ["glpat-"]
 validate = '''
-let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+let r = http.get(base_url + "/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
@@ -5694,7 +5798,8 @@ regex = '''\bglpat-[0-9a-zA-Z_-]{27,300}\.[0-9a-z]{2}\.[0-9a-z]{9}\b'''
 confidence = "high"
 keywords = ["glpat-"]
 validate = '''
-let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+let r = http.get(base_url + "/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",
@@ -6094,14 +6199,14 @@ confidence = "medium"
 keywords = ["honeycomb"]
 validate = '''
 let r = http.get("https://api.honeycomb.io/1/auth", {
-    "X-Honeycomb-Team": finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"team\"") ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "X-Honeycomb-Team": finding["secret"],
+  "Accept": "application/json"
+}); r.status == 200 && r.json?.team != nil ? {
+  "result": "valid"
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -6182,14 +6287,14 @@ confidence = "medium"
 keywords = ["hunter"]
 validate = '''
 let r = http.get("https://api.hunter.io/v2/account", {
-    "X-API-KEY": finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"data\"") ? {
-    "result": "valid"
-  } : r.status == 401 && (r.body contains "authentication_failed") ? {
-    "result": "invalid",
-    "reason": "No user found for the API key"
-  } : validate.unknown(r)
+  "X-API-KEY": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && (r.json?.data?.email ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -6743,17 +6848,14 @@ regex = '''lin_api_(?i)[a-z0-9]{40}'''
 confidence = "high"
 keywords = ["lin_api_"]
 validate = '''
-let r = http.post("https://api.linear.app/graphql", {
-    "Authorization": finding["secret"],
-    "Content-Type": "application/json"
-  }, "{\"query\": \"query { viewer { id name email } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") ? {
-    "result": "valid",
-    "email": (r.json?.data?.viewer?.email ?? ""),
-    "name": (r.json?.data?.viewer?.name ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+let r = http.post("https://api.linear.app/graphql", {"Authorization": finding["secret"], "Content-Type": "application/json"}, "{\"query\":\"query { viewer { id name email } }\"}");
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && type(r.json?.data?.viewer) == "map" && (r.json?.data?.viewer?.id ?? "") != "" && len(r.json?.errors ?? []) == 0 ? {
+  "result": "valid",
+  "email": (r.json?.data?.viewer?.email ?? ""),
+  "name": (r.json?.data?.viewer?.name ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -6889,15 +6991,13 @@ regex = '''(?i)(?:MailchimpSDK.initialize|mailchimp)(?:[ \t\w.-]{0,20})[\s'"]{0,
 confidence = "high"
 keywords = ["mailchimp"]
 validate = '''
-let dc = substring(finding["secret"], lastIndexOf(finding["secret"], "-") + 1); (let r = http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
-      "Accept": "application/json",
-      "Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"]))
-    }); r.status == 200 ? {
-      "result": "valid"
-    } : r.status in [401, 403] ? {
-      "result": "invalid",
-      "reason": "Unauthorized"
-    } : validate.unknown(r))
+let dc = finding["secret"][lastIndexOf(finding["secret"], "-") + 1:];
+let r = http.get("https://" + dc + ".api.mailchimp.com/3.0/", {"Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"])), "Accept": "application/json"});
+r.status == 200 && type(r.json) == "map" && (r.json?.account_id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7189,14 +7289,13 @@ confidence = "high"
 keywords = ["miro"]
 validate = '''
 let r = http.get("https://api.miro.com/v1/oauth-token", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": (r.json?.message ?? "Unauthorized")
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.user) == "map" && (r.json?.user?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status in [400, 401] ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -7559,6 +7658,29 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# nuget-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "nuget-api-key"
+description = "Detected a NuGet API key, which can push, unlist, or deprecate packages on nuget.org on behalf of its owner."
+regex = '''(?i)\b(oy2[a-p][a-z2-7]{15}[aq][a-z2-7]{25}[aeimquy4])(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["oy2"]
+validate = '''
+let r = http.get("https://www.nuget.org/api/v2/verifykey/betterleaks--nonexistent/0.0.0", {
+    "X-NuGet-ApiKey": finding["secret"]
+  }); (r.status == 404 && (r.body contains "does not exist.")) || r.status == 400 ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "invalid",
+    "reason": "Invalid, expired, or missing push scope"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # nuget-config-password
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -7808,6 +7930,16 @@ description = "Detected an OpenRouter API Key, which may expose access to multip
 regex = '''(?i)\b(sk-or-v1-[0-9a-f]{64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["sk-or-v1-"]
+validate = '''
+let r = http.get("https://openrouter.ai/api/v1/key", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && type(r.json?.data?.label) == "string" ? {
+  "result": "valid"
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.5
 '''
@@ -8874,14 +9006,15 @@ confidence = "high"
 keywords = ["r8_"]
 validate = '''
 let r = http.get("https://api.replicate.com/v1/account", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains '"type"') && (r.body contains '"username"') && (r.body contains '"name"') ? {
-    "result": "valid",
-    "username": (r.json?.username ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.username ?? "") != "" && (r.json?.type ?? "") in ["user", "organization"] ? {
+  "result": "valid",
+  "username": (r.json?.username ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -8972,6 +9105,23 @@ description = "Identified a Rubygem API token, potentially compromising Ruby lib
 regex = '''\b(rubygems_[a-f0-9]{48})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["rubygems_"]
+validate = '''
+let r = http.get("https://rubygems.org/api/v1/gems.json", {
+    "Authorization": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 403 && (r.body contains "invalid API key") ? {
+    "result": "revoked",
+    "reason": "API key was deleted"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "API key lacks the index scope"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''
@@ -9094,6 +9244,9 @@ let r = http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", 
     "reason": "Unauthorized"
   } : validate.unknown(r)
 '''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # scalingo-api-token
@@ -9194,6 +9347,16 @@ description = "Detected a SendGrid API token, posing a risk of unauthorized emai
 regex = '''\b(SG\.(?i)[a-z0-9=_\-\.]{66})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["sg."]
+validate = '''
+let r = http.get("https://api.sendgrid.com/v3/scopes", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.scopes) == "array" && all(r.json.scopes, {type(#) == "string"}) ? {
+  "result": "valid"
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''
@@ -9209,14 +9372,14 @@ confidence = "high"
 keywords = ["xkeysib-"]
 validate = '''
 let r = http.get("https://api.brevo.com/v3/account", {
-    "api-key": finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "api-key": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.email ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.2
@@ -9413,6 +9576,26 @@ description = "Identified a Slack Bot token, which may compromise bot integratio
 regex = '''xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*'''
 confidence = "high"
 keywords = ["xoxb"]
+validate = '''
+let r = http.post("https://slack.com/api/auth.test", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+let provider_error = r.json?.error ?? "";
+r.status == 200 && (r.json?.ok ?? false) ? {
+  "result": "valid"
+} : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
+  "result": "revoked",
+  "reason": provider_error
+} : provider_error in ["invalid_auth", "not_authed"] || r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": provider_error == "" ? "Unauthorized" : provider_error
+} : {
+  "result": "unknown",
+  "reason": provider_error == "" ? "Unexpected provider response" : provider_error
+}
+
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
@@ -9455,6 +9638,26 @@ description = "Uncovered a Slack Legacy bot token, which could lead to compromis
 regex = '''xoxb-[0-9]{8,14}-[a-zA-Z0-9]{18,26}'''
 confidence = "high"
 keywords = ["xoxb"]
+validate = '''
+let r = http.post("https://slack.com/api/auth.test", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+let provider_error = r.json?.error ?? "";
+r.status == 200 && (r.json?.ok ?? false) ? {
+  "result": "valid"
+} : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
+  "result": "revoked",
+  "reason": provider_error
+} : provider_error in ["invalid_auth", "not_authed"] || r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": provider_error == "" ? "Unauthorized" : provider_error
+} : {
+  "result": "unknown",
+  "reason": provider_error == "" ? "Unexpected provider response" : provider_error
+}
+
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''
@@ -9529,6 +9732,26 @@ keywords = [
     "xoxp-",
     "xoxe-",
 ]
+validate = '''
+let r = http.post("https://slack.com/api/auth.test", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"
+}, "");
+let provider_error = r.json?.error ?? "";
+r.status == 200 && (r.json?.ok ?? false) ? {
+  "result": "valid"
+} : provider_error in ["token_revoked", "token_expired", "account_inactive"] ? {
+  "result": "revoked",
+  "reason": provider_error
+} : provider_error in ["invalid_auth", "not_authed"] || r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": provider_error == "" ? "Unauthorized" : provider_error
+} : {
+  "result": "unknown",
+  "reason": provider_error == "" ? "Unexpected provider response" : provider_error
+}
+
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''
@@ -9837,7 +10060,7 @@ skipReport = true
 [[rules]]
 id = "tableau-personal-access-token.1"
 description = "Tableau personal access token."
-regex = '''\b([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b'''
+regex = '''(?:^|[^A-Za-z0-9+/])([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b'''
 confidence = "high"
 keywords = ["tableau"]
 validate = '''
@@ -10042,6 +10265,16 @@ description = "Discovered a Twitch API token, which could compromise streaming s
 regex = '''(?i)(?:twitch)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{30})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "medium"
 keywords = ["twitch"]
+validate = '''
+let r = http.get("https://id.twitch.tv/oauth2/validate", {
+  "Authorization": "OAuth " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.client_id) == "string" && r.json.client_id != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+
+'''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
 '''
@@ -10167,6 +10400,9 @@ let r = http.get("https://api.upcloud.com/1.3/account", {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10321,16 +10557,16 @@ confidence = "high"
 keywords = ["vercel"]
 validate = '''
 let r = http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
-    "result": "valid",
-    "email": (r.json?.user?.email ?? ""),
-    "username": (r.json?.user?.username ?? ""),
-    "user_id": (r.json?.user?.id ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"]
+}); r.status == 200 && (r.json?.user?.id ?? "") != "" ? {
+  "result": "valid",
+  "email": (r.json?.user?.email ?? ""),
+  "username": (r.json?.user?.username ?? ""),
+  "user_id": (r.json?.user?.id ?? "")
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -10424,16 +10660,16 @@ confidence = "high"
 keywords = ["vcp_"]
 validate = '''
 let r = http.get("https://api.vercel.com/v2/user", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains "\"user\"") && (r.body contains "\"email\"") ? {
-    "result": "valid",
-    "email": (r.json?.user?.email ?? ""),
-    "username": (r.json?.user?.username ?? ""),
-    "user_id": (r.json?.user?.id ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"]
+}); r.status == 200 && (r.json?.user?.id ?? "") != "" ? {
+  "result": "valid",
+  "email": (r.json?.user?.email ?? ""),
+  "username": (r.json?.user?.username ?? ""),
+  "user_id": (r.json?.user?.id ?? "")
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5
@@ -10537,14 +10773,12 @@ keywords = [
     "waka.time",
 ]
 validate = '''
-let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"data\"") ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {"Accept": "application/json"});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && (r.json?.data?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.0
@@ -10560,14 +10794,12 @@ regex = '''(?i)\b(waka_[a-z0-9]{36,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["waka_"]
 validate = '''
-let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"data\"") ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {"Accept": "application/json"});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && (r.json?.data?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.0
@@ -10787,6 +11019,20 @@ description = "Detected an xAI (Grok) API Key, which may expose Grok AI model ac
 regex = '''(?i)\b(xai-[A-Za-z0-9_-]{70,120})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["xai-"]
+validate = '''
+let r = http.get("https://api.x.ai/v1/api-key", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.api_key_id) == "string" && r.json.api_key_id != "" &&
+  (r.json?.api_key_disabled == true || r.json?.api_key_blocked == true || r.json?.team_blocked == true) ? {
+  "result": "invalid",
+  "reason": "xAI API key or owning team is disabled/blocked"
+} : r.status == 200 && type(r.json) == "map" && type(r.json?.api_key_id) == "string" && r.json.api_key_id != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.5
 '''

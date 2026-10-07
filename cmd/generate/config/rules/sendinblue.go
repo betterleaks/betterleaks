@@ -17,14 +17,14 @@ func SendInBlueAPIToken() *config.Rule {
 			"xkeysib-",
 		},
 		ValidateExpr: `let r = http.get("https://api.brevo.com/v3/account", {
-    "api-key": finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+  "api-key": finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.email ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.2),
 	}
 

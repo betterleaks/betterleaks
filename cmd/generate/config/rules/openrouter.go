@@ -14,6 +14,14 @@ func OpenRouter() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`sk-or-v1-[0-9a-f]{64}`, true),
 		Keywords:    []string{"sk-or-v1-"},
 		Filter:      `entropy(finding["secret"]) <= 3.5`,
+		ValidateExpr: `let r = http.get("https://openrouter.ai/api/v1/key", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && type(r.json?.data?.label) == "string" ? {
+  "result": "valid"
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+`,
 	}
 
 	tps := utils.GenerateSampleSecrets("openrouter", "sk-or-v1-"+secrets.NewSecretWithEntropy(utils.Hex("64"), 3.5))

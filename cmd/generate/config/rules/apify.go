@@ -8,13 +8,21 @@ import (
 
 func ApifyAPIToken() *config.Rule {
 	r := config.Rule{
-		RuleID:       "apify-api-token",
-		Confidence:   "high",
-		Description:  "Detected an Apify API token, which may expose actors, tasks, and stored data.",
-		Regex:        regexp.MustCompile(`\b(apify_api_[A-Za-z0-9]{34,38})\b`),
-		Keywords:     []string{"apify_api_"},
-		ValidateExpr: utils.BearerGetValidationExpr("https://api.apify.com/v2/users/me", `(r.body contains "\"data\"") && (r.body contains "\"username\"")`),
-		Filter:       utils.MinEntropy(3.5),
+		RuleID:      "apify-api-token",
+		Confidence:  "high",
+		Description: "Detected an Apify API token, which may expose actors, tasks, and stored data.",
+		Regex:       regexp.MustCompile(`\b(apify_api_[A-Za-z0-9]{34,38})\b`),
+		Keywords:    []string{"apify_api_"},
+		ValidateExpr: `let r = http.get("https://api.apify.com/v2/users/me", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && (r.json?.data?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`,
+		Filter: utils.MinEntropy(3.5),
 	}
 
 	return utils.Validate(r,

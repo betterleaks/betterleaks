@@ -17,15 +17,13 @@ func MailChimp() *config.Rule {
 		Keywords: []string{
 			"mailchimp",
 		},
-		ValidateExpr: `let dc = substring(finding["secret"], lastIndexOf(finding["secret"], "-") + 1); (let r = http.get("https://" + dc + ".api.mailchimp.com/3.0/ping", {
-      "Accept": "application/json",
-      "Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"]))
-    }); r.status == 200 ? {
-      "result": "valid"
-    } : r.status in [401, 403] ? {
-      "result": "invalid",
-      "reason": "Unauthorized"
-    } : validate.unknown(r))`,
+		ValidateExpr: `let dc = finding["secret"][lastIndexOf(finding["secret"], "-") + 1:];
+let r = http.get("https://" + dc + ".api.mailchimp.com/3.0/", {"Authorization": "Basic " + base64.encode(bytes("x:" + finding["secret"])), "Accept": "application/json"});
+r.status == 200 && type(r.json) == "map" && (r.json?.account_id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`,
 	}
 
 	// validate

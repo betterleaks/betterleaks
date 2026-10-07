@@ -15,10 +15,15 @@ func BuildkiteUserAccessToken() *config.Rule {
 		Description: "Detected a Buildkite user access token, which may expose pipelines, builds, and organization data.",
 		Regex:       regexp.MustCompile(`\b(bkua_(?:[a-z0-9]{40}|[a-z0-9]{53}))\b`),
 		Keywords:    []string{"bkua_"},
-		ValidateExpr: utils.BearerGetValidationExpr(
-			"https://api.buildkite.com/v2/access-token",
-			`(r.body contains "\"scopes\"")`,
-		),
+		ValidateExpr: `let r = http.get("https://api.buildkite.com/v2/access-token", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+}); r.status == 200 && r.json?.scopes != nil ? {
+  "result": "valid"
+} : r.status in [401, 403] ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)`,
 		Filter: utils.MinEntropy(3.5),
 	}
 

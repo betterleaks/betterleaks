@@ -26,7 +26,8 @@ const (
   } : validate.unknown(r)`
 
 	// gitlabPatExpr validates PATs via the self-inspection endpoint (glpat- tokens).
-	gitlabPatExpr = `let r = http.get("https://gitlab.com/api/v4/personal_access_tokens/self", {
+	gitlabPatExpr = `let base_url = env.getOrDefault("GITLAB_BASE_URL", "https://gitlab.com");
+let r = http.get(base_url + "/api/v4/personal_access_tokens/self", {
     "PRIVATE-TOKEN": finding["secret"]
   }); r.status == 200 ? {
     "result": "valid",

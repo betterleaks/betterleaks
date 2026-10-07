@@ -6,14 +6,12 @@ import (
 	"github.com/betterleaks/betterleaks/config"
 )
 
-const wakaTimeAPIKeyValidateExpr = `let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"data\"") ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`
+const wakaTimeAPIKeyValidateExpr = `let r = http.get("https://api.wakatime.com/api/v1/users/current?api_key=" + finding["secret"], {"Accept": "application/json"});
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && (r.json?.data?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`
 
 func WakaTimeAPIKeyV1() *config.Rule {
 	// define rule

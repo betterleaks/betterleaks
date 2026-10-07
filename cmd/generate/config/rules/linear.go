@@ -15,17 +15,14 @@ func LinearAPIToken() *config.Rule {
 		Description: "Detected a Linear API Token, posing a risk to project management tools and sensitive task data.",
 		Regex:       regexp.MustCompile(`lin_api_(?i)[a-z0-9]{40}`),
 		Keywords:    []string{"lin_api_"},
-		ValidateExpr: `let r = http.post("https://api.linear.app/graphql", {
-    "Authorization": finding["secret"],
-    "Content-Type": "application/json"
-  }, "{\"query\": \"query { viewer { id name email } }\"}"); r.status == 200 && (r.body contains "\"data\"") && (r.body contains "\"viewer\"") ? {
-    "result": "valid",
-    "email": (r.json?.data?.viewer?.email ?? ""),
-    "name": (r.json?.data?.viewer?.name ?? "")
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+		ValidateExpr: `let r = http.post("https://api.linear.app/graphql", {"Authorization": finding["secret"], "Content-Type": "application/json"}, "{\"query\":\"query { viewer { id name email } }\"}");
+r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && type(r.json?.data?.viewer) == "map" && (r.json?.data?.viewer?.id ?? "") != "" && len(r.json?.errors ?? []) == 0 ? {
+  "result": "valid",
+  "email": (r.json?.data?.viewer?.email ?? ""),
+  "name": (r.json?.data?.viewer?.name ?? "")
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)`,
 		Filter: `filter.entropy(finding["secret"]) < 3.5 || filter.tokenRatio(finding["secret"]) >= 2.5`,
 	}
 

@@ -13,7 +13,6 @@ func ExoscaleAPIKey() *config.Rule {
 		Description: "Identified an Exoscale API key paired with a secret, which together grant programmatic access to Exoscale cloud resources.",
 		Regex:       utils.GenerateUniqueTokenRegex(`EXO[a-zA-Z0-9]{24,30}`, false),
 		Keywords:    []string{"EXO"},
-		Entropy:     3.0,
 		Components: []*config.Component{
 			{
 				RuleID: "exoscale-api-secret",
@@ -31,6 +30,7 @@ func ExoscaleAPIKey() *config.Rule {
         "result": "invalid",
         "reason": "Unauthorized"
       } : validate.unknown(r)))`,
+		Filter: utils.MinEntropy(3.0),
 	}
 
 	tps := []string{
@@ -52,8 +52,8 @@ func ExoscaleAPISecret() *config.Rule {
 		Description: "Identified an Exoscale API secret, used as a component of the exoscale-api-key composite rule.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"exoscale"}, `[A-Za-z0-9_\-]{40,60}`, true),
 		Keywords:    []string{"exoscale"},
-		Entropy:     4.0,
 		SkipReport:  true,
+		Filter:      utils.MinEntropy(4.0),
 	}
 
 	tps := utils.GenerateSampleSecrets("exoscale", secrets.NewSecretWithEntropy(`[A-Za-z0-9_\-]{40}`, 4.0))

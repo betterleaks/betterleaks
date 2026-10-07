@@ -14,14 +14,18 @@ func FastlyAPIToken() *config.Rule {
 		Confidence:  "high",
 		Regex:       utils.GenerateSemiGenericRegex([]string{"fastly"}, utils.AlphaNumericExtendedShort("32"), true),
 		Keywords:    []string{"fastly"},
-		ValidateExpr: `let r = http.get("https://api.fastly.com/current_user", {
+		ValidateExpr: `let r = http.get("https://api.fastly.com/tokens/self", {
+    "Accept": "application/json",
     "Fastly-Key": finding["secret"]
-  }); r.status == 200 ? {
+  }); r.status == 200 && (r.json?.id ?? "") != "" ? {
     "result": "valid",
     "login": (r.json?.login ?? ""),
     "name": (r.json?.name ?? ""),
     "customer_id": (r.json?.customer_id ?? "")
-  } : r.status in [401, 403] ? {
+  } : r.status == 401 ? {
+    "result": "revoked",
+    "reason": "Token expired"
+  } : r.status == 403 ? {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,

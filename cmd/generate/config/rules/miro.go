@@ -14,14 +14,13 @@ func MiroAccessToken() *config.Rule {
 		Regex:       utils.GenerateUniqueTokenRegex(`eyJtaXJv[A-Za-z0-9-]{10,64}_[A-Za-z0-9_-]{20,64}`, false),
 		Keywords:    []string{"miro"},
 		ValidateExpr: `let r = http.get("https://api.miro.com/v1/oauth-token", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": (r.json?.message ?? "Unauthorized")
-  } : validate.unknown(r)`,
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && type(r.json?.user) == "map" && (r.json?.user?.id ?? "") != "" ? {
+  "result": "valid"
+} : r.status in [400, 401] ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+`,
 		Filter: utils.MinEntropy(3.5),
 	}
 
