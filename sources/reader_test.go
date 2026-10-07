@@ -143,3 +143,60 @@ func TestReaderPreservesCallbackFailureAndCancellationAtEOF(t *testing.T) {
 	})
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+func TestReaderRetriesEmptyReadsAndResetsAfterProgress(t *testing.T) {
+	reads := 0
+	source := &Reader{Content: readerFunc(func(p []byte) (int, error) {
+		reads++
+		switch reads {
+		case 100:
+			return copy(p, "one\n\n"), nil
+		case 200:
+			return copy(p, "two\n\n"), nil
+		case 201:
+			return 0, io.EOF
+		default:
+			return 0, nil
+		}
+	})}
+	var fragments []Fragment
+	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+		fragments = append(fragments, f)
+		return err
+	}))
+	require.Equal(t, []Fragment{{Raw: "one\n\n", StartLine: 1}, {Raw: "two\n\n", StartLine: 3}}, fragments)
+}
+
+func TestReaderEmptyReadsReportNoProgress(t *testing.T) {
+	reads := 0
+	source := &Reader{Content: readerFunc(func([]byte) (int, error) {
+		reads++
+		if reads > 100 {
+			t.Fatal("reader did not stop retrying empty reads")
+		}
+		return 0, nil
+	})}
+	callbacks := 0
+	stop := errors.New("stop scanning")
+	err := source.Fragments(t.Context(), func(f Fragment, err error) error {
+		callbacks++
+		require.ErrorIs(t, err, io.ErrNoProgress)
+		require.Equal(t, 1, f.StartLine)
+		return stop
+	})
+	require.ErrorIs(t, err, stop)
+	require.Equal(t, 1, callbacks)
+}
+
+func TestReaderCancellationDuringEmptyReads(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	source := &Reader{Content: readerFunc(func([]byte) (int, error) {
+		cancel()
+		return 0, nil
+	})}
+	require.ErrorIs(t, source.Fragments(ctx, func(Fragment, error) error {
+		t.Fatal("canceled reader yielded a fragment")
+		return nil
+	}), context.Canceled)
+}
