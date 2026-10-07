@@ -8610,6 +8610,29 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# nuget-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "nuget-api-key"
+description = "Detected a NuGet API key, which can push, unlist, or deprecate packages on nuget.org on behalf of its owner."
+regex = '''(?i)\b(oy2[a-p][a-z2-7]{15}[aq][a-z2-7]{25}[aeimquy4])(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["oy2"]
+validate = '''
+let r = http.get("https://www.nuget.org/api/v2/verifykey/betterleaks--nonexistent/0.0.0", {
+    "X-NuGet-ApiKey": finding["secret"]
+  }); (r.status == 404 && (r.body contains "does not exist.")) || r.status == 400 ? {
+    "result": "valid"
+  } : r.status == 403 ? {
+    "result": "invalid",
+    "reason": "Invalid, expired, or missing push scope"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # nuget-config-password
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
