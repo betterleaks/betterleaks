@@ -10065,6 +10065,23 @@ description = "Identified a Rubygem API token, potentially compromising Ruby lib
 regex = '''\b(rubygems_[a-f0-9]{48})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["rubygems_"]
+validate = '''
+let r = http.get("https://rubygems.org/api/v1/gems.json", {
+    "Authorization": finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 403 && (r.body contains "invalid API key") ? {
+    "result": "revoked",
+    "reason": "API key was deleted"
+  } : r.status == 403 ? {
+    "result": "valid",
+    "reason": "API key lacks the index scope"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''
