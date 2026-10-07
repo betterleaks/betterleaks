@@ -19,6 +19,7 @@ Development is supported by
 | **Token Efficiency filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
 | **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
+| **Container Images** | Scan registries, Docker/Podman images, saved archives, and OCI layouts, including historical layers and image metadata. See the [container guide](docs/scanning.md#container). |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
 
 

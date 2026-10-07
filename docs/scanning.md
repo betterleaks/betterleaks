@@ -13,6 +13,7 @@ Use `--help` for full flag descriptions. This page is for patterns.
 | GitLab projects, Issues, MRs, Snippets, Releases, CI jobs/artifacts | `betterleaks gitlab <url>` |
 | Hugging Face models, datasets, Spaces, discussions, PRs, buckets | `betterleaks huggingface <url>` or `betterleaks hf <url>` |
 | S3 (and S3-compatible: R2, MinIO, etc.) | `betterleaks s3 <url>` |
+| Container images, historical layers, and metadata | `betterleaks container <image>` or `betterleaks container --archive image.tar` ([examples](#container)) |
 | A known credential and rule | `betterleaks validate --rule-id <rule-id>` |
 | Piped content | `betterleaks stdin` |
 
@@ -740,3 +741,215 @@ betterleaks dir ./artifacts --max-archive-depth 2 --max-decode-depth 5
 ## Related docs
 
 - [docs/config.md](config.md)
+
+---
+
+## `container`
+
+Scan Docker and OCI images without running them. `docker` is an alias for
+`container`. Use this command for both registry references and saved image archives.
+
+### Registry images and authentication
+
+```sh
+# Public image; ignore saved credentials and credential helpers
+betterleaks container ubuntu:24.04 --anonymous
+
+# Private image; use credentials from docker login
+docker login ghcr.io
+betterleaks container ghcr.io/example/app:latest
+
+# Select a platform instead of scanning every platform
+betterleaks container ubuntu:24.04 --platform linux/arm64
+
+# Multiple images; platform selections are also repeatable
+betterleaks container example/api:v1 example/worker:v1 \
+  --platform linux/amd64 --platform linux/arm64
+```
+
+Bare image references always select a registry. Registry scans do not require a
+running Docker daemon. Public images can be scanned without credentials; private
+images use Docker's standard credential configuration, including `DOCKER_CONFIG`
+and credential helpers. `--anonymous` disables credential lookup. Use
+`--plain-http` only for registries served over HTTP; it does not disable HTTPS
+certificate verification. Tags and digest-pinned references are supported.
+
+### Local images and saved archives
+
+```sh
+# Image in the local Docker daemon, using the Docker CLI's configured context
+betterleaks container --daemon docker wasilibs-build:latest
+
+# Image in the local Podman image store
+betterleaks container --daemon podman wasilibs-build:latest
+
+# Docker save archive
+docker image save wasilibs-build:latest -o image.tar
+betterleaks container --archive image.tar
+
+# Compressed Docker/OCI archives and OCI layout directories
+betterleaks container --archive image.tar.gz --archive second-image.tar.zst
+betterleaks container --oci-layout ./image-layout
+```
+
+`--daemon` requires an explicit `docker` or `podman` value and the corresponding
+CLI with access to its image store. It exports the local image with
+`docker image save` or `podman image save`; it does not pull a missing image.
+Omitting `--daemon` selects registry scanning for image references. Archive and
+layout inputs need neither a container runtime nor registry credentials. Every
+image in an archive is scanned. Use `docker save` or `podman save` to retain
+layers and build metadata; `docker export` and `podman export` omit image history.
+
+Remote layers are streamed. Outer image archives and daemon exports are unpacked
+into a private temporary directory, removed on completion or failure. Nested
+archives may also use temporary storage. Original images and input archives are
+left in place.
+
+### Coverage and reports
+
+By default, scans traverse all platforms and historical layers, including file
+versions that later layers deleted or replaced. They also scan image config
+(including environment variables and labels), build history, manifest/index
+metadata, tar metadata, and artifact payloads reached through the image index.
+Platform filters accept `os/architecture[/variant]`; attestations marked
+`unknown/unknown` remain in scope.
+
+Findings carry container attributes for the image, platform, layer index,
+available digests, and whether a historical path is visible, overwritten,
+deleted, or unknown. Common detection, validation, redaction, and
+output flags apply:
+
+```sh
+# Redacted JSON report
+betterleaks container example/app:latest --redact --report-path image.json --report-format json
+
+# Validate detected credentials and write JSON
+betterleaks container example/app:latest --validation --report-path validated.json --report-format json
+
+# Show resolution, platform selection, and periodic layer progress
+betterleaks container example/app:latest --log-level=debug
+```
+
+Verbose findings stream as the detector emits them, including with `--redact`.
+Live redaction masks the secrets identified in each finding. Report files are
+written when the scan finishes and also mask detected secrets repeated in other
+findings' labels and context.
+
+Debug progress reports stored layer bytes read, usually compressed. The final
+scanned-byte total measures detector input after exclusions and archive
+expansion; these numbers need not match. Default prefilters still exclude paths
+such as Python libraries and `node_modules`. To include those paths, export a
+standalone configuration and replace its top-level `prefilter` expression with
+`false`:
+
+```sh
+betterleaks config show > exhaustive.toml
+# Edit the top-level prefilter in exhaustive.toml to: prefilter = 'false'
+betterleaks container example/app:latest --config exhaustive.toml
+```
+
+Extending the default configuration adds prefilters; it cannot remove the
+inherited exclusions. Detection rules and finding filters still apply.
+
+Filesystem layers support uncompressed tar, gzip, and zstd. Outer Docker/OCI
+archives also support bzip2 and xz compression. Nested archives use the normal
+file source's format detection. Missing blobs, unsupported encryption, and
+legacy Docker schema-1 manifests produce incomplete scans.
+
+An image scan does not inspect running containers' writable layers, mounted
+volumes, runtime-injected environment variables, or build stages absent from the
+image. Registry enumeration and OCI referrers discovery are outside its scope.
+
+### Container provenance
+
+`Attributes.path` (also available as `File` in v1 reports) is the absolute container path, with `!` separating nested
+archive members, for example `/app/bundle.zip!.env`. Metadata uses virtual paths
+such as `@config`, `@history/0`, `@manifest`, and `@index`. Escaped JSON strings
+also receive a decoded representation with a `#decoded` suffix; coordinates
+refer to the indicated representation.
+
+Findings also carry declared image authors, source repository, and revision
+when available. Config labels take precedence over manifest annotations;
+legacy maintainer/author values provide a fallback for authors. These are
+image-supplied declarations, not verified authorship. Oversized attribution
+values are scanned as metadata but omitted from repeated finding attributes.
+
+Findings indicate whether a file occurrence is `visible`, `overwritten`,
+`deleted`, or `unknown`, and identify the layer that first hid it when available.
+
+Layers are read from newest to oldest, but provenance identifies the earliest
+subsequent change to each historical occurrence. If layer 0 creates `/token`,
+layer 1 deletes it, and layer 2 creates it again, the layer-0 finding is `deleted`
+by layer 1. Recreating the pathname does not rewrite that history. Within one
+layer, whiteouts remove older occurrences before additions; they never hide a
+file introduced in that same layer.
+
+Path state describes an occurrence at its original path, not whether the secret
+is absent from the final image. Copies and hardlinks may retain the value.
+Links are scanned as metadata and are never followed into the host filesystem.
+An unreadable upper layer makes lower-layer path states `unknown`; Windows
+images also use `unknown` because their filesystem visibility is not modeled.
+
+Docker save archives do not preserve the original registry manifest digest or
+necessarily the original compressed layer bytes. Those unavailable digests are
+omitted. Config digests, diff IDs, tags, and layer indexes still identify findings.
+
+### Limits and incomplete scans
+
+| Flag | Default | Behavior |
+| :--- | :--- | :--- |
+| `--max-file-size` | Unlimited | Caps individual layer files and stored artifact blobs; sparse files use their expanded size |
+| `--max-archive-depth` | `8` | Bounds nesting within layer files; the outer image archive and filesystem layer do not consume this budget |
+| `--max-archive-size` | `20 GiB` | Caps the full expanded outer tar stream, including headers, padding and trailing data, and extracted file bytes; applies to daemon exports; `0` selects this default |
+
+Sizes accept units such as `250MiB` or `30GiB`. The shared v1 flag
+`--max-target-megabytes` also sets the file limit unless `--max-file-size` is
+explicitly supplied. These are not aggregate limits on expansion inside nested
+archives.
+
+Additional bounds apply per image: at most one million layer entries and 64 MiB
+of normalized entry-path text across all its layers, including filtered entries.
+These bound the names retained for duplicate detection and historical path
+tracking. After a layer's tar end marker, at most 16 MiB of zero padding is
+accepted while validating the compression trailer and digest. Nonzero trailing
+data is an error. This padding bound does not cap normal layer file contents.
+JSON metadata input and each decoded representation are limited to 16 MiB;
+image-index nesting is limited to 32, outer archives to one million entries,
+and zstd decoder memory to 256 MiB. Limit failures mark the scan incomplete.
+
+Container scans use strict archive verification: missing or corrupt blobs,
+unreadable nested archives, checksum failures, and exceeded limits log a partial
+scan and exit with code `1`, overriding `--exit-code`. The v1 report formats do
+not include a scan-state field; check the process exit status and diagnostics.
+Findings already collected are preserved, and independent content continues
+where possible.
+Configured prefilter exclusions do not count as errors. Strict verification is
+automatic for containers; there is no `--strict-archives` flag.
+
+Container fingerprints include image, platform, layer, and metadata identity, so
+ignoring a finding in one historical layer does not ignore the same path in a
+different layer. Existing filesystem and Git fingerprints remain unchanged.
+
+### Container SDK
+
+Import `github.com/betterleaks/betterleaks/sources/container` and pass the source
+to a v1 detector:
+
+```go
+src := &container.Source{
+    Images:          []string{"ghcr.io/example/app:latest"},
+    MaxArchiveDepth: 8,
+    Prefilter:       detector.SkipFunc(),
+}
+for result := range detector.Run(ctx, src) {
+    if result.Err != nil {
+        // Record incomplete coverage; independent content may still be scanned.
+        continue
+    }
+    // Process result.Finding, including its container attributes.
+}
+```
+
+The SDK archive-depth default is zero; set `MaxArchiveDepth` explicitly to scan
+nested archives. `Keychain`, `Transport`, and `Logger` allow caller-supplied
+registry authentication, HTTP transport, and structured diagnostics.

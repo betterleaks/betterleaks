@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/betterleaks/betterleaks/internal/color"
 )
@@ -599,6 +601,23 @@ func (f Finding) printPrettyFileOnly(noColor bool, redact uint) {
 	writeFooter()
 }
 
+// escapeInline keeps image metadata and paths on a single terminal line.
+func escapeInline(s string) string {
+	var b strings.Builder
+	for len(s) > 0 {
+		r, n := utf8.DecodeRuneInString(s)
+		part := s[:n]
+		s = s[n:]
+		if (r == utf8.RuneError && n == 1) || !unicode.IsPrint(r) {
+			quoted := strconv.Quote(part)
+			b.WriteString(quoted[1 : len(quoted)-1])
+		} else {
+			b.WriteString(part)
+		}
+	}
+	return b.String()
+}
+
 // dotLeader prints "│   <key> <dots> <value>" where dots pad so that
 // `key + " " + dots` aligns to a fixed width of `maxKey + 7` columns (matching
 // the longest key, with a minimum of 6 trailing dots after it).
@@ -615,13 +634,11 @@ func (f *Finding) printPrettyMeta(noColor bool, redact uint) {
 		keys := make([]string, 0, len(f.Attributes))
 		for k := range f.Attributes {
 			keys = append(keys, k)
-			if len(k) > maxK {
-				maxK = len(k)
-			}
+			maxK = max(maxK, len(escapeInline(k)))
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			dotLeader(k, f.Attributes[k], maxK)
+			dotLeader(escapeInline(k), escapeInline(f.Attributes[k]), maxK)
 		}
 	}
 	if f.ValidationStatus != "" {

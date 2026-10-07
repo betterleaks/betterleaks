@@ -1,6 +1,8 @@
 package report
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -340,6 +342,23 @@ func (f *Finding) SetFingerprint() {
 	commit := f.Attributes[sources.AttrGitSHA]
 
 	globalFingerprint := fmt.Sprintf("%s:%s:%d", path, f.RuleID, f.StartLine)
+	// Containers can contain the same path in multiple images and historical
+	// layers. Keep existing v1 fingerprints for other sources.
+	if strings.HasPrefix(f.Attr(sources.AttrResource), "container.") {
+		identity := []string{globalFingerprint}
+		for _, key := range []string{
+			sources.AttrResource, "container.image", "container.digest",
+			"container.config_digest", "container.platform", "container.layer_digest",
+			"container.diff_id", "container.layer_index", "container.history_index",
+			"container.representation",
+		} {
+			identity = append(identity, f.Attr(key))
+		}
+		encoded, _ := json.Marshal(identity)
+		f.Fingerprint = fmt.Sprintf("container:%x", sha256.Sum256(encoded))
+		return
+	}
+
 	if commit != "" {
 		f.Fingerprint = fmt.Sprintf("%s:%s:%s:%d", commit, path, f.RuleID, f.StartLine)
 	} else {
