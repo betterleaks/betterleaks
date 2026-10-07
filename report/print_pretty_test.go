@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -10,6 +11,37 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestWritePrettyEscapesMetadataControls(t *testing.T) {
+	f := Finding{
+		RuleID:   "test",
+		Match:    Match{Value: "token", Full: "token", Line: "token"},
+		Location: Location{Path: "/file\nforged\r\x1b[2J", StartLine: 1},
+		Attributes: map[string]string{
+			"custom.author":  "Team\nforged\r\x1b[2J\x1b]0;title\a",
+			"arbitrary\nkey": "tab\tbackspace\bhidden\u202etext",
+			"printable":      `Team "One" — path\name`,
+		},
+	}
+	original := f.Clone()
+	for _, noColor := range []bool{false, true} {
+		var out bytes.Buffer
+		require.NoError(t, WritePretty(&out, f, PrettyOptions{NoColor: noColor}))
+		for _, unsafe := range []string{"\nforged", "\r", "\x1b[2J", "\x1b]0;title", "\a", "\t", "\b", "\u202e", "arbitrary\nkey"} {
+			require.NotContains(t, out.String(), unsafe)
+		}
+		require.Contains(t, out.String(), `Team\nforged\r\x1b[2J\x1b]0;title\a`)
+		require.Contains(t, out.String(), `arbitrary\nkey`)
+		require.Contains(t, out.String(), `tab\tbackspace\bhidden\u202etext`)
+		require.Contains(t, out.String(), f.Attributes["printable"])
+	}
+	require.Equal(t, original, f)
+	data, err := json.Marshal(f)
+	require.NoError(t, err)
+	var decoded Finding
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.Equal(t, f.Attributes, decoded.Attributes, "structured reports preserve the original values")
+}
 
 func TestWritePrettyBinarySnippet(t *testing.T) {
 	const secret = "token-example"

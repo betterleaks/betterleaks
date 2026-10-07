@@ -1,7 +1,9 @@
 package container
 
 import (
+	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -15,8 +17,47 @@ import (
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/stretchr/testify/require"
 )
+
+func TestContainerArchiveWarningsIncludeLayerContext(t *testing.T) {
+	var archive bytes.Buffer
+	w := zip.NewWriter(&archive)
+	member, err := w.CreateHeader(&zip.FileHeader{Name: "broken.class", Method: zip.Store})
+	require.NoError(t, err)
+	_, err = io.WriteString(member, "private-archive-content")
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	data := archive.Bytes()
+	index := bytes.Index(data, []byte("private-archive-content"))
+	require.NotEqual(t, -1, index)
+	data[index] ^= 1 // Preserve ZIP structure but invalidate the member's CRC.
+
+	f := newFixture(t)
+	layer := tarBytes(t, tarEntry{name: "lib/broken.jar", content: string(data)}, tarEntry{name: "after", content: "still-scanned"})
+	d := f.image("amd64", [][]byte{tarBytes(t, tarEntry{name: "base", content: "base"}), layer}, "gzip")
+	var manifest v1.Manifest
+	require.NoError(t, json.Unmarshal(f.blobs[d.Digest.String()], &manifest))
+	f.setIndex(d)
+	dir := f.directory()
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	fs, errs := collect(t, &Source{Layouts: []string{dir}, MaxArchiveDepth: 8, Logger: logger})
+	require.NotEmpty(t, errs)
+	find(t, fs, ResourceFile, "/after", "still-scanned")
+	var warning map[string]any
+	require.NoError(t, json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &warning))
+	require.Equal(t, "could not read archive content", warning["msg"])
+	require.Contains(t, warning["error"], "checksum error")
+	require.Equal(t, "/lib/broken.jar!broken.class", warning["path"])
+	require.NotEmpty(t, warning["image"])
+	require.Equal(t, "linux/amd64", warning["platform"])
+	require.Equal(t, "1", warning["layer_index"])
+	require.Equal(t, manifest.Layers[1].Digest.String(), warning["layer_digest"])
+	require.Equal(t, sum(layer).String(), warning["diff_id"])
+	require.NotContains(t, logs.String(), "archive-content")
+}
 
 type progressLogBuffer struct {
 	sync.Mutex

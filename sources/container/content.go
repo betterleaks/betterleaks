@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 )
@@ -23,6 +24,7 @@ type layerInput struct {
 }
 
 func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]string, state *overlay) (err error) {
+	logger := logging.OrDiscard(r.s.Logger).With("image", attrs[AttrImage], "platform", attrs[AttrPlatform], "layer_index", attrs[AttrLayerIndex], "layer_digest", attrs[AttrLayerDigest], "diff_id", attrs[AttrDiffID])
 	progress := r.startProgress(ctx, "container layer scan", "image", attrs[AttrImage], "platform", attrs[AttrPlatform], "layer_index", attrs[AttrLayerIndex], "layer_digest", attrs[AttrLayerDigest], "diff_id", attrs[AttrDiffID], "blob_size", l.descriptor.Size)
 	defer func() { progress.finish(err) }()
 	progress.setPhase("opening")
@@ -71,7 +73,7 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 			Content:         compressed,
 			Path:            location,
 			Attributes:      a,
-			Logger:          r.s.Logger,
+			Logger:          logger,
 			Prefilter:       r.s.Prefilter,
 			DetectArchive:   true,
 			StrictArchives:  true,
@@ -183,7 +185,7 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 			Content:         t,
 			Path:            p,
 			Attributes:      a,
-			Logger:          r.s.Logger,
+			Logger:          logger,
 			Prefilter:       r.s.Prefilter,
 			MaxArchiveDepth: r.s.MaxArchiveDepth,
 			DetectArchive:   true,
