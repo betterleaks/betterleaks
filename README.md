@@ -309,3 +309,4 @@ Projects and organizations that run Betterleaks. Open a pull request to add your
 - [Chainloop](https://github.com/chainloop-dev/chainloop)
 - [Chezmoi](https://github.com/twpayne/chezmoi)
 - [Pipeleek](https://github.com/CompassSecurity/pipeleek)
+- [Veridox](https://veridox.ai)
