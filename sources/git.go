@@ -55,6 +55,7 @@ type Git struct {
 	// LogOpts selects history with Git log arguments. It requires GitHistory.
 	// Nonempty options use one history stream to preserve Git's selection and
 	// diff semantics, independently of detection concurrency.
+	// External diff and textconv helpers are always disabled.
 	LogOpts string
 	// Include adds resources to the default patch scan. Supported values:
 	// commit-messages, tag-messages, reflogs. Additional resources require
@@ -693,6 +694,8 @@ type gitCmd struct {
 
 // gitConfigIsolationEnv contains the standard Git configuration isolation environment variables.
 // These settings prevent Git from reading user or system configuration files.
+// Repository configuration still applies. Commands that compute diffs must
+// explicitly disable external diff and textconv helpers.
 func gitConfigIsolationEnv() []string {
 	// Git recognizes /dev/null on Windows too; Git for Windows 2.56.0 rejects NUL.
 	const nullDevice = "/dev/null"
@@ -760,12 +763,13 @@ func newGitLogCmd(ctx context.Context, source, logOpts string, logger *slog.Logg
 		args = append(args, "--full-history", "--all", "--diff-filter=tuxdb")
 	}
 	// Own the preamble format so commit messages are indented and cannot be
-	// mistaken for patch headers. Override user formatting before pathspecs.
+	// mistaken for patch headers. Disable helpers even if user options enable
+	// them. These overrides must follow user options and precede pathspecs.
 	optionsEnd := slices.Index(args, "--")
 	if optionsEnd < 0 {
 		optionsEnd = len(args)
 	}
-	args = slices.Insert(args, optionsEnd, "--format=medium", "--no-abbrev-commit")
+	args = slices.Insert(args, optionsEnd, "--format=medium", "--no-abbrev-commit", "--no-ext-diff", "--no-textconv")
 	return startGitCmd(exec.CommandContext(ctx, "git", args...), logger)
 }
 
@@ -829,7 +833,7 @@ func splitGitLogOpts(input string) ([]string, error) {
 
 func newGitDiffCmd(ctx context.Context, source string, staged bool, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "diff", "-U0", "--no-ext-diff"}
+	args := []string{"-C", sourceClean, "diff", "-U0", "--no-ext-diff", "--no-textconv"}
 	if staged {
 		args = append(args, "--staged")
 	}
@@ -935,7 +939,7 @@ func listenForStdErr(stderr io.ReadCloser, errCh chan<- error, logger *slog.Logg
 // commits. --no-walk keeps worker partitions deterministic and non-overlapping.
 func newGitLogCommitsCmd(ctx context.Context, source string, commits []string, logger *slog.Logger) (*gitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--no-ext-diff", "--no-textconv", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
 	// Match the preamble format used by the full-history scan, regardless of
 	// the repository's format.pretty configuration.
 	args = append(args, "--format=medium", "--no-abbrev-commit")
@@ -968,12 +972,13 @@ func listCommits(ctx context.Context, source string, logOpts string, includeRefl
 		args = append(args, "--all")
 	}
 	// Use log rather than rev-list so diff-based selection (such as -G) also
-	// applies to commit messages. Override presentation before any pathspecs.
+	// applies to commit messages. Selection can invoke textconv even with
+	// --no-patch, so disable helpers after user options and before pathspecs.
 	optionsEnd := slices.Index(args, "--")
 	if optionsEnd < 0 {
 		optionsEnd = len(args)
 	}
-	args = slices.Insert(args, optionsEnd, "--format=%H", "--no-patch", "--no-abbrev-commit", "--no-color", "--no-decorate")
+	args = slices.Insert(args, optionsEnd, "--format=%H", "--no-patch", "--no-abbrev-commit", "--no-color", "--no-decorate", "--no-ext-diff", "--no-textconv")
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = gitConfigIsolationEnv()
