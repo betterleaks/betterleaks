@@ -136,7 +136,7 @@ func newGitLogCmd(ctx context.Context, source string, logOpts string) (*GitCmd, 
 		args = append(args, "--full-history", "--all", "--diff-filter=tuxdb")
 	}
 
-	return startGitLogCmd(ctx, sourceClean, args)
+	return startGitLogCmd(ctx, sourceClean, disableGitDiffHelpers(args))
 }
 
 // newGitLogCommitsCmd constructs a git log -p command that processes a specific
@@ -146,7 +146,7 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (
 	sourceClean := filepath.Clean(source)
 	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", disableGitDiffHelpers(args)...)
 	cmd.Env = gitConfigIsolationEnv()
 	logging.Debug().Msgf("executing: %s (%d commits via stdin)", cmd.String(), len(commits))
 
@@ -244,7 +244,7 @@ func listCommits(ctx context.Context, source string, logOpts string) ([]string, 
 		args = append(args, "--all")
 	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", disableGitDiffHelpers(args)...)
 	cmd.Env = gitConfigIsolationEnv()
 	out, err := cmd.Output()
 	if err != nil {
@@ -273,7 +273,7 @@ func commitCount(ctx context.Context, source string, logOpts string) (int, error
 		args = append(args, "--all")
 	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", disableGitDiffHelpers(args)...)
 	cmd.Env = gitConfigIsolationEnv()
 	out, err := cmd.Output()
 	if err != nil {
