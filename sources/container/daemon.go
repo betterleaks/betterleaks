@@ -108,6 +108,7 @@ func (r *session) daemon(ctx context.Context, ref string) error {
 		t := new(http.Transport)
 		t.DialContext = dialer.DialContext
 		t.TLSHandshakeTimeout = 10 * time.Second
+		t.ResponseHeaderTimeout = 30 * time.Second
 		t.MaxResponseHeaderBytes = 64 << 10
 		t.DisableCompression = true
 		if endpoint.Scheme == "unix" {

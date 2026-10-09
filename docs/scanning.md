@@ -1224,17 +1224,36 @@ Basic credentials, identity tokens, registry tokens, and Docker Hub's legacy
 `https://index.docker.io/v1/` key are supported. Legacy HTTP(S) registry URL keys
 with API paths are matched by exact host and port, after exact credential keys.
 
-Credential-helper execution is disabled by default. In that mode, nonempty file
-credentials take precedence over helper settings; a helper-only configuration
+Docker can use an external credential helper instead of keeping credentials in
+the `auths` section of its `config.json`. Two JSON settings select that helper:
+
+- `credsStore`: the default helper for registries without an override.
+- `credHelpers`: a map from registry names to helpers, overriding the default.
+
+For example, this Docker configuration selects `docker-credential-pass` for
+`ghcr.io` and `docker-credential-desktop` for other registries:
+
+```json
+{
+  "credsStore": "desktop",
+  "credHelpers": { "ghcr.io": "pass" }
+}
+```
+
+These are Docker configuration keys, not Betterleaks flags; the corresponding
+helper programs must already be installed. Credential-helper execution is
+disabled by default in Betterleaks. In that mode, nonempty file credentials take
+precedence over helper settings; a helper-only configuration
 returns an explicit error. To allow your configured helpers:
 
 ```sh
 betterleaks container ghcr.io/example/private:latest --credential-helpers
 ```
 
-With this opt-in, `credHelpers` for the registry takes precedence over `credsStore`,
-and the selected helper takes precedence over file credentials. Betterleaks
-executes `docker-credential-<configured-suffix> get` directly, without a shell,
+With this opt-in, Betterleaks uses the registry-specific helper if configured,
+otherwise the default helper. A selected helper takes precedence over credentials
+stored directly in the file. Betterleaks executes
+`docker-credential-<configured-suffix> get` directly, without a shell,
 and supplies the registry on stdin. It uses `PATH` to locate the configured
 helper; the flag does not accept a command or executable path. Only enable it
 for helper configuration and executables you trust. Helpers have a 30-second
@@ -1295,6 +1314,10 @@ loaded. For these configurations, supply an explicit supported endpoint; SDK
 callers can configure custom certificates or mutual TLS via `DaemonTransport`.
 The source does not search for engine sockets, follow HTTP redirects, use
 environment HTTP proxies for the engine connection, or fall back to a CLI.
+The built-in engine transport waits up to 30 seconds for response headers.
+The export body has no total timeout; library callers can set a context deadline
+to limit the complete scan. A custom `DaemonTransport` controls its own header
+timeout.
 Omitting `--daemon` selects registry scanning for image references. Archive and
 layout inputs need neither a container runtime nor registry credentials. Every
 image in an archive is scanned. Use `docker save` or `podman save` to retain
@@ -1414,7 +1437,8 @@ accepted while validating the compression trailer and digest. Nonzero trailing
 data is an error. This padding bound does not cap normal layer file contents.
 JSON metadata input and each decoded representation are limited to 16 MiB;
 image-index nesting is limited to 32, outer archives to one million entries,
-each target to 10,000 manifest visits (including repeated index references),
+each target to 10,000 manifest visits (including the root, repeated index
+references, and failed child fetches),
 zstd decoder memory to 256 MiB, and XZ dictionaries to 64 MiB. Limit failures
 mark the scan incomplete. Local archives, layout metadata, and blobs must be
 regular files; FIFOs and devices are rejected. Unsupported layer entry types

@@ -651,3 +651,39 @@ func TestRepeatedIndexWorkLimit(t *testing.T) {
 	require.ErrorIs(t, errs[0], errManifestVisits)
 	find(t, fs, ResourceFile, "/file", "next-target-secret")
 }
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestFailedManifestWorkLimit(t *testing.T) {
+	for _, count := range []int{maxManifestVisits - 1, maxManifestVisits} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			missing := v1.Descriptor{Digest: sum([]byte("missing")), Size: 2, MediaType: types.OCIManifestSchema1}
+			children := make([]v1.Descriptor, count)
+			for i := range children {
+				children[i] = missing
+			}
+			raw := jsonBytes(t, v1.IndexManifest{SchemaVersion: 2, Manifests: children})
+			fetches, failures := 0, 0
+			missingErr := errors.New("missing manifest")
+			store := imageStore{manifest: func(v1.Descriptor) ([]byte, error) {
+				fetches++
+				return nil, missingErr
+			}}
+			r := &session{s: &Source{}, yield: func(_ sources.Fragment, err error) error {
+				if err != nil {
+					require.ErrorIs(t, err, missingErr)
+					failures++
+				}
+				return nil
+			}}
+			err := r.walk(t.Context(), store, raw, v1.Descriptor{Digest: sum(raw), Size: int64(len(raw)), MediaType: types.OCIImageIndex}, map[string]string{}, 0)
+			if count < maxManifestVisits {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, errManifestVisits)
+			}
+			require.Equal(t, maxManifestVisits-1, fetches, "the root consumes one visit; the next child must not be fetched")
+			require.Equal(t, fetches, failures)
+			require.Equal(t, maxManifestVisits, r.manifestVisits)
+		})
+	}
+}

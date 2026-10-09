@@ -238,13 +238,11 @@ func (r *session) walk(ctx context.Context, store imageStore, raw []byte, desc v
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// A small DAG can repeat indexes exponentially without exceeding the depth
-	// limit. Bound total work per target without retaining a reverse index or
-	// deduplicating occurrences that may carry different platform attributes.
-	if r.manifestVisits >= maxManifestVisits {
-		return errManifestVisits
+	if depth == 0 {
+		// The root is already loaded. Children are charged before fetching so
+		// missing manifests consume the same budget as successfully read ones.
+		r.manifestVisits = 1
 	}
-	r.manifestVisits++
 	if depth > 32 {
 		return errors.New("image index nesting exceeds 32")
 	}
@@ -293,6 +291,11 @@ func (r *session) walk(ctx context.Context, store imageStore, raw []byte, desc v
 				r.debug(ctx, "skipping container platform", "image", attrs[AttrImage], "platform", child.Platform.String(), "digest", child.Digest.String())
 				continue
 			}
+			// Count repeated references and failures, not just parsed manifests.
+			if r.manifestVisits >= maxManifestVisits {
+				return errManifestVisits
+			}
+			r.manifestVisits++
 			childAttrs := maps.Clone(attrs)
 			if child.Platform != nil {
 				childAttrs[AttrPlatform] = child.Platform.String()
