@@ -637,6 +637,12 @@ betterleaks git . --include=reflogs
 
 # include commit messages from that expanded history too
 betterleaks git . --include=reflogs,commit-messages
+
+# read history through the git executable
+betterleaks git . --git-engine=git
+
+# in-process history scan reporting each added line once, at its first introduction
+betterleaks git . --git-dedup-lines
 ```
 
 Merge commits are scanned against their first parent by default, while history
@@ -645,6 +651,27 @@ merge or conflict resolution. A secret can be reported again when merged into
 another branch. Combined diff output (`--cc` or `-c`) is unsupported and causes
 an error when encountered; use `--diff-merges=first-parent` or
 `--diff-merges=separate` for merge patches.
+
+A plain history scan of a local repository (no `--log-opts`, no `--include`,
+no diff mode) reads the repository's pack files in process and needs no `git`
+executable. The in-process engine diffs every reachable commit against its
+first parent and emits the added lines of each change with the same commit
+attributes as the git engine. Compared with `git log -p -U0`, it yields hunks
+for added lines only (a pure rename yields nothing), terminates every line with
+a newline, and treats a line that only gained a trailing newline as unchanged.
+`--git-engine=git` selects the git executable for every scan;
+`--git-engine=gitpack` requires the in-process engine and reports an error for
+scans it cannot serve.
+
+`--git-dedup-lines` makes the in-process engine report each added line at its
+first introduction in history, so a secret carried across branches, merged, or
+re-added after removal is reported once, at the commit that introduced it.
+Detection sees each line in one hunk only: a rule that matches the line in a
+later commit's hunk (for example with a keyword that only the later hunk
+carries) reports nothing, so the option trades a small share of findings for
+fewer duplicates and a faster scan. The engine holds pack indexes, a commit
+graph, and an object cache in memory while it runs, so its peak memory is
+several times that of the git engine on large histories.
 
 Nonempty `--log-opts` uses one patch history stream so Git applies pathspecs,
 diff filters, and history options together. For example,

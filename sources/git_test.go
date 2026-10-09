@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -481,12 +482,25 @@ func TestGitStreamMatchesPatchParser(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.NoError(t, command.cmd.Wait())
-			got := collect(&Git{RepoPath: repo, LogOpts: opts})
+			got := collect(&Git{RepoPath: repo, LogOpts: opts, Engine: GitEngineGit})
 			require.Equal(t, want, got)
 			previous := runtime.GOMAXPROCS(8)
 			t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 			if opts == "" {
-				require.ElementsMatch(t, want, collect(&Git{RepoPath: repo}))
+				require.ElementsMatch(t, want, collect(&Git{RepoPath: repo, Engine: GitEngineGit}))
+				// The in-process engine yields hunks with added lines only
+				// and terminates every line with a newline; git log renders a
+				// pure rename as a header without hunks, which the patch
+				// reader yields as an empty fragment, and marks a missing
+				// final newline, which the patch reader preserves.
+				normalize := func(fragments []Fragment) []Fragment {
+					out := slices.DeleteFunc(slices.Clone(fragments), func(f Fragment) bool { return f.Raw == "" })
+					for i := range out {
+						out[i].Raw = strings.TrimSuffix(out[i].Raw, "\n")
+					}
+					return out
+				}
+				require.ElementsMatch(t, normalize(want), normalize(collect(&Git{RepoPath: repo, Engine: GitEnginePack})))
 			} else {
 				require.Equal(t, want, collect(&Git{RepoPath: repo, LogOpts: opts}))
 			}
@@ -513,10 +527,12 @@ func TestGitStreamReportsCommandFailure(t *testing.T) {
 	var exitErr *exec.ExitError
 	require.ErrorAs(t, err, &exitErr)
 	for _, mode := range []GitMode{GitHistory, GitStaged, GitWorkingTree} {
-		source := &Git{RepoPath: t.TempDir(), Mode: mode}
+		source := &Git{RepoPath: t.TempDir(), Mode: mode, Engine: GitEngineGit}
 		err := source.Fragments(t.Context(), func(Fragment, error) error { return nil })
 		require.ErrorAs(t, err, &exitErr, "Git's nonzero exit must be returned even when the callback ignores errors")
 	}
+	err = (&Git{RepoPath: t.TempDir()}).Fragments(t.Context(), func(Fragment, error) error { return nil })
+	require.ErrorContains(t, err, "not a git repository", "the in-process engine reports a missing repository")
 }
 
 func TestGitStreamOmitsCleanupSignal(t *testing.T) {

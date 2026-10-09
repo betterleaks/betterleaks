@@ -65,6 +65,15 @@ type Git struct {
 	Platform        scm.Platform
 	RemoteURL       string
 	MaxArchiveDepth int
+	// Engine selects how RepoPath history is read: GitEngineAuto (default)
+	// reads pack files in process for plain history scans and runs the git
+	// executable otherwise, GitEngineGit always runs git, GitEnginePack
+	// always reads in process. See git_gitpack.go.
+	Engine string
+	// DedupLines makes the in-process engine report each added line at its
+	// first introduction in history only; a line reported again in a later
+	// commit is omitted even when a rule would match it in that hunk.
+	DedupLines bool
 }
 
 const (
@@ -95,6 +104,9 @@ func (s *Git) Validate() error {
 		if name != GitResourceTypeCommitMessages && name != GitResourceTypeTagMessages && name != GitResourceTypeReflogs {
 			return fmt.Errorf("unknown Git resource type %q (supported: commit-messages, tag-messages, reflogs)", name)
 		}
+	}
+	if !validGitEngine(s.Engine) {
+		return fmt.Errorf("unknown git engine %q (supported: auto, git, gitpack)", s.Engine)
 	}
 	return nil
 }
@@ -148,6 +160,11 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 // Each process consumes fragments serially; the detector provides the other
 // half of the bounded worker pipeline.
 func (s *Git) fragmentsFromRepo(ctx context.Context, yield FragmentsFunc) error {
+	if inProcess, err := s.usePackEngine(); err != nil {
+		return err
+	} else if inProcess {
+		return s.fragmentsFromPack(ctx, yield)
+	}
 	// Selecting commits first loses pathspecs and diff options when producing
 	// their patches. Let Git apply explicit options in a single history walk.
 	if s.LogOpts != "" {
@@ -1014,23 +1031,25 @@ func ResolveRemote(ctx context.Context, platform scm.Platform, source string) (s
 var sshUrlpat = regexp.MustCompile(`^git@([a-zA-Z0-9.-]+):(?:\d{1,5}/)?([\w/.-]+?)(?:\.git)?$`)
 
 func getRemoteUrl(ctx context.Context, source string) (*url.URL, error) {
-	// This will return the first remote — typically, "origin".
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--quiet", "--get-url")
-	cmd.Env = gitConfigIsolationEnv()
-	if source != "." {
-		cmd.Dir = source
-	}
-
-	stdout, err := cmd.Output()
-	if err != nil {
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) {
-			return nil, fmt.Errorf("command failed (%d): %w, stderr: %s", exitError.ExitCode(), err, string(bytes.TrimSpace(exitError.Stderr)))
+	remoteUrl, ok := remoteURLFromConfig(source)
+	if !ok {
+		// This will return the first remote — typically, "origin".
+		cmd := exec.CommandContext(ctx, "git", "ls-remote", "--quiet", "--get-url")
+		cmd.Env = gitConfigIsolationEnv()
+		if source != "." {
+			cmd.Dir = source
 		}
-		return nil, err
-	}
 
-	remoteUrl := string(bytes.TrimSpace(stdout))
+		stdout, err := cmd.Output()
+		if err != nil {
+			var exitError *exec.ExitError
+			if errors.As(err, &exitError) {
+				return nil, fmt.Errorf("command failed (%d): %w, stderr: %s", exitError.ExitCode(), err, string(bytes.TrimSpace(exitError.Stderr)))
+			}
+			return nil, err
+		}
+		remoteUrl = string(bytes.TrimSpace(stdout))
+	}
 	if matches := sshUrlpat.FindStringSubmatch(remoteUrl); matches != nil {
 		remoteUrl = fmt.Sprintf("https://%s/%s", matches[1], matches[2])
 	}
