@@ -214,8 +214,34 @@ func TestPlatformSelectionWithoutDescriptorPlatform(t *testing.T) {
 	}
 }
 
+//nolint:exhaustruct // The fixture sets only the artifact and callback fields.
+func TestLargeJSONArtifact(t *testing.T) {
+	// A JSON artifact larger than the old 16 MiB cap must retain both raw and
+	// decoded scanning, including escaped credentials after the large field.
+	raw := `{"padding":"` + strings.Repeat("x", 17<<20) + `","token":"large\u002dmetadata\u002dsecret"}`
+	jsonBytes, decodedSecret := 0, false
+	r := &session{s: &Source{}, yield: func(f sources.Fragment, err error) error {
+		require.NoError(t, err)
+		if f.Attr(AttrRepresentation) == "json" {
+			jsonBytes += len(f.Raw)
+		}
+		if f.Attr(AttrRepresentation) == "decoded" && strings.Contains(f.Raw, "large-metadata-secret") {
+			decodedSecret = true
+		}
+		return nil
+	}}
+	layer := layerInput{
+		descriptor: v1.Descriptor{Digest: sum([]byte(raw)), Size: int64(len(raw)), MediaType: "application/json"},
+		open:       func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(raw)), nil },
+	}
+	require.NoError(t, r.layer(t.Context(), layer, map[string]string{}, newOverlay()))
+	require.Equal(t, len(raw), jsonBytes)
+	require.True(t, decodedSecret)
+	require.ErrorContains(t, r.metadata(t.Context(), make([]byte, maxMetadataSize+1), "@config", ResourceConfig, nil), "metadata exceeds 64 MiB limit")
+}
+
 func TestDecodedMetadataLimitAndCancellation(t *testing.T) {
-	raw := jsonBytes(t, map[string]any{strings.Repeat("k", 32<<10): make([]int, 1000), "escape": "\n"})
+	raw := jsonBytes(t, map[string]any{strings.Repeat("k", 32<<10): make([]int, maxMetadataSize/(32<<10)+1), "escape": "\n"})
 	decodedBytes := 0
 	r := &session{s: &Source{}, yield: func(f sources.Fragment, err error) error {
 		require.NoError(t, err)

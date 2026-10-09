@@ -215,7 +215,7 @@ func localRead(ctx context.Context, root *os.Root, p string) ([]byte, error) {
 		return nil, err
 	}
 	if len(data) > maxMetadataSize {
-		return nil, errors.New("metadata exceeds 16 MiB limit")
+		return nil, fmt.Errorf("metadata exceeds %d MiB limit", maxMetadataSize>>20)
 	}
 	return data, nil
 }

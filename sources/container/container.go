@@ -229,7 +229,7 @@ func (r *session) registry(ctx context.Context, target string) error {
 	return r.walk(ctx, store, desc.Manifest, desc.Descriptor, map[string]string{AttrImage: ref.Name()}, 0)
 }
 
-const maxMetadataSize = 16 << 20
+const maxMetadataSize = 64 << 20
 const maxManifestVisits = 10_000
 
 var errManifestVisits = errors.New("container target exceeds 10000 manifest visits")
@@ -247,7 +247,7 @@ func (r *session) walk(ctx context.Context, store imageStore, raw []byte, desc v
 		return errors.New("image index nesting exceeds 32")
 	}
 	if len(raw) > maxMetadataSize {
-		return errors.New("manifest exceeds 16 MiB metadata limit")
+		return fmt.Errorf("manifest exceeds %d MiB metadata limit", maxMetadataSize>>20)
 	}
 	if int64(len(raw)) != desc.Size {
 		return errors.New("manifest size does not match descriptor")

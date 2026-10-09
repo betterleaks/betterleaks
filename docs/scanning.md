@@ -1435,7 +1435,7 @@ These bound the names retained for duplicate detection and historical path
 tracking. After a layer's tar end marker, at most 16 MiB of zero padding is
 accepted while validating the compression trailer and digest. Nonzero trailing
 data is an error. This padding bound does not cap normal layer file contents.
-JSON metadata input and each decoded representation are limited to 16 MiB;
+JSON metadata input and each decoded representation are limited to 64 MiB;
 image-index nesting is limited to 32, outer archives to one million entries,
 each target to 10,000 manifest visits (including the root, repeated index
 references, and failed child fetches),

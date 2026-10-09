@@ -80,13 +80,14 @@ func dockerConfigPath() string {
 }
 
 func readConfigFile(ctx context.Context, path string) ([]byte, error) {
+	const maxConfigFileSize = 16 << 20
 	f, err := openRegularFile(ctx, nil, path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(contextReader{ctx, f}, maxMetadataSize+1))
-	if len(data) > maxMetadataSize {
+	data, err := io.ReadAll(io.LimitReader(contextReader{ctx, f}, maxConfigFileSize+1))
+	if len(data) > maxConfigFileSize {
 		return nil, errors.New("container configuration file exceeds 16 MiB")
 	}
 	return data, err

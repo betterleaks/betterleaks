@@ -65,7 +65,7 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 				return err
 			}
 			if len(data) > maxMetadataSize {
-				return errors.New("JSON artifact exceeds 16 MiB metadata limit")
+				return fmt.Errorf("JSON artifact exceeds %d MiB metadata limit", maxMetadataSize>>20)
 			}
 			return r.metadata(ctx, data, location, ResourceArtifact, a)
 		}
