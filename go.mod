@@ -8,6 +8,7 @@ require (
 	github.com/alecthomas/kong v1.16.1
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/dlclark/regexp2 v1.11.5
+	github.com/docker/docker-credential-helpers v0.9.3
 	github.com/dustin/go-humanize v1.0.1
 	github.com/expr-lang/expr v1.17.8
 	github.com/google/go-cmp v0.7.0
@@ -32,7 +33,6 @@ require (
 	github.com/bodgit/sevenzip v1.6.2 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/docker/cli v29.7.2+incompatible // indirect
-	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect

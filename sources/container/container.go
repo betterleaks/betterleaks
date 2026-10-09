@@ -26,19 +26,30 @@ import (
 // Source scans each requested target. Empty Platforms selects every platform,
 // including artifacts attached through an image index. Archive inputs contain
 // Docker save or OCI layout tar streams; Layouts are OCI layout directories.
-// Registry authentication uses Docker's standard keychain unless Anonymous or
-// Keychain is set. Daemon selects the docker or podman CLI and never pulls
+// Registry authentication reads Docker/Podman credential files without invoking
+// credential helpers by default. CredentialHelpers explicitly enables helpers;
+// Anonymous bypasses all authentication, and Keychain overrides the built-in provider.
+// Daemon selects the Docker or Podman HTTP API and never pulls
 // images; an empty Daemon selects registry scanning.
 type Source struct {
 	Images, Archives, Layouts []string
 	Platforms                 []string
 	Daemon                    string
-	Anonymous, PlainHTTP      bool
-	Keychain                  authn.Keychain
-	Transport                 http.RoundTripper
-	Logger                    *slog.Logger
-	Prefilter                 sources.PrefilterFunc
-	MaxArchiveDepth           int
+	// DaemonHost is a unix://, http:// or https:// engine endpoint. Empty uses
+	// DOCKER_HOST/CONTAINER_HOST or the selected engine's default local socket.
+	DaemonHost string
+	// DaemonTransport overrides the engine transport, for example to configure
+	// mutual TLS. The caller owns its lifetime. Transport below is registry-only.
+	DaemonTransport      http.RoundTripper
+	Anonymous, PlainHTTP bool
+	// CredentialHelpers permits configured docker-credential-* executables.
+	// Anonymous takes precedence; an explicit Keychain controls its own behavior.
+	CredentialHelpers bool
+	Keychain          authn.Keychain
+	Transport         http.RoundTripper
+	Logger            *slog.Logger
+	Prefilter         sources.PrefilterFunc
+	MaxArchiveDepth   int
 	// MaxFileSize limits individual layer files (zero is unlimited). Exceeding
 	// a configured limit is a source error, so reports cannot claim completeness.
 	MaxFileSize int64
@@ -59,6 +70,14 @@ func (s *Source) Validate() error {
 	}
 	if s.Daemon != "" && len(s.Images) == 0 {
 		return errors.New("--daemon requires an image reference")
+	}
+	if s.Daemon == "" && (s.DaemonHost != "" || s.DaemonTransport != nil) {
+		return errors.New("daemon connection options require --daemon docker or podman")
+	}
+	if s.DaemonHost != "" {
+		if _, err := parseDaemonHost(s.DaemonHost); err != nil {
+			return err
+		}
 	}
 	for _, p := range s.Platforms {
 		parts := strings.Split(p, "/")
@@ -82,6 +101,7 @@ type session struct {
 	stopped               error
 	images, layers, files int
 	selectedPlatforms     int
+	manifestVisits        int
 }
 
 func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
@@ -106,6 +126,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		r.manifestVisits = 0
 		before := r.selectedPlatforms
 		if err := fn(); err != nil {
 			if r.stopped != nil {
@@ -167,7 +188,7 @@ func (r *session) registry(ctx context.Context, target string) error {
 	} else {
 		keychain := r.s.Keychain
 		if keychain == nil {
-			keychain = authn.DefaultKeychain
+			keychain = registryKeychain{allowHelpers: r.s.CredentialHelpers}
 		}
 		ro = append(ro, remote.WithAuthFromKeychain(keychain))
 	}
@@ -209,11 +230,21 @@ func (r *session) registry(ctx context.Context, target string) error {
 }
 
 const maxMetadataSize = 16 << 20
+const maxManifestVisits = 10_000
+
+var errManifestVisits = errors.New("container target exceeds 10000 manifest visits")
 
 func (r *session) walk(ctx context.Context, store imageStore, raw []byte, desc v1.Descriptor, attrs map[string]string, depth int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// A small DAG can repeat indexes exponentially without exceeding the depth
+	// limit. Bound total work per target without retaining a reverse index or
+	// deduplicating occurrences that may carry different platform attributes.
+	if r.manifestVisits >= maxManifestVisits {
+		return errManifestVisits
+	}
+	r.manifestVisits++
 	if depth > 32 {
 		return errors.New("image index nesting exceeds 32")
 	}
@@ -274,6 +305,9 @@ func (r *session) walk(ctx context.Context, store imageStore, raw []byte, desc v
 			if err != nil {
 				if r.stopped != nil {
 					return r.stopped
+				}
+				if errors.Is(err, errManifestVisits) {
+					return err // Stop this target, not just this repeated branch.
 				}
 				if err := r.yield(sources.Fragment{}, fmt.Errorf("manifest %s: %w", child.Digest, err)); err != nil {
 					return err

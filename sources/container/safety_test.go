@@ -5,13 +5,16 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -19,7 +22,82 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/stretchr/testify/require"
+	"github.com/ulikunitz/xz"
 )
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestOuterArchiveAliases(t *testing.T) {
+	alias := tarEntry{name: "legacy/layer.tar", kind: tar.TypeSymlink, link: "../physical.tar"}
+	physical := tarEntry{name: "physical.tar", content: "layer bytes"}
+	for _, tc := range []struct {
+		name    string
+		entries []tarEntry
+		valid   bool
+	}{
+		{"forward", []tarEntry{alias, physical}, true},
+		{"backward", []tarEntry{physical, alias}, true},
+		{"chain", []tarEntry{{name: "second/layer.tar", kind: tar.TypeSymlink, link: "../legacy/layer.tar"}, alias, physical}, true},
+		{"absolute", []tarEntry{{name: alias.name, kind: tar.TypeSymlink, link: "/etc/passwd"}}, false},
+		{"escape", []tarEntry{{name: alias.name, kind: tar.TypeSymlink, link: "../../outside"}}, false},
+		{"backslash", []tarEntry{{name: alias.name, kind: tar.TypeSymlink, link: `..\outside`}}, false},
+		{"volume", []tarEntry{{name: alias.name, kind: tar.TypeSymlink, link: "C:/outside"}}, false},
+		{"hardlink-relative-root", []tarEntry{{name: alias.name, kind: tar.TypeLink, link: "../physical.tar"}, physical}, false},
+		{"missing", []tarEntry{alias}, false},
+		{"directory", []tarEntry{alias, {name: "physical.tar", kind: tar.TypeDir}}, false},
+		{"self", []tarEntry{{name: alias.name, kind: tar.TypeSymlink, link: "layer.tar"}}, false},
+		{"cycle", []tarEntry{{name: alias.name, kind: tar.TypeSymlink, link: "../other/layer.tar"}, {name: "other/layer.tar", kind: tar.TypeSymlink, link: "../legacy/layer.tar"}}, false},
+		{"duplicate-alias", []tarEntry{alias, alias, physical}, false},
+		{"alias-then-file", []tarEntry{alias, {name: alias.name, content: "overwrite"}, physical}, false},
+		{"file-then-alias", []tarEntry{{name: alias.name, content: "overwrite"}, alias, physical}, false},
+		{"alias-then-child", []tarEntry{alias, {name: alias.name + "/child"}, physical}, false},
+		{"child-then-alias", []tarEntry{{name: alias.name + "/child"}, alias, physical}, false},
+		{"alias-then-directory", []tarEntry{alias, {name: alias.name, kind: tar.TypeDir}, physical}, false},
+		{"directory-then-alias", []tarEntry{{name: alias.name, kind: tar.TypeDir}, alias, physical}, false},
+		{"nested-alias", []tarEntry{{name: alias.name + "/child/layer.tar", kind: tar.TypeLink, link: "physical.tar"}, alias, physical}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, err := os.OpenRoot(t.TempDir())
+			require.NoError(t, err)
+			defer root.Close()
+			aliases := make(map[string]string)
+			r := &session{s: &Source{}}
+			err = r.unpackFiles(t.Context(), bytes.NewReader(tarBytes(t, tc.entries...)), root, "test", aliases)
+			if !tc.valid {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			for name := range aliases {
+				_, err := root.Lstat(name)
+				require.ErrorIs(t, err, os.ErrNotExist, "aliases must not become filesystem entries")
+			}
+			data, err := root.ReadFile("physical.tar")
+			require.NoError(t, err)
+			require.Equal(t, physical.content, string(data))
+		})
+	}
+	for _, depth := range []int{32, 33} {
+		t.Run(fmt.Sprintf("depth-%d", depth), func(t *testing.T) {
+			entries := []tarEntry{physical}
+			target := "physical.tar"
+			for i := 0; i < depth; i++ {
+				name := fmt.Sprintf("%d/layer.tar", i)
+				entries = append(entries, tarEntry{name: name, kind: tar.TypeLink, link: target})
+				target = name
+			}
+			root, err := os.OpenRoot(t.TempDir())
+			require.NoError(t, err)
+			defer root.Close()
+			r := &session{s: &Source{}}
+			err = r.unpackFiles(t.Context(), bytes.NewReader(tarBytes(t, entries...)), root, "test", make(map[string]string))
+			if depth == 32 {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "exceeds 32 links")
+			}
+		})
+	}
+}
 
 func gzipBytes(t *testing.T, data []byte) []byte {
 	t.Helper()
@@ -222,22 +300,16 @@ func TestNestedCompressionTrailerValidation(t *testing.T) {
 }
 
 func TestDaemonFailureDiagnostic(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX mock container CLI")
-	}
 	for _, daemon := range []string{"docker", "podman"} {
 		t.Run(daemon, func(t *testing.T) {
-			dir := t.TempDir()
-			require.NoError(t, os.WriteFile(filepath.Join(dir, daemon), []byte("#!/bin/sh\necho 'No such image: review:missing https://user:password@example.test/image?token=secret' >&2\nexit 1\n"), 0700))
-			for _, other := range []string{"docker", "podman"} {
-				if other != daemon {
-					require.NoError(t, os.WriteFile(filepath.Join(dir, other), []byte("#!/bin/sh\nexit 99\n"), 0700))
-				}
-			}
-			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-			_, errs := collect(t, &Source{Images: []string{"review:missing"}, Daemon: daemon})
-			require.NotEmpty(t, errs)
-			require.ErrorContains(t, errs[0], daemon+" image save failed")
+			transport := progressTransport(func(req *http.Request) (*http.Response, error) {
+				//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+				return &http.Response{StatusCode: 404, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"message":"No such image: review:missing https://user:password@example.test/image?token=secret"}`)), Request: req}, nil
+			})
+			//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+			_, errs := collect(t, &Source{Images: []string{"review:missing"}, Daemon: daemon, DaemonHost: "http://engine.test", DaemonTransport: transport})
+			require.Len(t, errs, 1)
+			require.ErrorContains(t, errs[0], daemon+" image export: HTTP 404")
 			require.ErrorContains(t, errs[0], "No such image: review:missing")
 			require.NotContains(t, errs[0].Error(), "password")
 			require.NotContains(t, errs[0].Error(), "token=secret")
@@ -246,14 +318,11 @@ func TestDaemonFailureDiagnostic(t *testing.T) {
 }
 
 func TestDaemonDiagnosticBound(t *testing.T) {
-	d := &daemonDiagnostic{}
-	for range 3 {
-		n, err := io.Copy(d, io.LimitReader(strings.NewReader(strings.Repeat("x", 10<<10)), 10<<10))
-		require.NoError(t, err)
-		require.Equal(t, int64(10<<10), n)
-	}
-	require.Equal(t, 16<<10, d.buffer.Len())
-	require.True(t, strings.HasSuffix(d.String(), "[truncated]"))
+	reader := strings.NewReader(strings.Repeat("x", 30<<10))
+	err := daemonResponseError(reader)
+	require.Len(t, err.Error(), (16<<10)+len(" [truncated]"))
+	require.True(t, strings.HasSuffix(err.Error(), "[truncated]"))
+	require.Equal(t, (30<<10)-(16<<10)-1, reader.Len())
 }
 
 // A reader may legally return data and EOF together. Verification failures
@@ -308,6 +377,54 @@ func TestOuterArchiveExpandedStreamLimit(t *testing.T) {
 	_, errs := collect(t, &Source{Archives: []string{file}, MaxArchiveSize: limit - 1})
 	require.NotEmpty(t, errs)
 	require.ErrorContains(t, errs[0], "max-archive-size")
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestOuterArchiveTailValidation(t *testing.T) {
+	f := newFixture(t)
+	f.setIndex(f.image("amd64", nil, "tar"))
+	archive := f.archive()
+	for _, compressed := range []bool{false, true} {
+		for _, failure := range []bool{false, true} {
+			t.Run(fmt.Sprintf("compressed=%v/export-error=%v", compressed, failure), func(t *testing.T) {
+				// Valid tar record padding is accepted. An engine error after the
+				// padding must make even an HTTP 200 export fail without echoing it.
+				data := append(bytes.Clone(archive), make([]byte, 10240)...)
+				if failure {
+					data = append(data, []byte(`{"error":"export failed: sensitive-value"}`)...)
+				}
+				if compressed {
+					data = gzipBytes(t, data)
+				}
+				transport := progressTransport(func(req *http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(data)), Request: req}, nil
+				})
+				_, errs := collect(t, &Source{Images: []string{"app"}, Daemon: "docker", DaemonHost: "http://engine.test", DaemonTransport: transport})
+				if failure {
+					require.Len(t, errs, 1)
+					require.ErrorContains(t, errs[0], "nonzero data after tar end marker")
+					require.NotContains(t, errs[0].Error(), "sensitive-value")
+				} else {
+					require.Empty(t, errs)
+				}
+			})
+		}
+	}
+}
+
+func TestReadConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	_, err := readConfigFile(t.Context(), dir)
+	require.ErrorContains(t, err, "regular file")
+	file := filepath.Join(dir, "config.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{}`), 0600))
+	data, err := readConfigFile(t.Context(), file)
+	require.NoError(t, err)
+	require.Equal(t, `{}`, string(data))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = readConfigFile(ctx, file)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 type zeroStream struct{ reads int64 }
@@ -404,33 +521,133 @@ func TestWhiteoutBeforeSameLayerReplacement(t *testing.T) {
 	}
 }
 
-func TestDaemonReferenceIsOneLiteralArgument(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX mock container CLI")
-	}
-	for _, daemon := range []string{"docker", "podman"} {
-		t.Run(daemon, func(t *testing.T) {
-			f := newFixture(t)
-			f.setIndex(f.image("amd64", nil, "tar"))
-			dir := t.TempDir()
-			archive := filepath.Join(dir, "image.tar")
-			require.NoError(t, os.WriteFile(archive, f.archive(), 0600))
-			marker := filepath.Join(dir, "must-not-exist")
-			ref := "app:local; touch " + marker + " # $(touch " + marker + ")"
-			script := "#!/bin/sh\n[ \"$#\" = 4 ] && [ \"$1\" = image ] && [ \"$2\" = save ] && [ \"$3\" = -- ] && [ \"$4\" = \"$CONTAINER_TEST_REF\" ] || exit 2\ncat \"$CONTAINER_TEST_ARCHIVE\"\n"
-			require.NoError(t, os.WriteFile(filepath.Join(dir, daemon), []byte(script), 0700))
-			for _, other := range []string{"docker", "podman"} {
-				if other != daemon {
-					require.NoError(t, os.WriteFile(filepath.Join(dir, other), []byte("#!/bin/sh\nexit 99\n"), 0700))
-				}
-			}
-			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-			t.Setenv("CONTAINER_TEST_REF", ref)
-			t.Setenv("CONTAINER_TEST_ARCHIVE", archive)
-			_, errs := collect(t, &Source{Images: []string{ref}, Daemon: daemon})
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonReferenceIsOneLiteralName(t *testing.T) {
+	f := newFixture(t)
+	f.setIndex(f.image("amd64", nil, "tar"))
+	for _, ref := range []string{"registry.test/team/app:local", "app@sha256:abcd", "../get?names=other#fragment", "app:local; $(touch marker)", "app:one,other:two"} {
+		t.Run(ref, func(t *testing.T) {
+			var requests int
+			transport := progressTransport(func(req *http.Request) (*http.Response, error) {
+				requests++
+				require.Equal(t, "engine.test", req.URL.Host)
+				require.Equal(t, http.MethodGet, req.Method)
+				require.Equal(t, "/images/"+url.PathEscape(ref)+"/get", req.URL.EscapedPath())
+				require.Empty(t, req.URL.RawQuery)
+				require.Empty(t, req.URL.Fragment)
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(f.archive())), Request: req}, nil
+			})
+			_, errs := collect(t, &Source{Images: []string{ref}, Daemon: "docker", DaemonHost: "http://engine.test", DaemonTransport: transport})
 			require.Empty(t, errs)
-			_, err := os.Stat(marker)
-			require.True(t, os.IsNotExist(err))
+			require.Equal(t, 1, requests)
 		})
 	}
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestInvalidLayerEntries(t *testing.T) {
+	for _, entry := range []tarEntry{
+		{name: "unknown", kind: 'Z'},
+		{name: "dir/.wh.."},
+		{name: "dir/.wh..."},
+	} {
+		t.Run(entry.name, func(t *testing.T) {
+			f := newFixture(t)
+			lower := tarBytes(t, tarEntry{name: "file", content: "lower-secret"})
+			f.setIndex(f.image("amd64", [][]byte{lower, tarBytes(t, entry)}, "tar"))
+			fs, errs := collect(t, &Source{Layouts: []string{f.directory()}})
+			require.NotEmpty(t, errs)
+			found := find(t, fs, ResourceFile, "/file", "lower-secret")
+			require.Equal(t, "unknown", found.Attr(AttrPathState))
+		})
+	}
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestGlobalPAXHeaderDoesNotHideFile(t *testing.T) {
+	for _, sameLayerFile := range []bool{false, true} {
+		t.Run(fmt.Sprint(sameLayerFile), func(t *testing.T) {
+			f := newFixture(t)
+			lower := tarBytes(t, tarEntry{name: "file", content: "lower-secret"})
+			entries := []tarEntry{{name: "file", kind: tar.TypeXGlobalHeader, pax: map[string]string{"comment": "global-secret"}}}
+			want := "visible"
+			if sameLayerFile {
+				entries = append(entries, tarEntry{name: "file", content: "upper-secret"})
+				want = "overwritten"
+			}
+			f.setIndex(f.image("amd64", [][]byte{lower, tarBytes(t, entries...)}, "tar"))
+			fs, errs := collect(t, &Source{Layouts: []string{f.directory()}})
+			require.Empty(t, errs)
+			found := find(t, fs, ResourceFile, "/file", "lower-secret")
+			require.Equal(t, want, found.Attr(AttrPathState))
+			find(t, fs, ResourceLayerMetadata, "/file", "global-secret")
+			if sameLayerFile {
+				find(t, fs, ResourceFile, "/file", "upper-secret")
+			}
+		})
+	}
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestXZDictionaryLimitAndIntegrity(t *testing.T) {
+	f := newFixture(t)
+	f.setIndex(f.image("amd64", nil, "tar"))
+	var encoded bytes.Buffer
+	w, err := xz.NewWriter(&encoded)
+	require.NoError(t, err)
+	_, err = w.Write(f.archive())
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	for _, mode := range []string{"valid", "dictionary", "truncated", "trailing"} {
+		t.Run(mode, func(t *testing.T) {
+			data := bytes.Clone(encoded.Bytes())
+			switch mode {
+			case "dictionary":
+				// Change only the block's LZMA2 property and its header CRC.
+				// A tiny stream must not be allowed to request a 4 GiB dictionary.
+				header := data[12 : 12+(int(data[12])+1)*4]
+				require.Equal(t, []byte{0, 0x21, 1}, header[1:4])
+				header[4] = 40
+				binary.LittleEndian.PutUint32(header[len(header)-4:], crc32.ChecksumIEEE(header[:len(header)-4]))
+			case "truncated":
+				data = data[:len(data)-5]
+			case "trailing":
+				data = append(data, []byte("unexpected trailing data")...)
+			}
+			file := filepath.Join(t.TempDir(), "image.tar.xz")
+			require.NoError(t, os.WriteFile(file, data, 0600))
+			_, errs := collect(t, &Source{Archives: []string{file}})
+			if mode == "valid" {
+				require.Empty(t, errs)
+			} else {
+				require.NotEmpty(t, errs)
+				if mode == "dictionary" {
+					require.Contains(t, fmt.Sprint(errs), "dictionary size exceeds max")
+				}
+			}
+		})
+	}
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestRepeatedIndexWorkLimit(t *testing.T) {
+	f := newFixture(t)
+	d := f.image("amd64", nil, "tar")
+	// Only five stored manifests, but 11,111 occurrences if walked naively.
+	for range 4 {
+		children := make([]v1.Descriptor, 10)
+		for i := range children {
+			children[i] = d
+		}
+		d = f.blob(jsonBytes(t, v1.IndexManifest{SchemaVersion: 2, Manifests: children}), types.OCIImageIndex)
+	}
+	f.index = f.blobs[d.Digest.String()]
+	good := newFixture(t)
+	good.setIndex(good.image("amd64", [][]byte{tarBytes(t, tarEntry{name: "file", content: "next-target-secret"})}, "tar"))
+	fs, errs := collect(t, &Source{Layouts: []string{f.directory(), good.directory()}, Prefilter: func(attrs map[string]string) bool {
+		return attrs[sources.AttrResource] != ResourceFile
+	}})
+	require.Len(t, errs, 1)
+	require.ErrorIs(t, errs[0], errManifestVisits)
+	find(t, fs, ResourceFile, "/file", "next-target-secret")
 }

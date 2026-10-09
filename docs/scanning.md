@@ -1199,7 +1199,7 @@ container images from registry references or saved archives.
 ### Registry images and authentication
 
 ```sh
-# Public image; ignore saved credentials and credential helpers
+# Public image; ignore saved credentials
 betterleaks container ubuntu:24.04 --anonymous
 
 # Private image; use credentials from docker login
@@ -1216,19 +1216,52 @@ betterleaks container example/api:v1 example/worker:v1 \
 
 Bare image references always select a registry. Registry scans do not require a
 running Docker daemon. Public images can be scanned without credentials; private
-images use Docker's standard credential configuration, including `DOCKER_CONFIG`
-and credential helpers. `--anonymous` disables credential lookup. Use
+images use file-based credentials. The first existing file is used, in this order:
+`$DOCKER_CONFIG/config.json` (or `~/.docker/config.json`), `$REGISTRY_AUTH_FILE`,
+`$XDG_RUNTIME_DIR/containers/auth.json`, then
+`$XDG_CONFIG_HOME/containers/auth.json` (or `~/.config/containers/auth.json`).
+Basic credentials, identity tokens, registry tokens, and Docker Hub's legacy
+`https://index.docker.io/v1/` key are supported. Legacy HTTP(S) registry URL keys
+with API paths are matched by exact host and port, after exact credential keys.
+
+Credential-helper execution is disabled by default. In that mode, nonempty file
+credentials take precedence over helper settings; a helper-only configuration
+returns an explicit error. To allow your configured helpers:
+
+```sh
+betterleaks container ghcr.io/example/private:latest --credential-helpers
+```
+
+With this opt-in, `credHelpers` for the registry takes precedence over `credsStore`,
+and the selected helper takes precedence over file credentials. Betterleaks
+executes `docker-credential-<configured-suffix> get` directly, without a shell,
+and supplies the registry on stdin. It uses `PATH` to locate the configured
+helper; the flag does not accept a command or executable path. Only enable it
+for helper configuration and executables you trust. Helpers have a 30-second
+timeout (or the caller's earlier deadline) and a 1 MiB response limit. Helper
+stdout/stderr are not included in failure diagnostics. The standard
+credentials-not-found response permits anonymous registry access.
+
+`--anonymous` bypasses all credential lookup, even when `--credential-helpers`
+is also supplied. Local daemon exports, saved archives and layouts do not use
+registry helpers. Library callers can set `CredentialHelpers: true` for the
+same behavior, or explicitly provide a `Keychain` for other credential
+providers; that caller-supplied code controls its own execution and timeouts. Use
 `--plain-http` only for registries served over HTTP; it does not disable HTTPS
 certificate verification. Tags and digest-pinned references are supported.
 
 ### Local images and saved archives
 
 ```sh
-# Image in the local Docker daemon, using the Docker CLI's configured context
+# Image in the local Docker daemon, using its API socket
 betterleaks container --daemon docker wasilibs-build:latest
 
 # Image in the local Podman image store
 betterleaks container --daemon podman wasilibs-build:latest
+
+# Explicit endpoint, including a rootless engine or a forwarded VM socket
+betterleaks container --daemon podman \
+  --daemon-host "unix://$XDG_RUNTIME_DIR/podman/podman.sock" wasilibs-build:latest
 
 # Docker save archive
 docker image save wasilibs-build:latest -o image.tar
@@ -1239,9 +1272,29 @@ betterleaks container --archive image.tar.gz --archive second-image.tar.zst
 betterleaks container --oci-layout ./image-layout
 ```
 
-`--daemon` requires an explicit `docker` or `podman` value and the corresponding
-CLI with access to its image store. It exports the local image with
-`docker image save` or `podman image save`; it does not pull a missing image.
+`--daemon` requires an explicit `docker` or `podman` value and access to its
+running API service. Neither executable is required or invoked. Betterleaks
+requests `GET /images/{name}/get`, then feeds the response into the existing
+Docker/OCI archive reader. It never pulls a missing image or starts the engine.
+Docker documents this [image export endpoint](https://docs.docker.com/reference/api/engine/version/v1.51/);
+Podman supplies a [Docker-compatible API service](https://docs.podman.io/en/latest/markdown/podman-system-service.1.html).
+
+`--daemon-host` takes precedence over environment settings. Docker otherwise
+uses `DOCKER_HOST`, then `unix:///var/run/docker.sock` on Unix platforms. A saved
+non-default Docker context causes an error instead of silently connecting to the
+default socket; supply `--daemon-host` explicitly. Podman
+uses `CONTAINER_HOST`, then `$XDG_RUNTIME_DIR/podman/podman.sock` on Linux; a
+root user without `XDG_RUNTIME_DIR` uses `/run/podman/podman.sock`. Other Podman
+hosts and Windows require an explicit endpoint. Podman socket activation must
+be configured separately; on macOS, supply a socket forwarded from its VM.
+
+Supported endpoint schemes are `unix://`, `http://`, and `https://`. HTTPS uses
+normal certificate verification. Docker CLI contexts, Podman named connections,
+SSH, `tcp://`, Windows named pipes, and Docker TLS environment settings are not
+loaded. For these configurations, supply an explicit supported endpoint; SDK
+callers can configure custom certificates or mutual TLS via `DaemonTransport`.
+The source does not search for engine sockets, follow HTTP redirects, use
+environment HTTP proxies for the engine connection, or fall back to a CLI.
 Omitting `--daemon` selects registry scanning for image references. Archive and
 layout inputs need neither a container runtime nor registry credentials. Every
 image in an archive is scanned. Use `docker save` or `podman save` to retain
@@ -1251,6 +1304,12 @@ Remote layers are streamed. Outer image archives and daemon exports are unpacked
 into a private temporary directory, removed on completion or failure. Nested
 archives may also use temporary storage. Original images and input archives are
 left in place.
+
+Docker-format archives may contain Podman's legacy `layer.tar` links. These are
+resolved only to regular files within the archive, without creating filesystem
+links. Escaping, missing, cyclic, or conflicting targets fail the scan; chains
+are limited to 32 links and total alias-path text to 64 MiB. Other outer-archive
+links are unsupported.
 
 ### Coverage and reports
 
@@ -1355,7 +1414,11 @@ accepted while validating the compression trailer and digest. Nonzero trailing
 data is an error. This padding bound does not cap normal layer file contents.
 JSON metadata input and each decoded representation are limited to 16 MiB;
 image-index nesting is limited to 32, outer archives to one million entries,
-and zstd decoder memory to 256 MiB. Limit failures mark the scan incomplete.
+each target to 10,000 manifest visits (including repeated index references),
+zstd decoder memory to 256 MiB, and XZ dictionaries to 64 MiB. Limit failures
+mark the scan incomplete. Local archives, layout metadata, and blobs must be
+regular files; FIFOs and devices are rejected. Unsupported layer entry types
+and malformed whiteouts also mark coverage incomplete.
 
 Container scans use strict archive verification: missing or corrupt blobs,
 unreadable nested archives, checksum failures, and exceeded limits mark JSON/JSONL
@@ -1379,7 +1442,10 @@ summary, err := scanner.Scan(ctx, src, handleFinding)
 ```
 
 `Archives` and `Layouts` select local inputs; set `Daemon` to `"docker"` or
-`"podman"` to export `Images` through that CLI. `Keychain` and `Transport` allow
+`"podman"` to export `Images` through its HTTP API. Set `DaemonHost` for an explicit
+endpoint and `DaemonTransport` for custom engine TLS or transport. The source
+closes its own connections; caller-supplied transports remain caller-owned.
+`Keychain` and `Transport` allow
 custom registry authentication and HTTP transport, while `Anonymous` disables
 credential lookup. The zero value of `MaxArchiveDepth` disables nested archive
 traversal; the CLI supplies its default explicitly.

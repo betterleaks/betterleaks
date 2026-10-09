@@ -109,6 +109,12 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 		if err != nil {
 			return err
 		}
+		switch h.Typeflag {
+		case tar.TypeReg, tar.TypeGNUSparse, tar.TypeDir,
+			tar.TypeLink, tar.TypeSymlink, tar.TypeChar, tar.TypeBlock, tar.TypeFifo, tar.TypeXGlobalHeader:
+		default:
+			return fmt.Errorf("unsupported layer entry type %q for %q", h.Typeflag, h.Name)
+		}
 		p, err := layerPath(h.Name)
 		if err != nil {
 			return err
@@ -116,33 +122,37 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 		if err := state.budget.add(p); err != nil {
 			return err
 		}
-		if seen[p] {
-			return fmt.Errorf("duplicate layer entry %q", p)
-		}
-		seen[p] = true
 		a := maps.Clone(attrs)
 		a[AttrPathState], a[AttrHiddenByLayer] = state.lookup(p)
 		if a[AttrHiddenByLayer] == "" {
 			delete(a, AttrHiddenByLayer)
 		}
-		id := attrs[AttrLayerDigest]
-		if id == "" {
-			id = attrs[AttrDiffID]
-		}
 		base := path.Base(p)
-		if strings.HasPrefix(base, ".wh.") && (base == ".wh." || h.Size != 0 || (h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeRegA)) {
-			return fmt.Errorf("invalid OCI whiteout %q", p)
-		}
-		if base == ".wh..wh..opq" {
-			pending.opaque[path.Dir(p)] = change{"deleted", id, order}
-		} else if strings.HasPrefix(base, ".wh.") {
-			target := path.Join(path.Dir(p), strings.TrimPrefix(base, ".wh."))
-			// Whiteouts remove lower occurrences before same-layer additions.
-			pending.trees[target] = change{"deleted", id, order}
-		} else if h.Typeflag == tar.TypeDir && p != "/" {
-			pending.exact[p] = change{"overwritten", id, order}
-		} else if h.Typeflag != tar.TypeDir && pending.trees[p].state != "deleted" {
-			pending.trees[p] = change{"overwritten", id, order}
+		// Global PAX records are metadata, not filesystem entries. They neither
+		// hide lower files nor collide with entries sharing the header's name.
+		if h.Typeflag != tar.TypeXGlobalHeader {
+			if seen[p] {
+				return fmt.Errorf("duplicate layer entry %q", p)
+			}
+			seen[p] = true
+			id := attrs[AttrLayerDigest]
+			if id == "" {
+				id = attrs[AttrDiffID]
+			}
+			if strings.HasPrefix(base, ".wh.") && (base == ".wh." || base == ".wh.." || base == ".wh..." || h.Size != 0 || h.Typeflag != tar.TypeReg) {
+				return fmt.Errorf("invalid OCI whiteout %q", p)
+			}
+			if base == ".wh..wh..opq" {
+				pending.opaque[path.Dir(p)] = change{"deleted", id, order}
+			} else if strings.HasPrefix(base, ".wh.") {
+				target := path.Join(path.Dir(p), strings.TrimPrefix(base, ".wh."))
+				// Whiteouts remove lower occurrences before same-layer additions.
+				pending.trees[target] = change{"deleted", id, order}
+			} else if h.Typeflag == tar.TypeDir && p != "/" {
+				pending.exact[p] = change{"overwritten", id, order}
+			} else if h.Typeflag != tar.TypeDir && pending.trees[p].state != "deleted" {
+				pending.trees[p] = change{"overwritten", id, order}
+			}
 		}
 		// Header values can carry secrets even on links and special files. Never
 		// follow links or create a container filesystem on the host.
