@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -36,6 +37,8 @@ type GitCmd struct {
 	PreReceiveError string   `group:"source" name:"pre-receive-error-message" help:"Message printed to stderr when the pre-receive hook finds leaks; environment variables in $$VAR and $${VAR} form are expanded."`
 	LogOpts         string   `group:"source" name:"log-opts" help:"Git log options (uses one history stream to preserve option semantics)."`
 	Include         []string `group:"source" help:"Additional Git resources to scan: commit-messages, tag-messages, reflogs."`
+	Engine          string   `group:"source" name:"git-engine" default:"auto" enum:"auto,git,gitpack" help:"History reader: auto reads pack files in process for plain history scans and runs git otherwise; git always runs git; gitpack always reads in process."`
+	DedupLines      bool     `group:"source" name:"git-dedup-lines" help:"With the in-process engine, report each added line at its first introduction in history only; a line reported again in a later commit is omitted even when a rule matches it there."`
 	Repo            string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
 }
 
@@ -64,12 +67,22 @@ func (cmd GitCmd) Validate() error {
 	if len(cmd.Include) > 0 && (cmd.Staged || cmd.Unstaged) {
 		return errors.New("--include requires a Git history scan; it cannot be combined with --staged or --unstaged")
 	}
-	return (&sources.Git{Include: cmd.Include}).Validate()
+	return (&sources.Git{Include: cmd.Include, Engine: cmd.Engine}).Validate()
 }
 
 func (cmd *GitCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	runGit(runtime, &cli.GlobalFlags, cmd)
 	return nil
+}
+
+// inProcessHistoryWorkers is the detection concurrency for a history scan
+// read in process when --jobs is unset. The scanner's default of four
+// workers per processor overlaps detection with waiting on a source; the
+// in-process engine saturates every processor itself and delivers hunks
+// faster than detection consumes them, so the extra workers only contend.
+// rails on 64 cores: 256 workers 4.5-5.8 s, 64 workers 4.3-4.9 s.
+func inProcessHistoryWorkers() int {
+	return max(runtime.GOMAXPROCS(0), 1)
 }
 
 func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
@@ -100,7 +113,12 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		runtime.fatal("unable to prepare scan", "error", err)
 		return
 	}
-	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+	scanOptions := []scan.Option{scan.WithIgnoredFingerprints(filters.fingerprints...)}
+	if options.Jobs == 0 && !remote && !options.PreReceive && !options.Staged && !options.Unstaged &&
+		(&sources.Git{RepoPath: source, LogOpts: options.LogOpts, Include: options.Include, Engine: options.Engine}).InProcess() {
+		scanOptions = append(scanOptions, scan.WithWorkers(inProcessHistoryWorkers()))
+	}
+	runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scanOptions...)
 	if err != nil {
 		runtime.fatal("unable to prepare scan", "error", err)
 		return
@@ -165,6 +183,8 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 			MaxArchiveDepth: options.MaxArchiveDepth,
 			LogOpts:         options.LogOpts,
 			Include:         options.Include,
+			Engine:          options.Engine,
+			DedupLines:      options.DedupLines,
 		}
 		if remote {
 			gitSource.RepoPath = ""

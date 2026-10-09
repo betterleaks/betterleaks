@@ -304,6 +304,21 @@ func parseHeaderPretty(prettyLine string, r io.Reader) (*PatchHeader, error) {
 	return h, nil
 }
 
+// FormatMessage renders a raw commit message (the bytes after the commit
+// object's header) the way Message renders a parsed patch header: the first
+// paragraph joined into one title line, followed by the body with trailing
+// whitespace trimmed and blank runs collapsed to one blank line.
+func FormatMessage(raw string) string {
+	s := bufio.NewScanner(strings.NewReader(raw))
+	s.Buffer(make([]byte, 0, 64*1024), 1<<24)
+	title, indent := scanMessageTitle(s)
+	h := PatchHeader{Title: title}
+	if title != "" {
+		h.Body, _ = scanMessageBody(s, indent, false)
+	}
+	return h.Message()
+}
+
 func scanMessageTitle(s *bufio.Scanner) (title string, indent string) {
 	var b strings.Builder
 	for i := 0; s.Scan(); i++ {
