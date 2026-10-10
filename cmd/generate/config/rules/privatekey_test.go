@@ -41,7 +41,12 @@ func TestPrivateKeyRuleShape(t *testing.T) {
 		{"legacy des-ede3", "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: DES-EDE3-CBC,8C2C29C4D3B9A1E7\n\n" + "7f3dKq9LmX2vPq8sTU2vBn3kMw9rXy5aQz8cVd1fHg4jKi7oPz6sRt2eWb5mNq1uY0xZr9tKd4fSg7hUz8aVb3nM==\n-----END RSA PRIVATE KEY-----\n", true},
 		{"legacy aes-256", "-----BEGIN ENCRYPTED PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC,FB4A3B7CD8E91F05A6C2D4E7F8901234\n\n" + "MIIFLTBXBE9tKbCUBKtJkQNCxUUyFEEtBTvHoloMm1MszT5kA0OBk2ZfS5cV7LpEy\nXaQqGWQvNnpWzNslqyP4TQ==\n-----END ENCRYPTED PRIVATE KEY-----\n", true},
 
-		// false positives from the issue and its comment thread
+				{"pgp armor headers", "-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: GnuPG v2.1.11 (GNU/Linux)\nComment: test key\n\nlQWGBGSVV4YBDAClvRnxezIRy2Yv7SFlzC0iFiRF/O/jePSw+XYhvcrTaqSYTGic\n=8xQN\n-----END PGP PRIVATE KEY BLOCK-----", true},
+		{"pgp armor headers crlf", "-----BEGIN PGP PRIVATE KEY BLOCK-----\r\nVersion: GnuPG v2.1.11\r\n\r\nlQWGBGSVV4YBDAClvRnxezIRy2Yv7SFlzC0iFiRF/O/jePSw+XYhvcrTaqSYTGic\r\n=8xQN\r\n-----END PGP PRIVATE KEY BLOCK-----", true},
+		// JSON-serialized PEM: literal two-char backslash-n escapes reach the regex
+		// as-is (the codec decodes percent/unicode/hex/base64, not JSON escapes).
+		{"json escaped newlines", "{\"key\": \"-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDAC4AWkdwKYSd8\\nKs14IReLcYgADhoXk56ZzXI=\\n-----END PRIVATE KEY-----\"}", true},
+// false positives from the issue and its comment thread
 		{"placeholder prose", "-----BEGIN PRIVATE KEY-----\n<paste your key material here - at least 64 characters of base64>\n-----END PRIVATE KEY-----", false},
 		{"redaction note", "-----BEGIN PRIVATE KEY-----\n[REDACTED - actual key material removed from this example file on purpose]\n-----END PRIVATE KEY-----", false},
 		{"punctuation prose body", "-----BEGIN PRIVATE KEY-----\nInsert your PEM formatted key material here; at least sixty-four (64) chars total!\n-----END PRIVATE KEY-----", false},
