@@ -6,26 +6,144 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 )
+
+// Re-exec the test binary as a credential helper: no shell, external helper,
+// registry, or credentials from the developer's machine are needed.
+func TestMain(m *testing.M) {
+	if scenario := os.Getenv("BETTERLEAKS_TEST_HELPER"); scenario != "" && strings.HasPrefix(filepath.Base(os.Args[0]), "docker-credential-") {
+		if marker := os.Getenv("BETTERLEAKS_TEST_HELPER_MARKER"); marker != "" {
+			if os.WriteFile(marker, []byte("executed"), 0600) != nil {
+				os.Exit(5)
+			}
+		}
+		if len(os.Args) != 2 || os.Args[1] != "get" {
+			os.Exit(2)
+		}
+		input, err := io.ReadAll(os.Stdin)
+		if err != nil || string(input) != os.Getenv("BETTERLEAKS_TEST_HELPER_SERVER") {
+			os.Exit(3)
+		}
+		switch scenario {
+		case "basic":
+			fmt.Print(`{"Username":"test-user","Secret":"test-password"}`)
+		case "token":
+			fmt.Print(`{"Username":"<token>","Secret":"test-token"}`)
+		case "not-found":
+			fmt.Print("credentials not found in native keychain")
+			os.Exit(1)
+		case "failure":
+			fmt.Fprint(os.Stderr, "sensitive-helper-error")
+			fmt.Print("sensitive-helper-error")
+			os.Exit(1)
+		case "invalid":
+			fmt.Print("sensitive-invalid-response")
+		case "missing-secret":
+			fmt.Print(`{"Username":"test-user"}`)
+		case "oversized":
+			fmt.Print(strings.Repeat("x", (1<<20)+1))
+		case "blocked":
+			time.Sleep(time.Minute)
+		default:
+			os.Exit(4)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+func credentialHelperFixture(t *testing.T, scenario, server string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses an executable symlink")
+	}
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, os.Symlink(executable, filepath.Join(dir, "docker-credential-betterleaks-test")))
+	t.Setenv("PATH", dir)
+	t.Setenv("BETTERLEAKS_TEST_HELPER", scenario)
+	t.Setenv("BETTERLEAKS_TEST_HELPER_SERVER", server)
+	marker := filepath.Join(dir, "executed")
+	t.Setenv("BETTERLEAKS_TEST_HELPER_MARKER", marker)
+	return marker
+}
+
+// Exercise real HTTP framing and cancellation without reserving a TCP port.
+type pipeListener struct {
+	connections chan net.Conn
+	done        chan struct{}
+	once        sync.Once
+}
+
+func (l *pipeListener) Accept() (net.Conn, error) {
+	select {
+	case conn := <-l.connections:
+		return conn, nil
+	case <-l.done:
+		return nil, net.ErrClosed
+	}
+}
+func (l *pipeListener) Close() error { l.once.Do(func() { close(l.done) }); return nil }
+func (l *pipeListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345, Zone: ""}
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func containerTestServer(t *testing.T, handler http.Handler) (*httptest.Server, *http.Transport) {
+	t.Helper()
+	l := &pipeListener{connections: make(chan net.Conn), done: make(chan struct{})}
+	server := &httptest.Server{Listener: l, Config: &http.Server{Handler: handler}}
+	server.Start()
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		client, peer := net.Pipe()
+		select {
+		case l.connections <- peer:
+			return client, nil
+		case <-ctx.Done():
+			client.Close()
+			peer.Close()
+			return nil, ctx.Err()
+		case <-l.done:
+			client.Close()
+			peer.Close()
+			return nil, net.ErrClosed
+		}
+	}}
+	t.Cleanup(func() { transport.CloseIdleConnections(); server.Close() })
+	return server, transport
+}
 
 type tarEntry struct {
 	name, content string
@@ -46,6 +164,8 @@ func tarBytes(t *testing.T, entries ...tarEntry) []byte {
 		h := &tar.Header{Name: e.name, Mode: 0600, Typeflag: kind, Linkname: e.link, PAXRecords: e.pax}
 		if kind == tar.TypeReg {
 			h.Size = int64(len(e.content))
+		} else if kind == tar.TypeXGlobalHeader {
+			h.Mode = 0
 		}
 		require.NoError(t, w.WriteHeader(h))
 		if h.Size > 0 {
@@ -297,7 +417,7 @@ func TestRegistryNestedIndexAndPlatformSelection(t *testing.T) {
 	nested := f.blob(f.index, types.OCIImageIndex)
 	f.setIndex(nested)
 	var requests atomic.Int64
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	server, transport := containerTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requests.Add(1)
 		if req.URL.Path == "/v2/" {
 			w.WriteHeader(200)
@@ -328,7 +448,8 @@ func TestRegistryNestedIndexAndPlatformSelection(t *testing.T) {
 	defer server.Close()
 	ref := strings.TrimPrefix(server.URL, "http://") + "/test:latest"
 	for _, platforms := range [][]string{nil, {"linux/arm64"}, {"windows/amd64"}} {
-		fs, errs := collect(t, &Source{Images: []string{ref}, Anonymous: true, PlainHTTP: true, Platforms: platforms})
+		//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+		fs, errs := collect(t, &Source{Images: []string{ref}, Anonymous: true, PlainHTTP: true, Platforms: platforms, Transport: transport})
 		if len(platforms) > 0 && platforms[0] == "windows/amd64" {
 			require.NotEmpty(t, errs)
 			continue
@@ -391,6 +512,60 @@ func TestDockerArchiveMultipleUntaggedImages(t *testing.T) {
 		require.Empty(t, f.Attr(AttrLayerDigest))
 		require.NotEmpty(t, f.Attr(AttrDiffID))
 		require.NotEmpty(t, f.Attr(AttrConfigDigest))
+	}
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestPodmanArchiveLayerAliases(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // Native exports must work without either CLI.
+	lower := tarBytes(t, tarEntry{name: "deleted.env", content: "deleted-secret"})
+	upper := tarBytes(t, tarEntry{name: ".wh.deleted.env"}, tarEntry{name: "visible.env", content: "visible-secret"})
+	cfg := jsonBytes(t, map[string]any{"os": "linux", "architecture": "arm64", "rootfs": map[string]any{"type": "layers", "diff_ids": []string{sum(lower).String(), sum(upper).String()}}})
+	for _, tc := range []struct {
+		name   string
+		kind   byte
+		layers []string
+	}{
+		{"podman-legacy-extras", tar.TypeSymlink, []string{"lower.tar", "upper.tar"}},
+		{"manifest-symlinks", tar.TypeSymlink, []string{"lower/layer.tar", "upper/layer.tar"}},
+		{"manifest-hardlinks", tar.TypeLink, []string{"lower/layer.tar", "upper/layer.tar"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prefix := ""
+			if tc.kind == tar.TypeSymlink {
+				prefix = "../"
+			}
+			manifest := jsonBytes(t, []map[string]any{{"Config": "config.json", "Layers": tc.layers}})
+			data := tarBytes(t,
+				// Forward and backward references must both work.
+				tarEntry{name: "lower/layer.tar", kind: tc.kind, link: prefix + "lower.tar"},
+				tarEntry{name: "lower.tar", content: string(lower)},
+				tarEntry{name: "upper.tar", content: string(upper)},
+				tarEntry{name: "upper/layer.tar", kind: tc.kind, link: prefix + "upper.tar"},
+				tarEntry{name: "config.json", content: string(cfg)},
+				tarEntry{name: "manifest.json", content: string(manifest)},
+			)
+			p := filepath.Join(t.TempDir(), "podman.tar")
+			require.NoError(t, os.WriteFile(p, data, 0600))
+			server, transport := containerTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				require.Equal(t, "/images/example:local/get", req.URL.Path)
+				_, _ = w.Write(data)
+			}))
+			defer server.Close()
+			for _, source := range []*Source{
+				{Archives: []string{p}},
+				{Images: []string{"example:local"}, Daemon: "podman", DaemonHost: server.URL, DaemonTransport: transport},
+			} {
+				fs, errs := collect(t, source)
+				require.Empty(t, errs)
+				deleted := find(t, fs, ResourceFile, "/deleted.env", "deleted-secret")
+				require.Equal(t, "deleted", deleted.Attr(AttrPathState))
+				require.Equal(t, sum(lower).String(), deleted.Attr(AttrDiffID))
+				visible := find(t, fs, ResourceFile, "/visible.env", "visible-secret")
+				require.Equal(t, "visible", visible.Attr(AttrPathState))
+				require.Equal(t, sum(upper).String(), visible.Attr(AttrDiffID))
+			}
+		})
 	}
 }
 
@@ -562,7 +737,7 @@ func (k *fixedKeychain) Resolve(authn.Resource) (authn.Authenticator, error) {
 func TestRegistryAuthenticationAndAnonymous(t *testing.T) {
 	f := newFixture(t)
 	d := f.image("amd64", [][]byte{tarBytes(t, tarEntry{name: "file", content: "private-secret"})}, "tar")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	server, transport := containerTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		user, password, ok := req.BasicAuth()
 		if !ok || user != "test-user" || password != "test-password" {
 			w.Header().Set("WWW-Authenticate", `Basic realm="test"`)
@@ -589,14 +764,42 @@ func TestRegistryAuthenticationAndAnonymous(t *testing.T) {
 	defer server.Close()
 	k := &fixedKeychain{}
 	ref := strings.TrimPrefix(server.URL, "http://") + "/private:latest"
-	fs, errs := collect(t, &Source{Images: []string{ref}, PlainHTTP: true, Keychain: k})
+	//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+	fs, errs := collect(t, &Source{Images: []string{ref}, PlainHTTP: true, Keychain: k, Transport: transport})
 	require.Empty(t, errs)
 	find(t, fs, ResourceFile, "/file", "private-secret")
 	require.Positive(t, k.calls.Load())
 	k.calls.Store(0)
-	_, errs = collect(t, &Source{Images: []string{ref}, PlainHTTP: true, Keychain: k, Anonymous: true})
+	//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+	_, errs = collect(t, &Source{Images: []string{ref}, PlainHTTP: true, Keychain: k, Anonymous: true, Transport: transport})
 	require.NotEmpty(t, errs)
 	require.Zero(t, k.calls.Load())
+	// Default authentication reads file credentials without a helper executable.
+	dir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", dir)
+	t.Setenv("PATH", t.TempDir())
+	credentials := fmt.Sprintf(`{"auths":{%q:{"username":"test-user","password":"test-password"}},"credsStore":"must-not-execute"}`, strings.TrimPrefix(server.URL, "http://"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), []byte(credentials), 0600))
+	//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+	fs, errs = collect(t, &Source{Images: []string{ref}, PlainHTTP: true, Transport: transport})
+	require.Empty(t, errs)
+	find(t, fs, ResourceFile, "/file", "private-secret")
+	marker := credentialHelperFixture(t, "basic", strings.TrimPrefix(server.URL, "http://"))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"credsStore":"betterleaks-test"}`), 0600))
+	//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+	fs, errs = collect(t, &Source{Images: []string{ref}, PlainHTTP: true, Transport: transport, CredentialHelpers: true})
+	require.Empty(t, errs)
+	find(t, fs, ResourceFile, "/file", "private-secret")
+	require.FileExists(t, marker)
+	require.NoError(t, os.Remove(marker))
+	//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+	_, errs = collect(t, &Source{Images: []string{ref}, PlainHTTP: true, Transport: transport, CredentialHelpers: true, Anonymous: true})
+	require.NotEmpty(t, errs) // Private registry still refuses anonymous access.
+	require.NoFileExists(t, marker)
+	//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+	_, errs = collect(t, &Source{Images: []string{ref}, PlainHTTP: true, Transport: transport, CredentialHelpers: true, Keychain: k})
+	require.Empty(t, errs)
+	require.NoFileExists(t, marker) // Explicit keychain controls authentication.
 }
 
 func TestDaemonValidation(t *testing.T) {
@@ -614,39 +817,566 @@ func TestDaemonValidation(t *testing.T) {
 }
 
 func TestDaemonExportAndTemporaryCleanup(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX mock container CLI")
-	}
+	t.Setenv("PATH", t.TempDir()) // Neither daemon executable is available.
 	for _, daemon := range []string{"docker", "podman"} {
 		t.Run(daemon, func(t *testing.T) {
 			f := newFixture(t)
-			f.setIndex(f.image("amd64", [][]byte{tarBytes(t, tarEntry{name: "file", content: "daemon-secret"})}, "gzip"))
-			dir := t.TempDir()
-			archive := filepath.Join(dir, "input.tar")
-			require.NoError(t, os.WriteFile(archive, f.archive(), 0600))
-			// The mock verifies argv and exports a real OCI image archive. No daemon
-			// is required, and a nonzero CLI exit is tested after valid content.
-			script := "#!/bin/sh\n[ \"$1\" = image ] && [ \"$2\" = save ] && [ \"$3\" = -- ] && [ \"$4\" = example:local ] || exit 2\ncat \"$CONTAINER_TEST_ARCHIVE\"\nexit \"${CONTAINER_TEST_EXIT:-0}\"\n"
-			require.NoError(t, os.WriteFile(filepath.Join(dir, daemon), []byte(script), 0700))
-			for _, other := range []string{"docker", "podman"} {
-				if other != daemon {
-					require.NoError(t, os.WriteFile(filepath.Join(dir, other), []byte("#!/bin/sh\nexit 99\n"), 0700))
+			//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+			lower := tarBytes(t, tarEntry{name: "file", content: "daemon-secret"})
+			//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+			upper := tarBytes(t, tarEntry{name: ".wh.file"})
+			f.setIndex(f.image("amd64", [][]byte{lower, upper}, "gzip"))
+			archive := f.archive()
+			var truncated atomic.Bool
+			server, transport := containerTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.Method != http.MethodGet || req.URL.Path != "/images/example:local/get" || req.URL.RawQuery != "" {
+					http.Error(w, "unexpected export request", 400)
+					return
 				}
-			}
-			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-			t.Setenv("CONTAINER_TEST_ARCHIVE", archive)
+				w.Header().Set("Content-Length", fmt.Sprint(len(archive)))
+				data := archive
+				if truncated.Load() {
+					data = data[:len(data)/2]
+				}
+				_, _ = w.Write(data)
+			}))
+			defer server.Close()
 			temp := t.TempDir()
 			t.Setenv("TMPDIR", temp)
-			fs, errs := collect(t, &Source{Images: []string{"example:local"}, Daemon: daemon})
+			//nolint:exhaustruct // Unspecified fixture fields intentionally use zero values.
+			source := &Source{Images: []string{"example:local"}, Daemon: daemon, DaemonHost: server.URL, DaemonTransport: transport}
+			fs, errs := collect(t, source)
 			require.Empty(t, errs)
 			found := find(t, fs, ResourceFile, "/file", "daemon-secret")
 			require.Equal(t, "daemon:"+daemon+":example:local", found.Attr(AttrImage))
-			t.Setenv("CONTAINER_TEST_EXIT", "9")
-			_, errs = collect(t, &Source{Images: []string{"example:local"}, Daemon: daemon})
+			require.Equal(t, "deleted", found.Attr(AttrPathState))
+			require.NotEmpty(t, found.Attr(AttrLayerDigest))
+			truncated.Store(true)
+			_, errs = collect(t, source)
 			require.NotEmpty(t, errs)
 			files, err := os.ReadDir(temp)
 			require.NoError(t, err)
 			require.Empty(t, files)
 		})
 	}
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonConnectionOptions(t *testing.T) {
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
+	for _, variable := range []string{"DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "CONTAINER_HOST", "CONTAINER_CONNECTION"} {
+		t.Setenv(variable, "")
+	}
+	for _, host := range []string{"http://engine.test:2375", "https://engine.test:2376", "tcp://engine:2375", "npipe:////./pipe/docker_engine"} {
+		u, err := parseDaemonHost(host)
+		require.NoError(t, err)
+		require.Equal(t, host, u.String())
+	}
+	for _, host := range []string{"", "unix://relative", "ssh://engine", "npipe:////remote/pipe/docker_engine", "npipe:////./pipe/../bad", "npipe:////./pipe/%00bad", "https://user:secret@engine", "http://engine/path", "http://engine?query", "http://engine#fragment", "unix:///tmp/%00socket"} {
+		_, err := parseDaemonHost(host)
+		require.Error(t, err, host)
+	}
+	for _, engine := range []struct{ name, variable string }{{"docker", "DOCKER_HOST"}, {"podman", "CONTAINER_HOST"}} {
+		t.Setenv(engine.variable, "https://from-env.test")
+		s := &Source{Daemon: engine.name}
+		u, err := s.daemonHost(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "from-env.test", u.Host)
+		s.DaemonHost = "http://explicit.test"
+		u, err = s.daemonHost(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "explicit.test", u.Host)
+	}
+	t.Setenv("DOCKER_CONTEXT", "another-engine")
+	_, err := (&Source{Daemon: "docker"}).daemonHost(t.Context())
+	require.ErrorContains(t, err, "read Docker context")
+	t.Setenv("DOCKER_CONTEXT", "")
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+	endpoint, err := (&Source{Daemon: "docker"}).daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "https", endpoint.Scheme)
+	require.False(t, endpoint.tls.InsecureSkipVerify)
+	require.Error(t, (&Source{Images: []string{"app"}, DaemonHost: "http://engine.test"}).Validate())
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonSavedDockerContext(t *testing.T) {
+	for _, variable := range []string{"DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"} {
+		t.Setenv(variable, "")
+	}
+	dir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", dir)
+	s := &Source{Daemon: "docker"}
+	for _, tc := range []struct{ name, config, wantError string }{
+		{"saved", `{"currentContext":"production"}`, "read Docker context"},
+		{"malformed", `{`, "invalid Docker configuration"},
+		{"default", `{"currentContext":"default"}`, ""},
+		{"empty", `{}`, ""},
+		{"missing", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			file := filepath.Join(dir, "config.json")
+			if tc.config == "" {
+				require.NoError(t, os.Remove(file))
+			} else {
+				require.NoError(t, os.WriteFile(file, []byte(tc.config), 0600))
+			}
+			u, err := s.daemonHost(t.Context())
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+			} else if runtime.GOOS == "windows" {
+				require.NoError(t, err)
+				require.Equal(t, "npipe:////./pipe/docker_engine", u.String())
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, "unix:///var/run/docker.sock", u.String())
+			}
+		})
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"currentContext":"production"}`), 0600))
+	t.Setenv("DOCKER_HOST", "http://environment.test")
+	u, err := s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "environment.test", u.Host)
+	t.Setenv("DOCKER_CONTEXT", "another-context")
+	s.DaemonHost = "http://explicit.test"
+	u, err = s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "explicit.test", u.Host)
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonRejectsRedirect(t *testing.T) {
+	var requests int
+	transport := progressTransport(func(req *http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: 302, Header: http.Header{"Location": {"http://another-engine.test/images/other/get"}}, Body: io.NopCloser(strings.NewReader("wrong engine")), Request: req}, nil
+	})
+	_, errs := collect(t, &Source{Images: []string{"app"}, Daemon: "docker", DaemonHost: "http://engine.test", DaemonTransport: transport})
+	require.Len(t, errs, 1)
+	require.ErrorContains(t, errs[0], "HTTP 302")
+	require.Equal(t, 1, requests)
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonCancellation(t *testing.T) {
+	started := make(chan struct{})
+	server, transport := containerTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_, _ = w.Write([]byte("partial tar header"))
+		w.(http.Flusher).Flush()
+		close(started)
+		<-req.Context().Done()
+	}))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	s := &Source{Images: []string{"app"}, Daemon: "docker", DaemonHost: server.URL, DaemonTransport: transport}
+	go func() { done <- s.Fragments(ctx, func(_ sources.Fragment, err error) error { return err }) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("export did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation did not interrupt the export")
+	}
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonUnixSocket(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix socket transport")
+	}
+	// Keep the socket path short enough for sockaddr_un on macOS.
+	dir, err := os.MkdirTemp("", "bl-engine-")
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "socket")
+	listener, err := net.Listen("unix", socket)
+	if errors.Is(err, os.ErrPermission) {
+		t.Skipf("sandbox denies Unix listeners: %v", err)
+	}
+	require.NoError(t, err)
+	f := newFixture(t)
+	f.setIndex(f.image("amd64", [][]byte{tarBytes(t, tarEntry{name: "file", content: "socket-secret"})}, "tar"))
+	data := f.archive()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" || req.URL.Path != "/images/team/app:local/get" {
+			http.Error(w, "unexpected request", 400)
+			return
+		}
+		_, _ = w.Write(data)
+	})}
+	done := make(chan struct{})
+	go func() { defer close(done); _ = server.Serve(listener) }()
+	t.Cleanup(func() { server.Close(); <-done })
+	t.Setenv("PATH", t.TempDir())
+	fs, errs := collect(t, &Source{Images: []string{"team/app:local"}, Daemon: "docker", DaemonHost: "unix://" + socket})
+	require.Empty(t, errs)
+	find(t, fs, ResourceFile, "/file", "socket-secret")
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestFileCredentials(t *testing.T) {
+	ref, err := name.ParseReference("registry.test/team/app:latest")
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		label, config, user, password, token string
+		failure                              bool
+	}{
+		{label: "basic", config: `{"auths":{"registry.test":{"auth":"dXNlcjpwYXNz"}}}`, user: "user", password: "pass"},
+		{label: "legacy URL", config: `{"auths":{"https://registry.test/v1/":{"auth":"dXNlcjpwYXNz"}}}`, user: "user", password: "pass"},
+		{label: "repository", config: `{"auths":{"registry.test/team/app":{"username":"scoped","password":"pass"}}}`, user: "scoped", password: "pass"},
+		{label: "identity token", config: `{"auths":{"registry.test":{"identitytoken":"token"}}}`, token: "token"},
+		{label: "helper", config: `{"credHelpers":{"registry.test":"must-not-execute"}}`, failure: true},
+		{label: "store", config: `{"credsStore":"must-not-execute","auths":{"registry.test":{}}}`, failure: true},
+		{label: "file overrides helper", config: `{"credsStore":"must-not-execute","auths":{"registry.test":{"auth":"dXNlcjpwYXNz"}}}`, user: "user", password: "pass"},
+		{label: "unrelated helper", config: `{"credHelpers":{"other.test":"must-not-execute"}}`},
+		{label: "anonymous", config: `{}`},
+		{label: "bad auth", config: `{"auths":{"registry.test":{"auth":"invalid!"}}}`, failure: true},
+		{label: "invalid JSON", config: `{`, failure: true},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			a, err := (registryKeychain{allowHelpers: false}).credentials(t.Context(), []byte(tc.config), ref.Context())
+			if tc.failure {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			cfg, err := a.Authorization()
+			require.NoError(t, err)
+			require.Equal(t, tc.user, cfg.Username)
+			require.Equal(t, tc.password, cfg.Password)
+			require.Equal(t, tc.token, cfg.IdentityToken)
+		})
+	}
+	hub, err := name.ParseReference("ubuntu:latest")
+	require.NoError(t, err)
+	a, err := (registryKeychain{allowHelpers: false}).credentials(t.Context(), []byte(`{"auths":{"https://index.docker.io/v1/":{"auth":"dXNlcjpwYXNz"}}}`), hub.Context())
+	require.NoError(t, err)
+	auth, err := a.Authorization()
+	require.NoError(t, err)
+	require.Equal(t, "user", auth.Username)
+}
+
+func TestLegacyCredentialURLs(t *testing.T) {
+	for _, tc := range []struct {
+		key   string
+		match bool
+	}{
+		{"https://registry.test/v2/", true},
+		{"http://registry.test/legacy/api", true},
+		{"https://registry.test:443/v2/", false},
+		{"https://registry.test.attacker/v2/", false},
+		{"https://registry.test@attacker/v2/", false},
+		{"https://user@registry.test/v2/", false},
+		{"https://registry.test/v2/?token=private", false},
+		{"registry.test/private-repository", false},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			ref, err := name.ParseReference("registry.test/app")
+			require.NoError(t, err)
+			data := []byte(fmt.Sprintf(`{"auths":{%q:{"username":"legacy","password":"pass"}}}`, tc.key))
+			a, err := (registryKeychain{allowHelpers: false}).credentials(t.Context(), data, ref.Context())
+			require.NoError(t, err)
+			value, err := a.Authorization()
+			require.NoError(t, err)
+			if tc.match {
+				require.Equal(t, "legacy", value.Username)
+			} else {
+				require.Equal(t, authn.Anonymous, a)
+			}
+		})
+	}
+	ref, err := name.ParseReference("registry.test/app")
+	require.NoError(t, err)
+	for _, key := range []string{"registry.test", "registry.test/app"} {
+		data := []byte(fmt.Sprintf(`{"auths":{%q:{"username":"exact","password":"pass"},"https://registry.test/v2/":{"username":"legacy","password":"pass"}}}`, key))
+		a, err := (registryKeychain{allowHelpers: false}).credentials(t.Context(), data, ref.Context())
+		require.NoError(t, err)
+		value, err := a.Authorization()
+		require.NoError(t, err)
+		require.Equal(t, "exact", value.Username)
+	}
+}
+
+func TestFileKeychainLocations(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", filepath.Join(dir, "docker"))
+	t.Setenv("REGISTRY_AUTH_FILE", filepath.Join(dir, "podman.json"))
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "runtime"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("PATH", t.TempDir())
+	paths := []string{filepath.Join(dir, "docker", "config.json"), filepath.Join(dir, "podman.json"), filepath.Join(dir, "runtime", "containers", "auth.json"), filepath.Join(dir, "config", "containers", "auth.json")}
+	ref, err := name.ParseReference("registry.test/app")
+	require.NoError(t, err)
+	for i, path := range paths {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
+		require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf(`{"auths":{"registry.test":{"username":"user%d","password":"pass"}}}`, i)), 0600))
+	}
+	for i, path := range paths {
+		a, err := (registryKeychain{allowHelpers: false}).Resolve(ref.Context())
+		require.NoError(t, err)
+		cfg, err := a.Authorization()
+		require.NoError(t, err)
+		require.Equal(t, fmt.Sprintf("user%d", i), cfg.Username)
+		require.NoError(t, os.Remove(path))
+	}
+	a, err := (registryKeychain{allowHelpers: false}).Resolve(ref.Context())
+	require.NoError(t, err)
+	require.Equal(t, authn.Anonymous, a)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = (registryKeychain{allowHelpers: false}).ResolveContext(ctx, ref.Context())
+	require.ErrorIs(t, err, context.Canceled)
+	require.NoError(t, os.WriteFile(paths[0], []byte(`{"credsStore":"must-not-execute"}`), 0600))
+	_, err = (registryKeychain{allowHelpers: false}).Resolve(ref.Context())
+	require.ErrorContains(t, err, "automatic helper execution is disabled")
+}
+
+func TestCredentialHelpers(t *testing.T) {
+	ref, err := name.ParseReference("registry.test/app")
+	require.NoError(t, err)
+	config := []byte(`{"credsStore":"must-not-run","credHelpers":{"registry.test":"betterleaks-test"},"auths":{"registry.test":{"username":"stale","password":"stale"}}}`)
+	for _, scenario := range []string{"basic", "token", "not-found", "failure", "invalid", "missing-secret", "oversized", "blocked"} {
+		t.Run(scenario, func(t *testing.T) {
+			credentialHelperFixture(t, scenario, "registry.test")
+			ctx := t.Context()
+			if scenario == "blocked" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 150*time.Millisecond)
+				defer cancel()
+			}
+			a, err := (registryKeychain{allowHelpers: true}).credentials(ctx, config, ref.Context())
+			switch scenario {
+			case "basic", "token", "not-found":
+				require.NoError(t, err)
+				value, err := a.Authorization()
+				require.NoError(t, err)
+				if scenario == "basic" {
+					require.Equal(t, "test-user", value.Username)
+					require.Equal(t, "test-password", value.Password)
+				}
+				if scenario == "token" {
+					require.Equal(t, "test-token", value.IdentityToken)
+				}
+				if scenario == "not-found" {
+					require.Equal(t, authn.Anonymous, a)
+				}
+			default:
+				require.Error(t, err)
+				require.NotContains(t, err.Error(), "sensitive-")
+				if scenario == "blocked" {
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+				}
+				if scenario == "oversized" {
+					require.ErrorContains(t, err, "exceeds 1 MiB")
+				}
+			}
+		})
+	}
+	t.Run("Docker Hub global store", func(t *testing.T) {
+		credentialHelperFixture(t, "basic", authn.DefaultAuthKey)
+		hub, err := name.ParseReference("ubuntu:latest")
+		require.NoError(t, err)
+		_, err = (registryKeychain{allowHelpers: true}).credentials(t.Context(), []byte(`{"credsStore":"betterleaks-test"}`), hub.Context())
+		require.NoError(t, err)
+	})
+	t.Run("disabled", func(t *testing.T) {
+		credentialHelperFixture(t, "failure", "registry.test")
+		_, err := (registryKeychain{allowHelpers: false}).credentials(t.Context(), []byte(`{"credsStore":"betterleaks-test"}`), ref.Context())
+		require.ErrorContains(t, err, "execution is disabled")
+	})
+	t.Run("path rejected", func(t *testing.T) {
+		_, err := helperCredentials(t.Context(), "../helper", "registry.test")
+		require.ErrorContains(t, err, "not a path")
+	})
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonContextSelection(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", dir)
+	t.Setenv("PATH", t.TempDir())
+	for _, key := range []string{"DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"} {
+		t.Setenv(key, "")
+	}
+	writeContext := func(name, host string) string {
+		id := fmt.Sprintf("%x", sha256.Sum256([]byte(name)))
+		metaDir := filepath.Join(dir, "contexts", "meta", id)
+		require.NoError(t, os.MkdirAll(metaDir, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(metaDir, "meta.json"), jsonBytes(t, map[string]any{"Name": name, "Endpoints": map[string]any{"docker": map[string]any{"Host": host}}}), 0600))
+		return filepath.Join(metaDir, "meta.json")
+	}
+	writeContext("saved", "tcp://saved.test:2375")
+	selected := writeContext("selected", "https://selected.test:2376")
+	writeContext("ssh", "ssh://user@remote.test/run/docker.sock")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"currentContext":"saved"}`), 0600))
+	s := &Source{Daemon: "docker"}
+	for _, tc := range []struct{ name, hostEnv, contextEnv, explicit, want string }{
+		{"saved", "", "", "", "http://saved.test:2375"},
+		{"host overrides saved", "tcp://env.test:2375", "", "", "http://env.test:2375"},
+		{"context overrides host", "tcp://env.test:2375", "selected", "", "https://selected.test:2376"},
+		{"default context uses env", "tcp://env.test:2375", "default", "", "http://env.test:2375"},
+		{"explicit overrides context", "tcp://env.test:2375", "missing", "https://explicit.test", "https://explicit.test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("DOCKER_HOST", tc.hostEnv)
+			t.Setenv("DOCKER_CONTEXT", tc.contextEnv)
+			s.DaemonHost = tc.explicit
+			endpoint, err := s.daemonHost(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, tc.want, endpoint.String())
+		})
+	}
+	s.DaemonHost = ""
+	t.Setenv("DOCKER_CONTEXT", "ssh")
+	_, err := s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "SSH engine connections")
+	t.Setenv("DOCKER_CONTEXT", "selected")
+	require.NoError(t, os.WriteFile(selected, []byte(`{"Name":"wrong","Endpoints":{"docker":{"Host":"http://wrong.test"}}}`), 0600))
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "no valid docker endpoint")
+	require.NoError(t, os.WriteFile(selected, []byte(`{`), 0600))
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "invalid Docker context")
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonTLS(t *testing.T) {
+	// A self-signed fixture usable as both a server and a client certificate.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"engine.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	dir := t.TempDir()
+	for name, data := range map[string][]byte{"ca.pem": certPEM, "cert.pem": certPEM, "key.pem": keyPEM} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0600))
+	}
+	endpoint, err := loadDaemonEndpoint(t.Context(), "tcp://engine.test:2376", dir, false, false)
+	require.NoError(t, err)
+	require.Equal(t, "https", endpoint.Scheme)
+	require.False(t, endpoint.tls.InsecureSkipVerify)
+	require.Len(t, endpoint.tls.Certificates, 1)
+	// Exercise certificate validation and mutual TLS with a real handshake over net.Pipe.
+	t.Run("mutual TLS", func(t *testing.T) {
+		clientConn, serverConn := net.Pipe()
+		defer clientConn.Close()
+		defer serverConn.Close()
+		require.NoError(t, clientConn.SetDeadline(time.Now().Add(5*time.Second)))
+		require.NoError(t, serverConn.SetDeadline(time.Now().Add(5*time.Second)))
+		clientConfig := endpoint.tls.Clone()
+		clientConfig.ServerName = "engine.test"
+		serverConfig := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: endpoint.tls.Certificates, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: endpoint.tls.RootCAs}
+		done := make(chan error, 1)
+		go func() { done <- tls.Server(serverConn, serverConfig).HandshakeContext(t.Context()) }()
+		require.NoError(t, tls.Client(clientConn, clientConfig).HandshakeContext(t.Context()))
+		require.NoError(t, <-done)
+	})
+	certificate, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	_, err = certificate.Verify(x509.VerifyOptions{DNSName: "wrong.test", Roots: endpoint.tls.RootCAs})
+	var hostnameError x509.HostnameError
+	require.ErrorAs(t, err, &hostnameError)
+	dockerDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", dockerDir)
+	id := fmt.Sprintf("%x", sha256.Sum256([]byte("secure")))
+	metaDir := filepath.Join(dockerDir, "contexts", "meta", id)
+	tlsDir := filepath.Join(dockerDir, "contexts", "tls", id, "docker")
+	require.NoError(t, os.MkdirAll(metaDir, 0700))
+	require.NoError(t, os.MkdirAll(tlsDir, 0700))
+	for name, data := range map[string][]byte{"ca.pem": certPEM, "cert.pem": certPEM, "key.pem": keyPEM} {
+		require.NoError(t, os.WriteFile(filepath.Join(tlsDir, name), data, 0600))
+	}
+	t.Setenv("DOCKER_CONTEXT", "secure")
+	t.Setenv("DOCKER_TLS", "1") // Named contexts must not inherit this insecure setting.
+	t.Setenv("DOCKER_CERT_PATH", "/unused")
+	for _, skipVerify := range []bool{false, true} {
+		meta := fmt.Sprintf(`{"Name":"secure","Endpoints":{"docker":{"Host":"tcp://engine.test","SkipTLSVerify":%t}}}`, skipVerify)
+		require.NoError(t, os.WriteFile(filepath.Join(metaDir, "meta.json"), []byte(meta), 0600))
+		endpoint, err = (&Source{Daemon: "docker"}).daemonHost(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "https://engine.test:2376", endpoint.String())
+		require.Equal(t, skipVerify, endpoint.tls.InsecureSkipVerify)
+		require.Len(t, endpoint.tls.Certificates, 1)
+		require.NotNil(t, endpoint.tls.RootCAs)
+	}
+	t.Setenv("DOCKER_CONTEXT", "default")
+	t.Setenv("DOCKER_HOST", "tcp://engine.test:2376")
+	t.Setenv("DOCKER_CERT_PATH", dir)
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+	t.Setenv("DOCKER_TLS", "")
+	endpoint, err = (&Source{Daemon: "docker"}).daemonHost(t.Context())
+	require.NoError(t, err)
+	require.False(t, endpoint.tls.InsecureSkipVerify)
+	require.Len(t, endpoint.tls.Certificates, 1)
+	t.Setenv("DOCKER_TLS_VERIFY", "")
+	t.Setenv("DOCKER_TLS", "1")
+	endpoint, err = (&Source{Daemon: "docker"}).daemonHost(t.Context())
+	require.NoError(t, err)
+	require.True(t, endpoint.tls.InsecureSkipVerify)
+	_, err = loadDaemonEndpoint(t.Context(), "http://engine.test", dir, true, false)
+	require.ErrorContains(t, err, "conflicts")
+	require.NoError(t, os.Remove(filepath.Join(dir, "key.pem")))
+	_, err = loadDaemonEndpoint(t.Context(), "tcp://engine.test", dir, true, false)
+	require.ErrorContains(t, err, "both cert.pem and key.pem")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "key.pem"), []byte("not a key"), 0600))
+	_, err = loadDaemonEndpoint(t.Context(), "tcp://engine.test", dir, true, false)
+	require.ErrorContains(t, err, "invalid engine TLS client certificate")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.pem"), []byte("not a certificate"), 0600))
+	_, err = loadDaemonEndpoint(t.Context(), "tcp://engine.test", dir, false, false)
+	require.ErrorContains(t, err, "invalid engine TLS ca.pem")
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonPodmanConnections(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PODMAN_CONNECTIONS_CONF", "")
+	t.Setenv("CONTAINER_HOST", "")
+	t.Setenv("CONTAINER_CONNECTION", "")
+	file := filepath.Join(dir, "containers", "podman-connections.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0700))
+	require.NoError(t, os.WriteFile(file, []byte(`{"Connection":{"Default":"local","Connections":{"local":{"URI":"tcp://local.test:1234"},"other":{"URI":"https://other.test"},"ssh":{"URI":"ssh://user@vm/run/podman.sock","Identity":"/unused"},"tls":{"URI":"tcp://remote.test","TLSCA":"/must-not-ignore"}}}}`), 0600))
+	s := &Source{Daemon: "podman"}
+	endpoint, err := s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "local.test:1234", endpoint.Host)
+	t.Setenv("CONTAINER_HOST", "http://env.test")
+	endpoint, err = s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "env.test", endpoint.Host)
+	t.Setenv("CONTAINER_CONNECTION", "other")
+	endpoint, err = s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "other.test", endpoint.Host)
+	t.Setenv("CONTAINER_CONNECTION", "ssh")
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "SSH engine connections")
+	t.Setenv("CONTAINER_CONNECTION", "tls")
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "TLS files are not supported")
+	t.Setenv("CONTAINER_CONNECTION", "missing")
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "containers.conf")
+	s.DaemonHost = "https://explicit.test"
+	endpoint, err = s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "explicit.test", endpoint.Host)
+	s.DaemonHost = ""
+	t.Setenv("PODMAN_CONNECTIONS_CONF", filepath.Join(dir, "override.json"))
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "not found")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "override.json"), []byte(`{`), 0600))
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "invalid Podman connections")
 }

@@ -20,7 +20,7 @@ import (
 // multiline credentials are visible without losing multipart field context.
 func (r *session) metadata(ctx context.Context, raw []byte, location, resource string, attrs map[string]string) error {
 	if len(raw) > maxMetadataSize {
-		return errors.New("metadata exceeds 16 MiB limit")
+		return fmt.Errorf("metadata exceeds %d MiB limit", maxMetadataSize>>20)
 	}
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -62,7 +62,7 @@ func decodedMetadata(ctx context.Context, value any) (string, error) {
 	var text strings.Builder
 	write := func(value string) error {
 		if len(value) > maxMetadataSize-text.Len() {
-			return errors.New("decoded metadata exceeds 16 MiB limit")
+			return fmt.Errorf("decoded metadata exceeds %d MiB limit", maxMetadataSize>>20)
 		}
 		text.WriteString(value)
 		return nil

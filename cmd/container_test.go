@@ -26,6 +26,7 @@ func TestContainerCLIOptions(t *testing.T) {
 		require.Equal(t, 8, cli.Container.MaxArchiveDepth)
 		require.Equal(t, redactFlag(100), cli.Container.Redact)
 		require.Empty(t, cli.Container.Daemon)
+		require.False(t, cli.Container.source().CredentialHelpers)
 	}
 	for _, args := range [][]string{{"container"}, {"container", "--daemon", "--archive", "x"}, {"container", "image", "--platform", "amd64"}, {"container", "image", "--max-archive-depth", "-1"}, {"container", "image", "--status", "valid"}} {
 		_, err := parseCLIForTest(t, args...)
@@ -33,13 +34,28 @@ func TestContainerCLIOptions(t *testing.T) {
 	}
 }
 
+func TestContainerCLICredentialHelpers(t *testing.T) {
+	for _, anonymous := range []bool{false, true} {
+		args := []string{"container", "registry.test/app:latest", "--credential-helpers"}
+		if anonymous {
+			args = append(args, "--anonymous")
+		}
+		cli, err := parseCLIForTest(t, args...)
+		require.NoError(t, err)
+		require.True(t, cli.Container.source().CredentialHelpers)
+		require.Equal(t, anonymous, cli.Container.source().Anonymous)
+	}
+}
+
 func TestContainerCLIDaemonSelection(t *testing.T) {
 	for _, daemon := range []string{"docker", "podman"} {
 		for _, flag := range [][]string{{"--daemon", daemon}, {"--daemon=" + daemon}} {
 			args := append([]string{"container", "example:local"}, flag...)
+			args = append(args, "--daemon-host=https://engine.example.test:2376")
 			cli, err := parseCLIForTest(t, args...)
 			require.NoError(t, err)
 			require.Equal(t, daemon, cli.Container.source().Daemon)
+			require.Equal(t, "https://engine.example.test:2376", cli.Container.source().DaemonHost)
 			require.Equal(t, []string{"example:local"}, cli.Container.Images)
 		}
 	}
@@ -49,6 +65,10 @@ func TestContainerCLIDaemonSelection(t *testing.T) {
 		{"container", "--daemon", "example:local"},
 		{"container", "example:local", "--daemon", "unknown"},
 		{"container", "--daemon", "podman", "--archive", "image.tar"},
+		{"container", "image", "--daemon-host", "http://engine.test"},
+		{"container", "image", "--daemon", "docker", "--daemon-host="},
+		{"container", "image", "--daemon", "docker", "--daemon-host", "ssh://engine.test"},
+		{"container", "image", "--daemon", "docker", "--daemon-host", "http://user:secret@engine.test"},
 	} {
 		_, err := parseCLIForTest(t, args...)
 		require.Error(t, err, "args: %v", args)

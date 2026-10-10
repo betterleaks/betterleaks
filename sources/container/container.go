@@ -26,19 +26,31 @@ import (
 // Source scans each requested target. Empty Platforms selects every platform,
 // including artifacts attached through an image index. Archive inputs contain
 // Docker save or OCI layout tar streams; Layouts are OCI layout directories.
-// Registry authentication uses Docker's standard keychain unless Anonymous or
-// Keychain is set. Daemon selects the docker or podman CLI and never pulls
+// Registry authentication reads Docker/Podman credential files without invoking
+// credential helpers by default. CredentialHelpers explicitly enables helpers;
+// Anonymous bypasses all authentication, and Keychain overrides the built-in provider.
+// Daemon selects the Docker or Podman HTTP API and never pulls
 // images; an empty Daemon selects registry scanning.
 type Source struct {
 	Images, Archives, Layouts []string
 	Platforms                 []string
 	Daemon                    string
-	Anonymous, PlainHTTP      bool
-	Keychain                  authn.Keychain
-	Transport                 http.RoundTripper
-	Logger                    *slog.Logger
-	Prefilter                 sources.PrefilterFunc
-	MaxArchiveDepth           int
+	// DaemonHost overrides connection profiles and environment settings (including
+	// Docker TLS). Supports unix://, npipe://, tcp://, http:// and https://. Empty
+	// resolves Docker contexts or Podman JSON connections, then the local default.
+	DaemonHost string
+	// DaemonTransport overrides the engine transport, for example to configure
+	// mutual TLS. The caller owns its lifetime. Transport below is registry-only.
+	DaemonTransport      http.RoundTripper
+	Anonymous, PlainHTTP bool
+	// CredentialHelpers permits configured docker-credential-* executables.
+	// Anonymous takes precedence; an explicit Keychain controls its own behavior.
+	CredentialHelpers bool
+	Keychain          authn.Keychain
+	Transport         http.RoundTripper
+	Logger            *slog.Logger
+	Prefilter         sources.PrefilterFunc
+	MaxArchiveDepth   int
 	// MaxFileSize limits individual layer files (zero is unlimited). Exceeding
 	// a configured limit is a source error, so reports cannot claim completeness.
 	MaxFileSize int64
@@ -59,6 +71,14 @@ func (s *Source) Validate() error {
 	}
 	if s.Daemon != "" && len(s.Images) == 0 {
 		return errors.New("--daemon requires an image reference")
+	}
+	if s.Daemon == "" && (s.DaemonHost != "" || s.DaemonTransport != nil) {
+		return errors.New("daemon connection options require --daemon docker or podman")
+	}
+	if s.DaemonHost != "" {
+		if _, err := parseDaemonHost(s.DaemonHost); err != nil {
+			return err
+		}
 	}
 	for _, p := range s.Platforms {
 		parts := strings.Split(p, "/")
@@ -82,6 +102,7 @@ type session struct {
 	stopped               error
 	images, layers, files int
 	selectedPlatforms     int
+	manifestVisits        int
 }
 
 func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
@@ -106,6 +127,7 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		r.manifestVisits = 0
 		before := r.selectedPlatforms
 		if err := fn(); err != nil {
 			if r.stopped != nil {
@@ -167,7 +189,7 @@ func (r *session) registry(ctx context.Context, target string) error {
 	} else {
 		keychain := r.s.Keychain
 		if keychain == nil {
-			keychain = authn.DefaultKeychain
+			keychain = registryKeychain{allowHelpers: r.s.CredentialHelpers}
 		}
 		ro = append(ro, remote.WithAuthFromKeychain(keychain))
 	}
@@ -208,17 +230,25 @@ func (r *session) registry(ctx context.Context, target string) error {
 	return r.walk(ctx, store, desc.Manifest, desc.Descriptor, map[string]string{AttrImage: ref.Name()}, 0)
 }
 
-const maxMetadataSize = 16 << 20
+const maxMetadataSize = 64 << 20
+const maxManifestVisits = 10_000
+
+var errManifestVisits = errors.New("container target exceeds 10000 manifest visits")
 
 func (r *session) walk(ctx context.Context, store imageStore, raw []byte, desc v1.Descriptor, attrs map[string]string, depth int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if depth == 0 {
+		// The root is already loaded. Children are charged before fetching so
+		// missing manifests consume the same budget as successfully read ones.
+		r.manifestVisits = 1
+	}
 	if depth > 32 {
 		return errors.New("image index nesting exceeds 32")
 	}
 	if len(raw) > maxMetadataSize {
-		return errors.New("manifest exceeds 16 MiB metadata limit")
+		return fmt.Errorf("manifest exceeds %d MiB metadata limit", maxMetadataSize>>20)
 	}
 	if int64(len(raw)) != desc.Size {
 		return errors.New("manifest size does not match descriptor")
@@ -262,6 +292,11 @@ func (r *session) walk(ctx context.Context, store imageStore, raw []byte, desc v
 				r.debug(ctx, "skipping container platform", "image", attrs[AttrImage], "platform", child.Platform.String(), "digest", child.Digest.String())
 				continue
 			}
+			// Count repeated references and failures, not just parsed manifests.
+			if r.manifestVisits >= maxManifestVisits {
+				return errManifestVisits
+			}
+			r.manifestVisits++
 			childAttrs := maps.Clone(attrs)
 			if child.Platform != nil {
 				childAttrs[AttrPlatform] = child.Platform.String()
@@ -274,6 +309,9 @@ func (r *session) walk(ctx context.Context, store imageStore, raw []byte, desc v
 			if err != nil {
 				if r.stopped != nil {
 					return r.stopped
+				}
+				if errors.Is(err, errManifestVisits) {
+					return err // Stop this target, not just this repeated branch.
 				}
 				if err := r.yield(sources.Fragment{}, fmt.Errorf("manifest %s: %w", child.Digest, err)); err != nil {
 					return err

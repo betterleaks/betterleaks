@@ -13,11 +13,46 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"os"
+	"syscall"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/klauspost/compress/zstd"
-	"github.com/ulikunitz/xz"
+	"github.com/mholt/archives"
 )
+
+// openRegularFile rejects special files before opening and verifies the actual
+// descriptor afterwards. O_NONBLOCK prevents a FIFO swapped in after Stat from
+// hanging. A root keeps OCI paths confined even when they contain symlinks.
+func openRegularFile(ctx context.Context, root *os.Root, path string) (*os.File, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	stat, open := os.Stat, os.OpenFile
+	if root != nil {
+		stat, open = root.Stat, root.OpenFile
+	}
+	info, err := stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("container input must be a regular file")
+	}
+	f, err := open(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	info, err = f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		f.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("container input must be a regular file")
+	}
+	return f, nil
+}
 
 type contextReader struct {
 	ctx context.Context
@@ -76,7 +111,7 @@ type zeroPaddingWriter struct{}
 func (zeroPaddingWriter) Write(p []byte) (int, error) {
 	for _, b := range p {
 		if b != 0 {
-			return 0, errors.New("nonzero data after layer tar end marker")
+			return 0, errors.New("nonzero data after tar end marker")
 		}
 	}
 	return len(p), nil
@@ -227,11 +262,9 @@ func decompress(reader io.Reader) (io.ReadCloser, error) {
 	case bytes.HasPrefix(magic, []byte("BZh")):
 		return io.NopCloser(bzip2.NewReader(b)), nil
 	case bytes.HasPrefix(magic, []byte{0xfd, '7', 'z', 'X', 'Z', 0}):
-		d, err := xz.NewReader(b)
-		if err != nil {
-			return nil, err
-		}
-		return io.NopCloser(d), nil
+		// Reuse the nested-archive decoder's 64 MiB dictionary cap. The
+		// ulikunitz reader's DictCap is a minimum, not a memory limit.
+		return (archives.Xz{}).OpenReader(b)
 	default:
 		return io.NopCloser(b), nil
 	}
