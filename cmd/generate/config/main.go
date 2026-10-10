@@ -226,6 +226,7 @@ func main() {
 		rules.FinicityAPIToken(),
 		rules.FlickrAccessToken(),
 		rules.FinnhubAccessToken(),
+		rules.FirecrawlAPIKey(),
 		rules.FlutterwavePublicKey(),
 		rules.FlutterwaveSecretKey(),
 		rules.FlutterwaveEncKey(),

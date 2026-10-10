@@ -3549,6 +3549,30 @@ entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# firecrawl-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "firecrawl-api-key"
+description = "Detected a Firecrawl API Key, which may expose web scraping and crawling services and account credits to unauthorized use."
+regex = '''\b(fc-[a-f0-9]{32})\b'''
+confidence = "high"
+keywords = ["fc-"]
+validate = '''
+let r = http.get("https://api.firecrawl.dev/v2/team/credit-usage", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && r.json?.success == true ? {
+  "result": "valid"
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Unauthorized"
+} : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # flickr-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
