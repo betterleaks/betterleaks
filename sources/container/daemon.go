@@ -9,88 +9,37 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
+	"path"
 	"strings"
 	"time"
 )
 
 func parseDaemonHost(host string) (*url.URL, error) {
 	u, err := url.Parse(host)
+	if err == nil && u.Scheme == "ssh" {
+		return nil, errors.New("SSH engine connections are not supported; set --daemon-host to a forwarded Unix socket or a TCP/TLS API endpoint")
+	}
 	if err != nil || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
-		return nil, errors.New("invalid daemon host: use a unix://, http:// or https:// endpoint without credentials, query or fragment")
+		return nil, errors.New("invalid daemon host: endpoint must not contain credentials, query or fragment")
 	}
 	switch u.Scheme {
 	case "unix":
-		if u.Host != "" || !filepath.IsAbs(u.Path) || strings.ContainsRune(u.Path, 0) {
+		if u.Host != "" || !path.IsAbs(u.Path) || strings.ContainsRune(u.Path, 0) {
 			return nil, errors.New("daemon Unix socket must use unix:///absolute/path")
 		}
-	case "http", "https":
+	case "http", "https", "tcp":
 		if u.Hostname() == "" || (u.Path != "" && u.Path != "/") {
 			return nil, errors.New("daemon HTTP endpoint must specify a host without a path")
 		}
+	case "npipe":
+		name := strings.TrimPrefix(u.Path, "//./pipe/")
+		if u.Host != "" || name == u.Path || name == "" || strings.ContainsAny(name, "/\\\x00") || name == "." || name == ".." {
+			return nil, errors.New("daemon named pipe must use npipe:////./pipe/name (local pipes only)")
+		}
 	default:
-		return nil, errors.New("unsupported daemon host scheme: use unix://, http:// or https://; SSH, tcp:// and named-pipe connections are not supported")
+		return nil, errors.New("unsupported daemon host scheme: use unix://, npipe://, tcp://, http:// or https://")
 	}
 	return u, nil
-}
-
-func (s *Source) daemonHost(ctx context.Context) (*url.URL, error) {
-	host := s.DaemonHost
-	if host == "" {
-		if s.Daemon == "docker" {
-			// Do not silently ignore CLI settings and connect to another engine.
-			if os.Getenv("DOCKER_CONTEXT") != "" {
-				return nil, errors.New("docker contexts are not resolved; set --daemon-host to the engine endpoint")
-			}
-			if os.Getenv("DOCKER_TLS_VERIFY") != "" || os.Getenv("DOCKER_CERT_PATH") != "" || os.Getenv("DOCKER_TLS") != "" {
-				return nil, errors.New("docker TLS environment settings are not loaded; set an explicit HTTPS daemon host and configure DaemonTransport for custom certificates")
-			}
-			host = os.Getenv("DOCKER_HOST")
-			if host == "" {
-				if path := dockerConfigPath(); path != "" {
-					data, err := readConfigFile(ctx, path)
-					if err != nil && !errors.Is(err, os.ErrNotExist) {
-						return nil, fmt.Errorf("read Docker configuration: %w", err)
-					}
-					if err == nil {
-						var config struct {
-							CurrentContext string `json:"currentContext"`
-						}
-						if err := json.Unmarshal(data, &config); err != nil {
-							return nil, fmt.Errorf("invalid Docker configuration: %w", err)
-						}
-						if config.CurrentContext != "" && config.CurrentContext != "default" {
-							return nil, errors.New("saved Docker contexts are not resolved; set --daemon-host to the engine endpoint")
-						}
-					}
-				}
-			}
-			if host == "" && runtime.GOOS != "windows" {
-				host = "unix:///var/run/docker.sock"
-			}
-		} else {
-			host = os.Getenv("CONTAINER_HOST")
-			if host == "" && os.Getenv("CONTAINER_CONNECTION") != "" {
-				return nil, errors.New("podman connections are not resolved; set --daemon-host to the engine endpoint")
-			}
-			if host == "" && runtime.GOOS == "linux" {
-				if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
-					var socketURL url.URL
-					socketURL.Scheme = "unix"
-					socketURL.Path = filepath.Join(dir, "podman", "podman.sock")
-					host = socketURL.String()
-				} else if os.Geteuid() == 0 {
-					host = "unix:///run/podman/podman.sock"
-				}
-			}
-		}
-	}
-	if host == "" {
-		return nil, errors.New("set --daemon-host to the engine API endpoint; the API service must be available")
-	}
-	return parseDaemonHost(host)
 }
 
 func (r *session) daemon(ctx context.Context, ref string) error {
@@ -111,16 +60,25 @@ func (r *session) daemon(ctx context.Context, ref string) error {
 		t.ResponseHeaderTimeout = 30 * time.Second
 		t.MaxResponseHeaderBytes = 64 << 10
 		t.DisableCompression = true
+		t.TLSClientConfig = endpoint.tls
 		if endpoint.Scheme == "unix" {
 			socket := endpoint.Path
 			t.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
 				return dialer.DialContext(ctx, "unix", socket)
 			}
 		}
+		if endpoint.Scheme == "npipe" {
+			pipe := strings.ReplaceAll(endpoint.Path, "/", "\\")
+			t.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+				dialCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+				return dialDaemonPipe(dialCtx, pipe)
+			}
+		}
 		defer t.CloseIdleConnections()
 		transport = t
 	}
-	if endpoint.Scheme == "unix" {
+	if endpoint.Scheme == "unix" || endpoint.Scheme == "npipe" {
 		endpoint.Scheme, endpoint.Host = "http", "localhost"
 	}
 	// Escape the entire reference: slashes, query punctuation and shell syntax

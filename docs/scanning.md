@@ -1298,20 +1298,52 @@ Docker/OCI archive reader. It never pulls a missing image or starts the engine.
 Docker documents this [image export endpoint](https://docs.docker.com/reference/api/engine/version/v1.51/);
 Podman supplies a [Docker-compatible API service](https://docs.podman.io/en/latest/markdown/podman-system-service.1.html).
 
-`--daemon-host` takes precedence over environment settings. Docker otherwise
-uses `DOCKER_HOST`, then `unix:///var/run/docker.sock` on Unix platforms. A saved
-non-default Docker context causes an error instead of silently connecting to the
-default socket; supply `--daemon-host` explicitly. Podman
-uses `CONTAINER_HOST`, then `$XDG_RUNTIME_DIR/podman/podman.sock` on Linux; a
-root user without `XDG_RUNTIME_DIR` uses `/run/podman/podman.sock`. Other Podman
-hosts and Windows require an explicit endpoint. Podman socket activation must
-be configured separately; on macOS, supply a socket forwarded from its VM.
+`--daemon-host` overrides saved connection profiles and environment settings,
+including Docker TLS settings. Supported schemes are `unix://`, `tcp://`,
+`http://`, `https://`, and local Windows `npipe:////./pipe/name` endpoints.
+Explicit `tcp://` uses HTTP; explicit `https://` verifies the server with system
+roots. SDK callers can supply custom TLS through `DaemonTransport`.
 
-Supported endpoint schemes are `unix://`, `http://`, and `https://`. HTTPS uses
-normal certificate verification. Docker CLI contexts, Podman named connections,
-SSH, `tcp://`, Windows named pipes, and Docker TLS environment settings are not
-loaded. For these configurations, supply an explicit supported endpoint; SDK
-callers can configure custom certificates or mutual TLS via `DaemonTransport`.
+Docker connection selection follows this order:
+
+1. `--daemon-host`.
+2. `DOCKER_CONTEXT` (a context **name**, not a socket address).
+3. `DOCKER_HOST`.
+4. The saved `currentContext` in `$DOCKER_CONFIG/config.json` (default
+   `~/.docker/config.json`).
+5. The default local socket: `unix:///var/run/docker.sock`, or
+   `npipe:////./pipe/docker_engine` on Windows.
+
+Named Docker contexts load their engine endpoint and CA/client certificates
+from Docker's context store. They do not inherit Docker TLS environment settings.
+The special `default` context uses `DOCKER_HOST` and Docker TLS environment
+settings. For that connection, `DOCKER_TLS_VERIFY` enables verified TLS;
+`DOCKER_TLS` alone enables TLS **without server certificate verification**, as
+in Docker. Both variables are enabled by any nonempty value, including `0`.
+`DOCKER_CERT_PATH` selects the directory containing `ca.pem`, `cert.pem`, and
+`key.pem`; otherwise the Docker configuration directory is used. Setting the
+certificate directory alone does not enable TLS. Without a host, enabled TLS
+selects `tcp://localhost:2376`. Incomplete or invalid certificate files fail the
+scan instead of falling back to plaintext. Context `SkipTLSVerify` is honored.
+
+```sh
+DOCKER_CONTEXT=desktop-linux betterleaks container --daemon docker myimage:latest
+DOCKER_HOST=tcp://engine.example:2376 DOCKER_TLS_VERIFY=1 \
+  DOCKER_CERT_PATH="$HOME/engine-certs" betterleaks container --daemon docker myimage:latest
+```
+
+Podman uses `--daemon-host`, then `CONTAINER_CONNECTION`, then `CONTAINER_HOST`,
+then the default saved connection in `podman-connections.json`. The file is read
+from `$XDG_CONFIG_HOME/containers` (default `~/.config/containers`), or
+`PODMAN_CONNECTIONS_CONF`. Connections defined only in `containers.conf`, and
+Podman connection-specific TLS certificate files, require an explicit endpoint
+(and an SDK `DaemonTransport` for custom TLS). Without a saved connection, Linux
+uses `$XDG_RUNTIME_DIR/podman/podman.sock`; root without `XDG_RUNTIME_DIR` uses
+`/run/podman/podman.sock`. Other platforms require a configured endpoint.
+
+SSH profiles produce an actionable error. Betterleaks does not launch SSH or
+interpret SSH proxy commands. For Podman machines, supply a Unix socket forwarded
+from the VM. Podman socket activation must be configured separately.
 The source does not search for engine sockets, follow HTTP redirects, use
 environment HTTP proxies for the engine connection, or fall back to a CLI.
 The built-in engine transport waits up to 30 seconds for response headers.

@@ -35,8 +35,9 @@ type Source struct {
 	Images, Archives, Layouts []string
 	Platforms                 []string
 	Daemon                    string
-	// DaemonHost is a unix://, http:// or https:// engine endpoint. Empty uses
-	// DOCKER_HOST/CONTAINER_HOST or the selected engine's default local socket.
+	// DaemonHost overrides connection profiles and environment settings (including
+	// Docker TLS). Supports unix://, npipe://, tcp://, http:// and https://. Empty
+	// resolves Docker contexts or Podman JSON connections, then the local default.
 	DaemonHost string
 	// DaemonTransport overrides the engine transport, for example to configure
 	// mutual TLS. The caller owns its lifetime. Transport below is registry-only.

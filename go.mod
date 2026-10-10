@@ -5,6 +5,7 @@ go 1.25.0
 toolchain go1.25.12
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/alecthomas/kong v1.16.1
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/dlclark/regexp2 v1.11.5

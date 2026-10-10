@@ -6,10 +6,18 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -855,15 +863,16 @@ func TestDaemonExportAndTemporaryCleanup(t *testing.T) {
 
 //nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
 func TestDaemonConnectionOptions(t *testing.T) {
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
 	for _, variable := range []string{"DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "CONTAINER_HOST", "CONTAINER_CONNECTION"} {
 		t.Setenv(variable, "")
 	}
-	for _, host := range []string{"http://engine.test:2375", "https://engine.test:2376"} {
+	for _, host := range []string{"http://engine.test:2375", "https://engine.test:2376", "tcp://engine:2375", "npipe:////./pipe/docker_engine"} {
 		u, err := parseDaemonHost(host)
 		require.NoError(t, err)
 		require.Equal(t, host, u.String())
 	}
-	for _, host := range []string{"", "unix://relative", "ssh://engine", "tcp://engine:2375", "npipe:////./pipe/docker_engine", "https://user:secret@engine", "http://engine/path", "http://engine?query", "http://engine#fragment", "unix:///tmp/%00socket"} {
+	for _, host := range []string{"", "unix://relative", "ssh://engine", "npipe:////remote/pipe/docker_engine", "npipe:////./pipe/../bad", "npipe:////./pipe/%00bad", "https://user:secret@engine", "http://engine/path", "http://engine?query", "http://engine#fragment", "unix:///tmp/%00socket"} {
 		_, err := parseDaemonHost(host)
 		require.Error(t, err, host)
 	}
@@ -880,11 +889,13 @@ func TestDaemonConnectionOptions(t *testing.T) {
 	}
 	t.Setenv("DOCKER_CONTEXT", "another-engine")
 	_, err := (&Source{Daemon: "docker"}).daemonHost(t.Context())
-	require.ErrorContains(t, err, "contexts are not resolved")
+	require.ErrorContains(t, err, "read Docker context")
 	t.Setenv("DOCKER_CONTEXT", "")
 	t.Setenv("DOCKER_TLS_VERIFY", "1")
-	_, err = (&Source{Daemon: "docker"}).daemonHost(t.Context())
-	require.ErrorContains(t, err, "TLS environment settings")
+	endpoint, err := (&Source{Daemon: "docker"}).daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "https", endpoint.Scheme)
+	require.False(t, endpoint.tls.InsecureSkipVerify)
 	require.Error(t, (&Source{Images: []string{"app"}, DaemonHost: "http://engine.test"}).Validate())
 }
 
@@ -897,7 +908,7 @@ func TestDaemonSavedDockerContext(t *testing.T) {
 	t.Setenv("DOCKER_CONFIG", dir)
 	s := &Source{Daemon: "docker"}
 	for _, tc := range []struct{ name, config, wantError string }{
-		{"saved", `{"currentContext":"production"}`, "saved Docker contexts"},
+		{"saved", `{"currentContext":"production"}`, "read Docker context"},
 		{"malformed", `{`, "invalid Docker configuration"},
 		{"default", `{"currentContext":"default"}`, ""},
 		{"empty", `{}`, ""},
@@ -914,7 +925,8 @@ func TestDaemonSavedDockerContext(t *testing.T) {
 			if tc.wantError != "" {
 				require.ErrorContains(t, err, tc.wantError)
 			} else if runtime.GOOS == "windows" {
-				require.ErrorContains(t, err, "set --daemon-host")
+				require.NoError(t, err)
+				require.Equal(t, "npipe:////./pipe/docker_engine", u.String())
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, "unix:///var/run/docker.sock", u.String())
@@ -1183,4 +1195,188 @@ func TestCredentialHelpers(t *testing.T) {
 		_, err := helperCredentials(t.Context(), "../helper", "registry.test")
 		require.ErrorContains(t, err, "not a path")
 	})
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonContextSelection(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", dir)
+	t.Setenv("PATH", t.TempDir())
+	for _, key := range []string{"DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"} {
+		t.Setenv(key, "")
+	}
+	writeContext := func(name, host string) string {
+		id := fmt.Sprintf("%x", sha256.Sum256([]byte(name)))
+		metaDir := filepath.Join(dir, "contexts", "meta", id)
+		require.NoError(t, os.MkdirAll(metaDir, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(metaDir, "meta.json"), jsonBytes(t, map[string]any{"Name": name, "Endpoints": map[string]any{"docker": map[string]any{"Host": host}}}), 0600))
+		return filepath.Join(metaDir, "meta.json")
+	}
+	writeContext("saved", "tcp://saved.test:2375")
+	selected := writeContext("selected", "https://selected.test:2376")
+	writeContext("ssh", "ssh://user@remote.test/run/docker.sock")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"currentContext":"saved"}`), 0600))
+	s := &Source{Daemon: "docker"}
+	for _, tc := range []struct{ name, hostEnv, contextEnv, explicit, want string }{
+		{"saved", "", "", "", "http://saved.test:2375"},
+		{"host overrides saved", "tcp://env.test:2375", "", "", "http://env.test:2375"},
+		{"context overrides host", "tcp://env.test:2375", "selected", "", "https://selected.test:2376"},
+		{"default context uses env", "tcp://env.test:2375", "default", "", "http://env.test:2375"},
+		{"explicit overrides context", "tcp://env.test:2375", "missing", "https://explicit.test", "https://explicit.test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("DOCKER_HOST", tc.hostEnv)
+			t.Setenv("DOCKER_CONTEXT", tc.contextEnv)
+			s.DaemonHost = tc.explicit
+			endpoint, err := s.daemonHost(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, tc.want, endpoint.String())
+		})
+	}
+	s.DaemonHost = ""
+	t.Setenv("DOCKER_CONTEXT", "ssh")
+	_, err := s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "SSH engine connections")
+	t.Setenv("DOCKER_CONTEXT", "selected")
+	require.NoError(t, os.WriteFile(selected, []byte(`{"Name":"wrong","Endpoints":{"docker":{"Host":"http://wrong.test"}}}`), 0600))
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "no valid docker endpoint")
+	require.NoError(t, os.WriteFile(selected, []byte(`{`), 0600))
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "invalid Docker context")
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonTLS(t *testing.T) {
+	// A self-signed fixture usable as both a server and a client certificate.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"engine.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	dir := t.TempDir()
+	for name, data := range map[string][]byte{"ca.pem": certPEM, "cert.pem": certPEM, "key.pem": keyPEM} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0600))
+	}
+	endpoint, err := loadDaemonEndpoint(t.Context(), "tcp://engine.test:2376", dir, false, false)
+	require.NoError(t, err)
+	require.Equal(t, "https", endpoint.Scheme)
+	require.False(t, endpoint.tls.InsecureSkipVerify)
+	require.Len(t, endpoint.tls.Certificates, 1)
+	// Exercise certificate validation and mutual TLS with a real handshake over net.Pipe.
+	t.Run("mutual TLS", func(t *testing.T) {
+		clientConn, serverConn := net.Pipe()
+		defer clientConn.Close()
+		defer serverConn.Close()
+		require.NoError(t, clientConn.SetDeadline(time.Now().Add(5*time.Second)))
+		require.NoError(t, serverConn.SetDeadline(time.Now().Add(5*time.Second)))
+		clientConfig := endpoint.tls.Clone()
+		clientConfig.ServerName = "engine.test"
+		serverConfig := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: endpoint.tls.Certificates, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: endpoint.tls.RootCAs}
+		done := make(chan error, 1)
+		go func() { done <- tls.Server(serverConn, serverConfig).HandshakeContext(t.Context()) }()
+		require.NoError(t, tls.Client(clientConn, clientConfig).HandshakeContext(t.Context()))
+		require.NoError(t, <-done)
+	})
+	certificate, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	_, err = certificate.Verify(x509.VerifyOptions{DNSName: "wrong.test", Roots: endpoint.tls.RootCAs})
+	var hostnameError x509.HostnameError
+	require.ErrorAs(t, err, &hostnameError)
+	dockerDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", dockerDir)
+	id := fmt.Sprintf("%x", sha256.Sum256([]byte("secure")))
+	metaDir := filepath.Join(dockerDir, "contexts", "meta", id)
+	tlsDir := filepath.Join(dockerDir, "contexts", "tls", id, "docker")
+	require.NoError(t, os.MkdirAll(metaDir, 0700))
+	require.NoError(t, os.MkdirAll(tlsDir, 0700))
+	for name, data := range map[string][]byte{"ca.pem": certPEM, "cert.pem": certPEM, "key.pem": keyPEM} {
+		require.NoError(t, os.WriteFile(filepath.Join(tlsDir, name), data, 0600))
+	}
+	t.Setenv("DOCKER_CONTEXT", "secure")
+	t.Setenv("DOCKER_TLS", "1") // Named contexts must not inherit this insecure setting.
+	t.Setenv("DOCKER_CERT_PATH", "/unused")
+	for _, skipVerify := range []bool{false, true} {
+		meta := fmt.Sprintf(`{"Name":"secure","Endpoints":{"docker":{"Host":"tcp://engine.test","SkipTLSVerify":%t}}}`, skipVerify)
+		require.NoError(t, os.WriteFile(filepath.Join(metaDir, "meta.json"), []byte(meta), 0600))
+		endpoint, err = (&Source{Daemon: "docker"}).daemonHost(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "https://engine.test:2376", endpoint.String())
+		require.Equal(t, skipVerify, endpoint.tls.InsecureSkipVerify)
+		require.Len(t, endpoint.tls.Certificates, 1)
+		require.NotNil(t, endpoint.tls.RootCAs)
+	}
+	t.Setenv("DOCKER_CONTEXT", "default")
+	t.Setenv("DOCKER_HOST", "tcp://engine.test:2376")
+	t.Setenv("DOCKER_CERT_PATH", dir)
+	t.Setenv("DOCKER_TLS_VERIFY", "1")
+	t.Setenv("DOCKER_TLS", "")
+	endpoint, err = (&Source{Daemon: "docker"}).daemonHost(t.Context())
+	require.NoError(t, err)
+	require.False(t, endpoint.tls.InsecureSkipVerify)
+	require.Len(t, endpoint.tls.Certificates, 1)
+	t.Setenv("DOCKER_TLS_VERIFY", "")
+	t.Setenv("DOCKER_TLS", "1")
+	endpoint, err = (&Source{Daemon: "docker"}).daemonHost(t.Context())
+	require.NoError(t, err)
+	require.True(t, endpoint.tls.InsecureSkipVerify)
+	_, err = loadDaemonEndpoint(t.Context(), "http://engine.test", dir, true, false)
+	require.ErrorContains(t, err, "conflicts")
+	require.NoError(t, os.Remove(filepath.Join(dir, "key.pem")))
+	_, err = loadDaemonEndpoint(t.Context(), "tcp://engine.test", dir, true, false)
+	require.ErrorContains(t, err, "both cert.pem and key.pem")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "key.pem"), []byte("not a key"), 0600))
+	_, err = loadDaemonEndpoint(t.Context(), "tcp://engine.test", dir, true, false)
+	require.ErrorContains(t, err, "invalid engine TLS client certificate")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.pem"), []byte("not a certificate"), 0600))
+	_, err = loadDaemonEndpoint(t.Context(), "tcp://engine.test", dir, false, false)
+	require.ErrorContains(t, err, "invalid engine TLS ca.pem")
+}
+
+//nolint:exhaustruct // Fixtures set only the fields relevant to each scenario.
+func TestDaemonPodmanConnections(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PODMAN_CONNECTIONS_CONF", "")
+	t.Setenv("CONTAINER_HOST", "")
+	t.Setenv("CONTAINER_CONNECTION", "")
+	file := filepath.Join(dir, "containers", "podman-connections.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0700))
+	require.NoError(t, os.WriteFile(file, []byte(`{"Connection":{"Default":"local","Connections":{"local":{"URI":"tcp://local.test:1234"},"other":{"URI":"https://other.test"},"ssh":{"URI":"ssh://user@vm/run/podman.sock","Identity":"/unused"},"tls":{"URI":"tcp://remote.test","TLSCA":"/must-not-ignore"}}}}`), 0600))
+	s := &Source{Daemon: "podman"}
+	endpoint, err := s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "local.test:1234", endpoint.Host)
+	t.Setenv("CONTAINER_HOST", "http://env.test")
+	endpoint, err = s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "env.test", endpoint.Host)
+	t.Setenv("CONTAINER_CONNECTION", "other")
+	endpoint, err = s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "other.test", endpoint.Host)
+	t.Setenv("CONTAINER_CONNECTION", "ssh")
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "SSH engine connections")
+	t.Setenv("CONTAINER_CONNECTION", "tls")
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "TLS files are not supported")
+	t.Setenv("CONTAINER_CONNECTION", "missing")
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "containers.conf")
+	s.DaemonHost = "https://explicit.test"
+	endpoint, err = s.daemonHost(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "explicit.test", endpoint.Host)
+	s.DaemonHost = ""
+	t.Setenv("PODMAN_CONNECTIONS_CONF", filepath.Join(dir, "override.json"))
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "not found")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "override.json"), []byte(`{`), 0600))
+	_, err = s.daemonHost(t.Context())
+	require.ErrorContains(t, err, "invalid Podman connections")
 }

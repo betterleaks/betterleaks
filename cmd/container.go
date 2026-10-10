@@ -15,7 +15,7 @@ type ContainerCmd struct {
 	Archive           []string `group:"source" name:"archive" sep:"none" help:"Docker save or OCI image archive (repeatable; compression detected automatically)."`
 	OCILayout         []string `group:"source" name:"oci-layout" sep:"none" help:"OCI image layout directory (repeatable)."`
 	Daemon            string   `group:"source" placeholder:"RUNTIME" help:"Export local images through the Docker or Podman API: docker or podman (no CLI required)."`
-	DaemonHost        string   `group:"source" name:"daemon-host" placeholder:"URL" help:"Engine endpoint: unix:///path/to/socket, http://host:port, or https://host:port."`
+	DaemonHost        string   `group:"source" name:"daemon-host" placeholder:"URL" help:"Override engine connection: unix://, npipe://, tcp://, http://, or https://."`
 	Platform          []string `group:"source" sep:"none" help:"Select os/architecture[/variant] (repeatable; default: all platforms)."`
 	Anonymous         bool     `group:"source" help:"Ignore all registry credentials, including credential helpers."`
 	CredentialHelpers bool     `group:"source" name:"credential-helpers" help:"Allow executing configured Docker credential helpers for registry authentication."`
