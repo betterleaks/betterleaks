@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/mholt/archives"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
@@ -609,7 +610,7 @@ func (s *Git) runGitCmd(ctx context.Context, yield FragmentsFunc, cmd *gitCmd) e
 			return nil, nil
 		}
 		if file.IsBinary {
-			if s.MaxArchiveDepth <= 0 || !isArchive(ctx, file.NewName) {
+			if s.MaxArchiveDepth <= 0 {
 				return nil, nil
 			}
 			return nil, s.fragmentsFromArchive(ctx, file.NewName, attrs, yield)
@@ -649,19 +650,28 @@ func (s *Git) fragmentsFromArchive(ctx context.Context, path string, commitAttrs
 		logging.OrDiscard(s.Logger).Error("could not read archive blob", "error", err)
 		return nil
 	}
+	defer func() {
+		if closeErr := blob.Close(); closeErr != nil {
+			logging.OrDiscard(s.Logger).Debug("blobReader.Close() returned an error", "error", closeErr)
+		}
+	}()
+	var stream io.Reader = blob
+	if !isArchive(ctx, path) {
+		format, replay, identifyErr := archives.Identify(ctx, "", stream)
+		if identifyErr != nil || format == nil {
+			return ctx.Err()
+		}
+		stream = replay
+	}
 	file := File{
 		Logger:          s.Logger,
-		Content:         blob,
+		Content:         stream,
 		Path:            path,
 		Attributes:      commitAttrs,
 		MaxArchiveDepth: s.MaxArchiveDepth,
 		Prefilter:       s.Prefilter,
 	}
-	err = file.Fragments(ctx, yield)
-	if closeErr := blob.Close(); closeErr != nil {
-		logging.OrDiscard(s.Logger).Debug("blobReader.Close() returned an error", "error", closeErr)
-	}
-	return err
+	return file.Fragments(ctx, yield)
 }
 
 func (s *Git) gitAttributes(file *gitdiff.File) map[string]string {
