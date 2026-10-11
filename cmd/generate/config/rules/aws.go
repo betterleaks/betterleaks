@@ -21,21 +21,31 @@ let arn = input["arn"] ?? "";
   "metadata": arn != "" ? {"arn": arn} : {}
 }`
 
+// aws-access-token and aws-access-key-id match the same key IDs, so they share
+// the pattern, keywords and filter. The standalone rule yields to the composite
+// through specificity when both report the same value.
+const (
+	awsAccessKeyIDRegex  = `\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b`
+	awsAccessKeyIDFilter = "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])"
+)
+
+var awsAccessKeyIDKeywords = []string{
+	// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-unique-ids
+	"A3T",  // todo: might not be a valid AWS token
+	"AKIA", // Access key
+	"ASIA", // Temporary (AWS STS) access key
+	"ABIA", // AWS STS service bearer token
+	"ACCA", // Context-specific credential
+}
+
 func AWS() *config.Rule {
 	// define rule
 	r := config.Rule{
 		ID:          "aws-access-token",
 		Confidence:  "high",
 		Description: "Identified an AWS access key ID paired with a secret access key, which together can provide full access to AWS services.",
-		Regex:       `\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b`,
-		Keywords: []string{
-			// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-unique-ids
-			"A3T",  // todo: might not be a valid AWS token
-			"AKIA", // Access key
-			"ASIA", // Temporary (AWS STS) access key
-			"ABIA", // AWS STS service bearer token
-			"ACCA", // Context-specific credential
-		},
+		Regex:       awsAccessKeyIDRegex,
+		Keywords:    awsAccessKeyIDKeywords,
 		Components: []config.Component{
 			{
 				RuleID: "aws-secret-access-key",
@@ -54,7 +64,7 @@ func AWS() *config.Rule {
   } : validate.unknown(r)
 `,
 		AnalyzeExpr: awsAnalyzeExpr,
-		FilterExpr:  "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`.+EXAMPLE$`])",
+		FilterExpr:  awsAccessKeyIDFilter,
 	}
 
 	// validate
@@ -70,6 +80,34 @@ func AWS() *config.Rule {
 		`msgstr "Näytä asiakirjamallikansio."`, // Lowercase
 		`TODAYINASIAASACKOFRICEFELLOVER`,       // wrong length
 		`CTTCATAGGGTTCACGCTGTGTAAT-ACG--CCTGAGGC-CACA-AGGGGACTTCAGCAACCGTCGGG-GATTC-ATTGCCA-A--TGGAAGCAATC-TA-TGGGTTA-TCGCGGAGTCCGCAAAGACGGCCAGTATG-AAGCAGATTTCGCAC-CAATGTGACTGCATTTCGTG-ATCGGGGTAAGTA-TC-GCCGATTC-GC--CCGTCCA-AGT-CGAAG-TA--GGCAATATAAAGCTGC-CATTGCCGAAGCTATCTCGCTA-TACTTGAT-AATCGGCGG-TAG-CACAG-GTCGCAGTATCG-AC-T--AGG-CCTCTCAAAAGTT-GGGTCCCGGCCTCTGGGAAAAACACCTCT-A-AGCGTCAATCAGCTCGGTTTCGCATATTA-TGATATCCCCCGTTGACCAATTGA--TAGTACCCGAGCTTACCGTCGG-ATTCTGGAGTCTT-ATGAGGTTACCGACGA-CGCAGTACCATAAGT-GCGCAATTTGACTGTTCCCGTCGAGTAACCA-AGCTTTGCTCA-CCGGGATGCGCGCCGATGTGACCAGGGGGCGCATGTTACATTGAC-A-GCTGGATCATGTTATGAC-GTGGGTC-ATGCTAAAAGCCTAAAGGACGGT-GCATTAGTAT-TACCGGGACCTCATATCAATGCGCTCGCTAGTTCCTCTTCTCTTGATAACGTATATGCGTCAGGCGCCCGTCCGCCTCCAATACGTG-ACAACGTC-AGTACTGAGCCTC--AA-ACATCGTCTTGTTCG-CC-TACAAAGGATCGGTAGAAAACTCAATATTCGGGTATAAGGTCGTAGGAAGTGTGTCGCCCAGGGCCG-CTAGA-AGCGCACACAAGCG-CTCCTGTCAAGGAGTTG-GTGAAAA-ATGAAC--GACT-ATTGCGTCAC--CTACCTCT-AAGTTTTT-GACAATTTCATGGACGAATTGA-AGCGTCCACAAGCATCTGCCGTAGATATGCGGTAGGTTTTTACATATG-TCACTGCAGAGTCACGGACA-CACATCGCTGTCAAAATGCTCGTACCTAGT-GT-TTGCGATCCCCC-GCGGCATTA-TCTTTTGAACCCTCGTCCCTGTGG-CTCTGATGATTGAG-GTCTGTA-TTCCCTCGTTGTGGGGGGATTGGACCTT-TGTATAGGTTCTTTAACCG-ATGGGGGGCCG--ATCGA-A-TA-TGCTCCTGTTTGCCCCGAACCTT-ACCTCGG-TCCAGACA-CTAAGAAAAACCCC-C-ACTGTAAGGTGCTGAGCCTTTGGATAGCC-CGCGAATGAT-CC-TAGTTGACAA-CTGAACGCGCTCGAACA-TGCCC-GCCCTCTGA--CTGCTGTCTG-GCACCTTTAGACACGCGTCGAC-CATATATT-AGCGCTGTCTGTGG-AGGT-TGTGTCTTGTTGCTCA-CT-CATTATCTGT-AACTGGCTCC-CTC-CCAT-TGGCGTCTTTACACCAACCGCTAGGTTACAGTGCA-TCTAGCGCCTATTATCAGGGCGT-TTGCAGCGGCGCGGTGGCTATGT-GTTAGACATATC-CTTACACTGTATGCTAG-AGCAAGCCAC-TCTGAATGGGTTGC-CGATGAATGA-TCTTGATC-GAGCTCGCA-AC---TACATGGAGTCCGAAGTGAACCTACGGATGATCGTATTCCAACACGAGGATC-TATACGTATAGG-A-GGCG-TAATCCACAATTTAGTAACTCTTGACGC---GGATGAAAAT-GTCGTTACACCTTCCAGAGGCTCGG-GTATATATATGACCT--TGTGATTGAGGACGATCTAGAATAA-CT-GT-G-CT-AAAGTACAGTAGTTTCTATGT-GGTAGGTGGAGAATACAGAGTAG-ATGATTC-GTGGGCCACA-C--T-ACTTTCAT-TAGAGCAGAGA-C-GTGAGTGAGTTTTACACTAGCCAGATGGACCG-GTGA-AGTCTAACAGCCACCGCTT-GTGAGGTCGTTTCCCAGTC-ACCCTACTACAGGCAAAAACTCAGTGT-CC-GTGA-GTGCGTTAGTGATATTCCCTAACGGTTAGGTAACT-CATGAATTCA-AT-TAAGCGTGTCC-CGGT-CACGCCCCCATGGGGGCCTTCTTGGGAGG--AGCATCTTAT--AT-GCTCACGTGGTT-GATAGG-A-T-AATACACTTTTAGTCAGTCCATCAATAAC-AAAGGAAC---CAGGTGGTCGCAGATA-TCCCGCTGATATAGCACTGTGTAAACTCAGGTGATA-CTAAGC--GCTCTAAT-ACG-CTTAATGGCAATGCCCAGTTC--ACGACTAGCTTATGAGGCCCAGCTATGGACTGCGGC-GGCATGTCGGC-GATGGTTGCCCTCGCCCTAAATTATGTACGA-T-ACCGCCT-CTTGTTCT-CCGCCCATAGGGT-C--AGCAGGCGATAGACTCCCAGAAATTTCCTCGTCGT-CCGAATAAGACTAACACGACTA-TT-CCTCTAC-GT-G-AA-CTTATCA-CAAATG-GCT-TACC-TAGGTGGTGGCAGATCACTTTCCGGTG-TATTACGAATTGACGCATACCGAC-A-CGC-GCTTGTTGGATAATCGACTCTAACCTCCTCTCTGGCACATGT-GCTGGATTACCTC-TATTTT-TCTCGCTTAG--GGAACG-T-CCTCTGTCGCGTGAG-GTACGTTTCACGGGAG-CGGCTTGTTCATGCCACGTCCATTATCGA-AGTG-C-GTAAGG-A-GAGCCCTA--GACTCTACACGGAAA-TC-AAC-GTAGAAGGCTC-A-CT`,
+	}
+	return utils.Validate(r, tps, fps)
+}
+
+// AWSAccessKeyID reports an access key ID that aws-access-token does not: one
+// with no secret access key within the composite's 5L window, or next to a
+// secret its component regex does not match. A key ID alone cannot sign
+// requests, so it is medium confidence rather than the paired finding's high.
+// Its specificity sits below aws-access-token's default, so when the secret is
+// in range the composite finding wins and this one is dropped as a duplicate.
+func AWSAccessKeyID() *config.Rule {
+	r := config.Rule{
+		ID:          "aws-access-key-id",
+		Confidence:  "medium",
+		Specificity: -10,
+		Description: "Identified an AWS access key ID that was not matched together with its secret access key. The key ID alone cannot sign requests, but it identifies the AWS account and principal it belongs to.",
+		Regex:       awsAccessKeyIDRegex,
+		Keywords:    awsAccessKeyIDKeywords,
+		FilterExpr:  awsAccessKeyIDFilter,
+	}
+
+	tps := utils.GenerateSampleSecrets("AWS_ACCESS_KEY_ID", "AKIA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))
+	tps = append(tps, utils.GenerateSampleSecrets("accessKeyId", "ASIA"+secrets.NewSecretWithEntropy("[A-Z2-7]{16}", 3))...)
+	fps := []string{
+		`key = AKIAXXXXXXXXXXXXXXXX`,           // Low entropy
+		`aws_access_key: AKIAIOSFODNN7EXAMPLE`, // Placeholder
+		`msgstr "Näytä asiakirjamallikansio."`, // Lowercase
+		`TODAYINASIAASACKOFRICEFELLOVER`,       // wrong length
 	}
 	return utils.Validate(r, tps, fps)
 }

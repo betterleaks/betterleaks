@@ -925,6 +925,27 @@ entropy(finding["secret"]) < 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# aws-access-key-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "aws-access-key-id"
+description = "Identified an AWS access key ID that was not matched together with its secret access key. The key ID alone cannot sign requests, but it identifies the AWS account and principal it belongs to."
+regex = '''\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b'''
+specificity = -10
+confidence = "medium"
+keywords = [
+    "a3t",
+    "akia",
+    "asia",
+    "abia",
+    "acca",
+]
+filter = '''
+entropy(finding["secret"]) <= 3.0
+|| matchesAny(finding["secret"], [`.+EXAMPLE$`])
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # aws-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]

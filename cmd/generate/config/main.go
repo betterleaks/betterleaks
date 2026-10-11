@@ -116,6 +116,7 @@ func main() {
 		rules.Auth0ClientSecret(),
 		rules.Authress(),
 		rules.AWS(),
+		rules.AWSAccessKeyID(),
 		rules.AWSSecretAccessKey(),
 		rules.AzureTenantID(),
 		rules.AzureClientID(),

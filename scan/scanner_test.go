@@ -4233,3 +4233,64 @@ func BenchmarkNewDefaultConfig(b *testing.B) {
 		}
 	}
 }
+
+// aws-access-token only reports a key ID when aws-secret-access-key matches
+// within 5L. A key ID outside that window must still be reported, as
+// aws-access-key-id, while a paired key keeps yielding one composite finding.
+func TestAWSAccessKeyIDWithoutSecret(t *testing.T) {
+	// Assembled from fragments so the full key shapes never appear in source.
+	const (
+		keyID  = "AKIA" + "K3COQOCE55OFYHTR"
+		stsID  = "ASIA" + "HFICAQTM752AA44C"
+		secret = "IPmc3x6FLlN9yA+/" + "6nAe4CVUCX42VARePV+0200o"
+	)
+	scanner := newDefaultTestScanner(t)
+
+	lone := map[string]string{
+		"env":            "AWS_ACCESS_KEY_ID=" + keyID + "\n",
+		"export":         "export AWS_ACCESS_KEY_ID=" + keyID + "\n",
+		"aws configure":  "aws configure set aws_access_key_id " + keyID + "\n",
+		"credentials":    "[default]\naws_access_key_id = " + keyID + "\nregion = us-east-1\n",
+		"json sts":       "{\n  \"accessKeyId\": \"" + stsID + "\"\n}\n",
+		"yaml":           "aws:\n  access_key_id: " + keyID + "\n",
+		"presigned url":  "https://bucket.s3.amazonaws.com/k?X-Amz-Credential=" + keyID + "%2F20260101%2Fus-east-1%2Fs3%2Faws4_request\n",
+		"jdbc":           "jdbc:awsathena://athena.us-east-1.amazonaws.com:443;User=" + keyID + ";\n",
+		"secret 5L away": "AWS_ACCESS_KEY_ID=" + keyID + "\n\n\n\n\nAWS_SECRET_ACCESS_KEY=" + secret + "\n",
+	}
+	for name, raw := range lone {
+		t.Run("lone/"+name, func(t *testing.T) {
+			ids := map[string]int{}
+			for _, f := range scanner.ScanString(raw) {
+				ids[f.RuleID]++
+			}
+			require.Equal(t, 1, ids["aws-access-key-id"], "findings: %v", ids)
+			require.Zero(t, ids["aws-access-token"], "findings: %v", ids)
+		})
+	}
+
+	paired := map[string]string{
+		"secret next line": "AWS_ACCESS_KEY_ID=" + keyID + "\nAWS_SECRET_ACCESS_KEY=" + secret + "\n",
+		"secret 4L after":  "AWS_ACCESS_KEY_ID=" + keyID + "\n\n\n\nAWS_SECRET_ACCESS_KEY=" + secret + "\n",
+		"secret before":    "AWS_SECRET_ACCESS_KEY=" + secret + "\nAWS_ACCESS_KEY_ID=" + keyID + "\n",
+	}
+	for name, raw := range paired {
+		t.Run("paired/"+name, func(t *testing.T) {
+			findings := scanner.ScanString(raw)
+			require.Len(t, findings, 1)
+			require.Equal(t, "aws-access-token", findings[0].RuleID)
+			require.NotEmpty(t, findings[0].ComponentSets)
+		})
+	}
+
+	ignored := map[string]string{
+		"low entropy":   "AWS_ACCESS_KEY_ID=AKIA" + "AAAAAAAAAAAAAAAA\n",
+		"example":       "AWS_ACCESS_KEY_ID=AKIA" + "IOSFODNN7EXAMPLE\n",
+		"allow comment": "AWS_ACCESS_KEY_ID=" + keyID + " # betterleaks:allow\n",
+		"not base32":    "AWS_ACCESS_KEY_ID=AKIA" + "0189K3COQOCE55OF\n",
+	}
+	for name, raw := range ignored {
+		t.Run("ignored/"+name, func(t *testing.T) {
+			require.Empty(t, scanner.ScanString(raw))
+		})
+	}
+}
