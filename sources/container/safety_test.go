@@ -251,7 +251,10 @@ func TestDecodedMetadataLimitAndCancellation(t *testing.T) {
 		return nil
 	}}
 	require.ErrorContains(t, r.metadata(t.Context(), raw, "@config", ResourceConfig, nil), "decoded metadata exceeds")
-	require.Zero(t, decodedBytes)
+	// Decoded content is streamed up to the limit, then the scan reports the
+	// coverage failure rather than retaining the entire expansion in memory.
+	require.Positive(t, decodedBytes)
+	require.LessOrEqual(t, decodedBytes, maxMetadataSize)
 	ctx, cancel := context.WithCancel(t.Context())
 	r.yield = func(f sources.Fragment, err error) error { cancel(); return nil }
 	require.ErrorIs(t, r.metadata(ctx, []byte(`{"value":"escaped\nvalue"}`), "@config", ResourceConfig, nil), context.Canceled)

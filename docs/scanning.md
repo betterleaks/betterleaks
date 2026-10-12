@@ -1321,9 +1321,10 @@ settings. For that connection, `DOCKER_TLS_VERIFY` enables verified TLS;
 `DOCKER_TLS` alone enables TLS **without server certificate verification**, as
 in Docker. Both variables are enabled by any nonempty value, including `0`.
 `DOCKER_CERT_PATH` selects the directory containing `ca.pem`, `cert.pem`, and
-`key.pem`; otherwise the Docker configuration directory is used. Setting the
-certificate directory alone does not enable TLS. Without a host, enabled TLS
-selects `tcp://localhost:2376`. Incomplete or invalid certificate files fail the
+`key.pem`; otherwise the Docker configuration directory is used. Without TLS
+flags, an `https://` host enables verified TLS and loads those certificates.
+Setting the certificate directory alone does not enable TLS. Without a host,
+enabled TLS selects `tcp://localhost:2376`. Incomplete or invalid certificate files fail the
 scan instead of falling back to plaintext. Context `SkipTLSVerify` is honored.
 
 ```sh

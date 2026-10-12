@@ -1287,6 +1287,31 @@ func TestDaemonTLS(t *testing.T) {
 	_, err = certificate.Verify(x509.VerifyOptions{DNSName: "wrong.test", Roots: endpoint.tls.RootCAs})
 	var hostnameError x509.HostnameError
 	require.ErrorAs(t, err, &hostnameError)
+	for _, certPath := range []string{dir, ""} {
+		t.Run("HTTPS certificate path="+certPath, func(t *testing.T) {
+			t.Setenv("DOCKER_CONTEXT", "default")
+			t.Setenv("DOCKER_HOST", "https://engine.test:2376")
+			t.Setenv("DOCKER_CONFIG", dir)
+			t.Setenv("DOCKER_CERT_PATH", certPath)
+			t.Setenv("DOCKER_TLS", "")
+			t.Setenv("DOCKER_TLS_VERIFY", "")
+			e, err := (&Source{Daemon: "docker"}).daemonHost(t.Context())
+			require.NoError(t, err)
+			require.NotNil(t, e.tls)
+			require.False(t, e.tls.InsecureSkipVerify)
+			require.Len(t, e.tls.Certificates, 1)
+			require.NotNil(t, e.tls.RootCAs)
+			_, err = certificate.Verify(x509.VerifyOptions{DNSName: "engine.test", Roots: e.tls.RootCAs})
+			require.NoError(t, err)
+			// A certificate directory must not turn an ordinary TCP endpoint
+			// into TLS when no TLS flag or HTTPS scheme was requested.
+			t.Setenv("DOCKER_HOST", "tcp://engine.test:2375")
+			e, err = (&Source{Daemon: "docker"}).daemonHost(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, "http", e.Scheme)
+			require.Nil(t, e.tls)
+		})
+	}
 	dockerDir := t.TempDir()
 	t.Setenv("DOCKER_CONFIG", dockerDir)
 	id := fmt.Sprintf("%x", sha256.Sum256([]byte("secure")))

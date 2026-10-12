@@ -93,8 +93,12 @@ func dockerEndpoint(ctx context.Context) (*daemonEndpoint, error) {
 			host = "unix:///var/run/docker.sock"
 		}
 	}
+	u, err := parseDaemonHost(host)
+	if err != nil {
+		return nil, err
+	}
 	certDir := ""
-	if enableTLS {
+	if enableTLS || u.Scheme == "https" {
 		certDir = os.Getenv("DOCKER_CERT_PATH")
 		if certDir == "" && configPath != "" {
 			certDir = filepath.Dir(configPath)
