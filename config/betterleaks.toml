@@ -970,7 +970,7 @@ entropy(finding["secret"]) <= 3.0
 || matchesAny(finding["secret"], [`.+EXAMPLE$`])
 '''
 components = [
-    { id = "aws-secret-access-key", within = "5L" },
+    { id = "aws-secret-access-key", optional = true, within = "5L" },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────

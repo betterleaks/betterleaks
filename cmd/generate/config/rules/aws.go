@@ -38,8 +38,9 @@ func AWS() *config.Rule {
 		},
 		Components: []config.Component{
 			{
-				RuleID: "aws-secret-access-key",
-				Within: "5L",
+				RuleID:   "aws-secret-access-key",
+				Optional: true,
+				Within:   "5L",
 			},
 		},
 		ValidateExpr: `let r = aws.validate(finding["secret"], (components["aws-secret-access-key"]?.secret ?? "")); r.status == 200 ? {
