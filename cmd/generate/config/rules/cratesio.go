@@ -5,6 +5,11 @@ import (
 	"github.com/betterleaks/betterleaks/v2/config"
 )
 
+// CratesIOAPIKey detects crates.io API tokens, which can publish, yank, and change owners of the user's crates.
+//
+// https://github.com/rust-lang/crates.io/blob/0ea9b2cc5237d037b7e690d26015bc458cf14d28/src/controllers/krate/search.rs#L420-L421
+// https://github.com/rust-lang/crates.io/blob/0ea9b2cc5237d037b7e690d26015bc458cf14d28/src/auth.rs#L170-L177
+// https://github.com/rust-lang/crates.io/blob/0ea9b2cc5237d037b7e690d26015bc458cf14d28/src/auth.rs#L311-L316
 func CratesIOAPIKey() *config.Rule {
 	// define rule
 	r := config.Rule{
@@ -13,13 +18,21 @@ func CratesIOAPIKey() *config.Rule {
 		Description: "crates.io API key.",
 		Regex:       utils.GenerateSemiGenericRegex([]string{`crates(?:[_.-]?io)?`}, `cio[A-Za-z0-9]{32}`, true),
 		Keywords:    []string{"crates"},
-		ValidateExpr: `let r = http.get("https://crates.io/api/v1/me", {
-    "Authorization": finding["secret"]
+		// crates.io rejects Go's default User-Agent with an empty 403. Scoped tokens lacking an endpoint scope get 403.
+		ValidateExpr: `let r = http.get("https://crates.io/api/v1/crates?following=1&per_page=1", {
+    "Authorization": finding["secret"],
+    "Accept": "application/json",
+    "User-Agent": "betterleaks-secret-validation/1"
   }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
+    "result": "valid",
+    "metadata": {"token_type": "legacy"}
+  } : r.status == 403 && (r.body contains "this token does not have the required permissions to perform this action") ? {
+    "result": "valid",
+    "reason": "Scoped token lacks the crates endpoint scope",
+    "metadata": {"token_type": "scoped"}
+  } : r.status == 403 && (r.body contains "authentication failed") ? {
     "result": "invalid",
-    "reason": "Unauthorized"
+    "reason": "Unknown, revoked, or expired token"
   } : validate.unknown(r)`,
 	}
 

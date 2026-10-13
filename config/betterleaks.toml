@@ -2443,13 +2443,20 @@ regex = '''(?i)(?:crates(?:[_.-]?io)?)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3
 confidence = "high"
 keywords = ["crates"]
 validate = '''
-let r = http.get("https://crates.io/api/v1/me", {
-    "Authorization": finding["secret"]
+let r = http.get("https://crates.io/api/v1/crates?following=1&per_page=1", {
+    "Authorization": finding["secret"],
+    "Accept": "application/json",
+    "User-Agent": "betterleaks-secret-validation/1"
   }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
+    "result": "valid",
+    "metadata": {"token_type": "legacy"}
+  } : r.status == 403 && (r.body contains "this token does not have the required permissions to perform this action") ? {
+    "result": "valid",
+    "reason": "Scoped token lacks the crates endpoint scope",
+    "metadata": {"token_type": "scoped"}
+  } : r.status == 403 && (r.body contains "authentication failed") ? {
     "result": "invalid",
-    "reason": "Unauthorized"
+    "reason": "Unknown, revoked, or expired token"
   } : validate.unknown(r)
 '''
 
