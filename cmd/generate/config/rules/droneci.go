@@ -12,7 +12,7 @@ func DroneciAccessToken() *config.Rule {
 		ID:          "droneci-access-token",
 		Confidence:  "high",
 		Description: "Detected a Droneci Access Token, potentially compromising continuous integration and deployment workflows.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"droneci"}, utils.AlphaNumeric("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"droneci"}, utils.AlphaNumeric("32"), true),
 
 		Keywords: []string{
 			"droneci",

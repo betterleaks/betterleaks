@@ -12,7 +12,7 @@ func PrivateAIToken() *config.Rule {
 		ID:          "privateai-api-token",
 		Confidence:  "medium",
 		Description: "Identified a PrivateAI Token, posing a risk of unauthorized access to AI services and data manipulation.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"private[_-]?ai"}, `[a-z0-9]{32}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"private[_-]?ai"}, `[a-z0-9]{32}`, false),
 		Keywords: []string{
 			"privateai",
 			"private_ai",

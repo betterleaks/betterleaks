@@ -10,7 +10,7 @@ func CoverallsPersonalAPIToken() *config.Rule {
 		ID:          "coveralls-personal-api-token",
 		Confidence:  "medium",
 		Description: "Detected a Coveralls personal API token, which may expose repository coverage data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"coveralls"}, `[A-Za-z0-9-]{37}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"coveralls"}, `[A-Za-z0-9-]{37}`, true),
 		Keywords:    []string{"coveralls"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

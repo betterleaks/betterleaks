@@ -10,7 +10,7 @@ func DataGovAPIKey() *config.Rule {
 		ID:          "datagov-api-key",
 		Confidence:  "high",
 		Description: "Detected a Data.gov API key, which may expose usage of Data.gov-backed APIs.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{`data\.gov`}, utils.AlphaNumeric("40"), true),
+		Regex:       utils.GenerateProviderRegex([]string{`data\.gov`}, utils.AlphaNumeric("40"), true),
 		Keywords:    []string{"data.gov"},
 		ValidateExpr: `let r = http.get("https://developer.nrel.gov/api/alt-fuel-stations/v1.json?limit=1&api_key=" + finding["secret"], {
     "Accept": "application/json"

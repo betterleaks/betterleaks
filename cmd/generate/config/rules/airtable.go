@@ -41,7 +41,7 @@ func AirtableApiKey() *config.Rule {
 		Description: "Uncovered a possible Airtable API Key, potentially compromising database access and leading to data leakage or alteration.",
 		ID:          "airtable-api-key",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"airtable"}, utils.AlphaNumeric("17"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"airtable"}, utils.AlphaNumeric("17"), true),
 		Keywords:    []string{"airtable"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -74,7 +74,7 @@ func AirtableOAuthToken() *config.Rule {
 		Description:  "Detected an Airtable OAuth token, which may allow unauthorized access to Airtable resources granted to an OAuth integration.",
 		ID:           "airtable-oauth-token",
 		Confidence:   "high",
-		Regex:        utils.GenerateSemiGenericRegex([]string{"airtable"}, `[A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+`, true),
+		Regex:        utils.GenerateProviderRegex([]string{"airtable"}, `[A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+`, true),
 		Keywords:     []string{"airtable"},
 		ValidateExpr: airtableValidateExpr,
 		AnalyzeExpr:  airtableAnalyzeExpr,

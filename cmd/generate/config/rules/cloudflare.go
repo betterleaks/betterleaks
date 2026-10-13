@@ -108,7 +108,7 @@ func CloudflareAccountIDV1() *config.Rule {
 		ID:          "cloudflare-account-id.1",
 		Confidence:  "high",
 		Description: "Detected a Cloudflare account ID, used as a component of Cloudflare API key validation.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{`account[_. -]*id`}, utils.Hex("32"), false),
+		Regex:       utils.GenerateProviderRegex([]string{`account[_. -]*id`}, utils.Hex("32"), false),
 		Keywords:    []string{"account_id", "account-id", "account id", "accountid"},
 		SkipReport:  true,
 	}
@@ -127,7 +127,7 @@ func CloudflareGlobalAPIKey() *config.Rule {
 		ID:          "cloudflare-global-api-key",
 		Confidence:  "high",
 		Description: "Detected a Cloudflare Global API Key, potentially compromising cloud application deployments and operational security.",
-		Regex:       utils.GenerateSemiGenericRegex(cloudflareIdentifiers, utils.Hex("37"), true),
+		Regex:       utils.GenerateProviderRegex(cloudflareIdentifiers, utils.Hex("37"), true),
 		Keywords:    cloudflareIdentifiers,
 		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -144,7 +144,7 @@ func CloudflareAPIKeyV1() *config.Rule {
 		ID:           "cloudflare-api-key.1",
 		Confidence:   "high",
 		Description:  "Detected a Cloudflare API key version 1 (legacy format), potentially compromising cloud application deployments and operational security.",
-		Regex:        utils.GenerateSemiGenericRegex(cloudflareIdentifiers, utils.AlphaNumericExtendedShort("40"), true),
+		Regex:        utils.GenerateProviderRegex(cloudflareIdentifiers, utils.AlphaNumericExtendedShort("40"), true),
 		Keywords:     cloudflareIdentifiers,
 		ValidateExpr: cloudflareAPITokenValidateExpr,
 		AnalyzeExpr:  cloudflareAPITokenAnalyzeExpr,

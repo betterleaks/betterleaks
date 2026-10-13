@@ -11,7 +11,7 @@ func CheckoutSecretKey() *config.Rule {
 		ID:          "checkout-secret-key",
 		Confidence:  "medium",
 		Description: "Checkout.com secret key.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"checkout"}, `sk_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"checkout"}, `sk_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`, true),
 		Keywords:    []string{"checkout"},
 		ValidateExpr: `let r = http.get("https://api.checkout.com/workflows", {
     "Authorization": "Bearer " + finding["secret"]

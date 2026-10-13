@@ -11,7 +11,7 @@ func DeepSeek() *config.Rule {
 		ID:          "deepseek-api-key",
 		Confidence:  "high",
 		Description: "Detected a DeepSeek API Key, which may expose AI model access and associated usage to unauthorized parties.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"deepseek"}, `sk-[a-f0-9]{32}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"deepseek"}, `sk-[a-f0-9]{32}`, true),
 		Keywords:    []string{"deepseek"},
 		ValidateExpr: `let r = http.get("https://api.deepseek.com/models", {
     "Authorization": "Bearer " + finding["secret"],

@@ -12,7 +12,7 @@ func Heroku() *config.Rule {
 		Description: "Detected a Heroku API Key, potentially compromising cloud application deployments and operational security.",
 		ID:          "heroku-api-key",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"heroku"}, utils.Hex8_4_4_4_12(), true),
+		Regex:       utils.GenerateProviderRegex([]string{"heroku"}, utils.Hex8_4_4_4_12(), true),
 
 		Keywords: []string{"heroku"},
 	}

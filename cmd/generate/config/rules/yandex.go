@@ -12,7 +12,7 @@ func YandexAWSAccessToken() *config.Rule {
 		ID:          "yandex-aws-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a Yandex AWS Access Token, potentially compromising cloud resource access and data security on Yandex Cloud.",
-		Regex: utils.GenerateSemiGenericRegex([]string{"yandex"},
+		Regex: utils.GenerateProviderRegex([]string{"yandex"},
 			`YC[a-zA-Z0-9_\-]{38}`, true),
 		Keywords: []string{
 			"yandex",
@@ -30,7 +30,7 @@ func YandexAPIKey() *config.Rule {
 		ID:          "yandex-api-key",
 		Confidence:  "high",
 		Description: "Discovered a Yandex API Key, which could lead to unauthorized access to Yandex services and data manipulation.",
-		Regex: utils.GenerateSemiGenericRegex([]string{"yandex"},
+		Regex: utils.GenerateProviderRegex([]string{"yandex"},
 			`AQVN[A-Za-z0-9_\-]{35,38}`, true),
 
 		Keywords: []string{
@@ -49,7 +49,7 @@ func YandexAccessToken() *config.Rule {
 		ID:          "yandex-access-token",
 		Confidence:  "high",
 		Description: "Found a Yandex Access Token, posing a risk to Yandex service integrations and user data privacy.",
-		Regex: utils.GenerateSemiGenericRegex([]string{"yandex"},
+		Regex: utils.GenerateProviderRegex([]string{"yandex"},
 			`t1\.[A-Z0-9a-z_-]+[=]{0,2}\.[A-Z0-9a-z_-]{86}[=]{0,2}`, true),
 
 		Keywords: []string{

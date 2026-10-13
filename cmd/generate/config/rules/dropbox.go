@@ -12,7 +12,7 @@ func DropBoxAPISecret() *config.Rule {
 		Description: "Identified a Dropbox API secret, which could lead to unauthorized file access and data breaches in Dropbox storage.",
 		ID:          "dropbox-api-token",
 		Confidence:  "medium",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"dropbox"}, utils.AlphaNumeric("15"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"dropbox"}, utils.AlphaNumeric("15"), true),
 		FilterExpr:  utils.MinEntropyAndTokenEfficiency,
 
 		Keywords: []string{"dropbox"},
@@ -29,7 +29,7 @@ func DropBoxShortLivedAPIToken() *config.Rule {
 		ID:          "dropbox-short-lived-api-token",
 		Confidence:  "high",
 		Description: "Discovered a Dropbox short-lived API token, posing a risk of temporary but potentially harmful data access and manipulation.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"dropbox"}, `sl\.[a-z0-9\-=_]{135}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"dropbox"}, `sl\.[a-z0-9\-=_]{135}`, true),
 		Keywords:    []string{"dropbox"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -44,7 +44,7 @@ func DropBoxLongLivedAPIToken() *config.Rule {
 		ID:          "dropbox-long-lived-api-token",
 		Confidence:  "high",
 		Description: "Found a Dropbox long-lived API token, risking prolonged unauthorized access to cloud storage and sensitive data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"dropbox"}, `[a-z0-9]{11}(AAAAAAAAAA)[a-z0-9\-_=]{43}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"dropbox"}, `[a-z0-9]{11}(AAAAAAAAAA)[a-z0-9\-_=]{43}`, true),
 		Keywords:    []string{"dropbox"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}

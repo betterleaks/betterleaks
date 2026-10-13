@@ -11,7 +11,7 @@ func BrowserStackUsername() *config.Rule {
 		ID:          "browserstack-username.1",
 		Confidence:  "medium",
 		Description: "BrowserStack username, used as a component of the BrowserStack access-key composite rule.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`browserstack[_.-]?(?:username|user)`},
 			`[A-Za-z0-9][A-Za-z0-9._-]{2,39}`,
 			false,
@@ -39,7 +39,7 @@ func BrowserStackAccessKey() *config.Rule {
 		ID:          "browserstack-access-key.1",
 		Confidence:  "high",
 		Description: "BrowserStack access key, which may allow access to automated browser and device testing when paired with its username.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`browserstack[_.-]?(?:access[_.-]?)?(?:key|secret|token)`},
 			`[A-Za-z0-9]{20}`,
 			false,

@@ -12,7 +12,7 @@ func RapidAPIAccessToken() *config.Rule {
 		ID:          "rapidapi-access-token",
 		Confidence:  "high",
 		Description: "Uncovered a RapidAPI Access Token, which could lead to unauthorized access to various APIs and data services.",
-		Regex: utils.GenerateSemiGenericRegex([]string{"rapidapi"},
+		Regex: utils.GenerateProviderRegex([]string{"rapidapi"},
 			utils.AlphaNumericExtendedShort("50"), true),
 
 		Keywords: []string{

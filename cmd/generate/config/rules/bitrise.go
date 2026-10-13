@@ -10,7 +10,7 @@ func BitriseAccessToken() *config.Rule {
 		ID:          "bitrise-access-token",
 		Confidence:  "high",
 		Description: "Detected a Bitrise personal or workspace access token, which may expose CI/CD applications and builds.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`bitrise(?:[ _-]*(?:personal|workspace))?(?:[ _-]*(?:access|api))?[ _-]*token`},
 			`[A-Za-z0-9_-]{60,120}`,
 			false,

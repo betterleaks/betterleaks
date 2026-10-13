@@ -11,7 +11,7 @@ func TableauPersonalAccessTokenName() *config.Rule {
 		ID:          "tableau-personal-access-token-name.1",
 		Confidence:  "high",
 		Description: "Tableau personal access-token name, used as a component of the token rule.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`tableau(?:[_. -]*(?:personal[_. -]*access|pat))?[_. -]*(?:token[_. -]*)?name`},
 			`[A-Za-z][A-Za-z0-9_-]{2,50}`,
 			false,

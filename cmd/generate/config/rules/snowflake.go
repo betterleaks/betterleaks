@@ -35,7 +35,7 @@ func SnowflakeProgrammaticAccessToken() *config.Rule {
 		ID:          "snowflake-programmatic-access-token.1",
 		Confidence:  "high",
 		Description: "Snowflake programmatic access token.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`(?:snowflake[_. -]*(?:programmatic[_. -]*)?(?:access[_. -]*)?token|sf[_. -]*token)`},
 			`[A-Za-z0-9_-]{100,500}`,
 			false,

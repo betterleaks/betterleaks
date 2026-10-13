@@ -12,7 +12,7 @@ func MidtransProductionServerClientKey() *config.Rule {
 		ID:          "midtrans-production-server-client-key",
 		Confidence:  "high",
 		Description: "Midtrans production server or client key.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`midtrans`, `mid[_-]?`},
 			`Mid-(?:server|client)-[A-Za-z0-9_]{10,20}`,
 			true,

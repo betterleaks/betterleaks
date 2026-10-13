@@ -12,7 +12,7 @@ func OpenWeatherAPIKey() *config.Rule {
 		ID:          "openweather-api-key",
 		Confidence:  "medium",
 		Description: "OpenWeather API key.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"openweather", "pyowm"}, `[a-z0-9]{32}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"openweather", "pyowm"}, `[a-z0-9]{32}`, false),
 		Keywords:    []string{"openweather", "pyowm"},
 		ValidateExpr: `let r = http.get("https://api.openweathermap.org/data/2.5/forecast?q=London&appid=" + finding["secret"], {
     "Accept": "application/json"
