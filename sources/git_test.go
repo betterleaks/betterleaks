@@ -568,7 +568,7 @@ func TestGitStreamArchives(t *testing.T) {
 	_, err = io.WriteString(entry, "synthetic archive example\n")
 	require.NoError(t, err)
 	require.NoError(t, archive.Close())
-	require.NoError(t, os.WriteFile(filepath.Join(repo, "archive.zip"), data.Bytes(), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "archive.jar"), data.Bytes(), 0o600))
 	runGitTestCommand(t, repo, "add", ".")
 	runGitTestCommand(t, repo, "commit", "-qm", "archive")
 	for _, depth := range []int{0, 1} {
@@ -583,7 +583,7 @@ func TestGitStreamArchives(t *testing.T) {
 		} else {
 			require.Len(t, fragments, 1)
 			require.Equal(t, "synthetic archive example\n", fragments[0].Raw)
-			require.Equal(t, "archive.zip"+InnerPathSeparator+"inner.txt", fragments[0].Attr(AttrPath))
+			require.Equal(t, "archive.jar"+InnerPathSeparator+"inner.txt", fragments[0].Attr(AttrPath))
 			require.NotEmpty(t, fragments[0].Attr(AttrGitSHA))
 		}
 	}
