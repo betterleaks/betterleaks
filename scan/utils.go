@@ -23,7 +23,7 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 	commitSha := finding.Attr(sources.AttrGitSHA)
 	path := finding.Location.Path
 	location := finding.Location
-	if p == scm.UnknownPlatform || p == scm.NoPlatform || commitSha == "" {
+	if p == scm.UnknownPlatform || p == scm.NoPlatform {
 		return ""
 	}
 	if finding.Attr(sources.AttrResource) == sources.ResourceGitTagMessage {
@@ -40,6 +40,9 @@ func createScmLink(platform, remoteURL string, finding report.Finding) string {
 		default:
 			return ""
 		}
+	}
+	if commitSha == "" {
+		return ""
 	}
 	if finding.Attr(sources.AttrResource) == sources.ResourceGitCommitMessage {
 		switch p {

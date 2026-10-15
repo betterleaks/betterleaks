@@ -1,8 +1,10 @@
 package report
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -514,4 +516,42 @@ func TestRedactedCopySanitizesSourceAndCaptureMaterial(t *testing.T) {
 	require.Equal(t, secondary, original.Match.Captures["secondary"])
 	require.Equal(t, primary, original.Analysis.StatusMetadata["echo"])
 	require.Equal(t, secondary, original.ComponentSets[0].Components[0].Location.Path)
+}
+
+//nolint:exhaustruct // Only the fields relevant to message reporting are set.
+func TestGitMessageReporting(t *testing.T) {
+	message := "Subject\n\nBody contains SECRET_BODY\r\n" + strings.Repeat("Long stack trace\r\n", 100)
+	for _, resource := range []string{sources.ResourceGitCommitMessage, sources.ResourceGitPatchContent} {
+		t.Run(resource, func(t *testing.T) {
+			f := Finding{
+				Match:      Match{Full: "SECRET_BODY", Value: "SECRET_BODY", Line: "Body contains SECRET_BODY"},
+				Location:   Location{StartLine: 3, EndLine: 3, StartColumn: 15, EndColumn: 26},
+				Attributes: map[string]string{sources.AttrResource: resource, sources.AttrGitMessage: message},
+			}
+			original := f.Clone()
+			for _, redact := range []uint{0, 100} {
+				visible := f
+				if redact != 0 {
+					visible = f.RedactedCopy(redact)
+				}
+				data, err := json.Marshal(visible)
+				require.NoError(t, err)
+				var decoded Finding
+				require.NoError(t, json.Unmarshal(data, &decoded))
+				require.Equal(t, "Subject...", decoded.Attr(sources.AttrGitMessage))
+				require.Equal(t, f.Location, decoded.Location)
+				var out bytes.Buffer
+				require.NoError(t, WritePretty(&out, f, PrettyOptions{NoColor: true, Redact: redact}))
+				require.Contains(t, out.String(), "git.message ...... Subject...\n")
+				require.Contains(t, out.String(), "│ 3 │ Body contains "+visible.Match.Value)
+				require.NotContains(t, out.String(), "Long stack trace")
+				require.NotContains(t, out.String(), `\r\n`)
+				if redact != 0 {
+					require.NotContains(t, out.String(), "SECRET_BODY")
+					require.NotContains(t, string(data), "SECRET_BODY")
+				}
+			}
+			require.Equal(t, original, f, "reporting must not mutate source attributes")
+		})
+	}
 }

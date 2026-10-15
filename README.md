@@ -85,6 +85,9 @@ betterleaks fs /path/to/target -a
 # Scan a git repo
 betterleaks git /path/to/repo
 
+# Suppress merge commit patches while still traversing both parents
+betterleaks git /path/to/repo --exclude=merges
+
 # Automatically detect a remote repository and scan its history
 betterleaks https://github.com/betterleaks/betterleaks
 # The default command can also be named explicitly
@@ -136,10 +139,7 @@ Use `--hmac-key` or `BETTERLEAKS_FINGERPRINT_HMAC_KEY` for keyed match fingerpri
 see [fingerprint privacy and key setup](docs/scanning.md#ignore-exact-secret-values).
 
 `-j` / `--jobs` controls detection concurrency only, defaulting to `4 * GOMAXPROCS`.
-Sources manage their own
-bounded reads and downloads; Git uses one history stream when `--log-opts` is
-provided. See [parallel jobs](docs/scanning.md#parallel-jobs)
-and the [scanning guide](docs/scanning.md) for details and more examples.
+Sources manage their own bounded reads and downloads.
 
 Rules may also define an optional `revoke` Expr for explicit credential revocation.
 Use `betterleaks config show ids --revocation` to find configured support and

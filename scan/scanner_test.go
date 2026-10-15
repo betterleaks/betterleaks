@@ -31,12 +31,13 @@ import (
 	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"os/exec"
 )
 
 const maxDecodeDepth = 8
@@ -2403,6 +2404,8 @@ func expectedAWSFinding(line string, location report.Location) report.Finding {
 }
 
 // TestFromGit tests the FromGit function
+//
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestFromGit(t *testing.T) {
 	previous := runtime.GOMAXPROCS(1)
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
@@ -2687,18 +2690,14 @@ func TestFromGit(t *testing.T) {
 			cfg := loadTestConfig(t, "simple")
 			scanner := mustNew(t, cfg)
 
-			platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
-			findings, err := collectSourceFindings(
-				t.Context(), scanner,
-
-				&sources.Git{
-					RepoPath:        tt.source,
-					LogOpts:         tt.logOpts,
-					Prefilter:       mustPrefilter(t, cfg.PrefilterExpr),
-					Platform:        platform,
-					RemoteURL:       remoteURL,
-					MaxArchiveDepth: 8,
-				})
+			var src sources.Source = &gogit.Source{RepoPath: tt.source, MaxArchiveDepth: 8, Prefilter: mustPrefilter(t, cfg.PrefilterExpr)}
+			if tt.logOpts != "" {
+				args := append([]string{"-C", tt.source, "log", "-p", "-U0"}, strings.Fields(tt.logOpts)...)
+				patch, err := exec.Command("git", args...).Output()
+				require.NoError(t, err)
+				src = &sources.GitDiff{Content: bytes.NewReader(patch), Prefilter: mustPrefilter(t, cfg.PrefilterExpr)}
+			}
+			findings, err := collectSourceFindings(t.Context(), scanner, src)
 
 			require.NoError(t, err)
 
@@ -2710,6 +2709,7 @@ func TestFromGit(t *testing.T) {
 	}
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestFromGitStaged(t *testing.T) {
 	tests := []struct {
 		cfgName          string
@@ -2749,17 +2749,9 @@ func TestFromGitStaged(t *testing.T) {
 	for _, tt := range tests {
 		cfg := loadTestConfig(t, "simple")
 		scanner := mustNew(t, cfg)
-		platform, remoteURL := sources.ResolveRemote(t.Context(), scm.UnknownPlatform, tt.source)
-		findings, err := collectSourceFindings(
-			t.Context(), scanner,
-
-			&sources.Git{
-				RepoPath:  tt.source,
-				Mode:      sources.GitStaged,
-				Prefilter: mustPrefilter(t, cfg.PrefilterExpr),
-				Platform:  platform,
-				RemoteURL: remoteURL,
-			})
+		patch, err := exec.Command("git", "-C", tt.source, "diff", "--cached", "-U0", "--no-ext-diff", "--no-textconv").Output()
+		require.NoError(t, err)
+		findings, err := collectSourceFindings(t.Context(), scanner, &sources.GitDiff{Content: bytes.NewReader(patch), Prefilter: mustPrefilter(t, cfg.PrefilterExpr)})
 
 		require.NoError(t, err)
 

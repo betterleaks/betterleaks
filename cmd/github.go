@@ -15,7 +15,6 @@ type GitHubCmd struct {
 	Include         []string `group:"source" help:"Resource types to scan: repos, forks, prs, pr-comments, issues, issue-comments, actions, action-artifacts, discussions, releases, release-assets, gists."`
 	Exclude         []string `group:"source" help:"Resource types to skip."`
 	ExcludeRepo     []string `group:"source" name:"exclude-repo" help:"Glob patterns to exclude repositories."`
-	LogOpts         string   `group:"source" name:"log-opts" help:"Git log options passed to each repository scan."`
 	ActionsWorkflow []string `group:"source" name:"actions-workflow" help:"Only scan runs from these workflow files."`
 	Since           string   `group:"source" help:"Only scan API items created after this date (YYYY-MM-DD or RFC3339)."`
 	Until           string   `group:"source" help:"Only scan API items created before this date (YYYY-MM-DD or RFC3339)."`
@@ -76,7 +75,6 @@ func runGitHub(runtime *commandRuntime, globals *GlobalFlags, options *GitHubCmd
 		ExcludeRepos:    options.ExcludeRepo,
 		Prefilter:       filters.shouldSkip,
 		MaxArchiveDepth: options.MaxArchiveDepth,
-		LogOpts:         options.LogOpts,
 		Actions: github.ActionsOptions{
 			Workflows: options.ActionsWorkflow,
 		},

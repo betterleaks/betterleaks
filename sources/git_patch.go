@@ -7,11 +7,54 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
 )
+
+// GitDiff scans additions from a caller-supplied git log -p or git diff stream.
+// It never opens a repository or executes Git. Binary patches contain no
+// scannable file content and are skipped. The caller owns and closes Content.
+// As with Reader, cancellation cannot interrupt an arbitrary blocked Read.
+type GitDiff struct {
+	Content    io.Reader
+	Attributes map[string]string
+	Prefilter  PrefilterFunc
+}
+
+func (s *GitDiff) Fragments(ctx context.Context, yield FragmentsFunc) error {
+	if s.Content == nil {
+		return errors.New("git diff source requires input")
+	}
+	return readGitPatch(ctx, s.Content, func(file *gitdiff.File) (gitHunkFunc, error) {
+		if file.IsDelete || file.IsBinary {
+			return nil, nil
+		}
+		attrs := map[string]string{AttrPath: file.NewName, AttrResource: ResourceGitPatchContent}
+		if p := file.PatchHeader; p != nil {
+			attrs[AttrGitSHA], attrs[AttrGitMessage] = p.SHA, p.Message()
+			if !p.AuthorDate.IsZero() {
+				attrs[AttrGitDate] = p.AuthorDate.UTC().Format(time.RFC3339)
+			}
+			if p.Author != nil {
+				attrs[AttrGitAuthorName], attrs[AttrGitAuthorEmail] = p.Author.Name, p.Author.Email
+			}
+		}
+		maps.Copy(attrs, s.Attributes)
+		if s.Prefilter != nil && s.Prefilter(attrs) {
+			return nil, nil
+		}
+		return func(raw string, line int) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return yield(Fragment{Raw: raw, StartLine: line, Attributes: attrs}, nil)
+		}, nil
+	})
+}
 
 // gitHunkFunc accepts the added text of one hunk. Keeping hunk boundaries
 // preserves multiline rules, decoding, and component proximity semantics.
@@ -44,6 +87,9 @@ func readGitPatch(ctx context.Context, input io.Reader, header func(*gitdiff.Fil
 			if line == "" {
 				return nil
 			}
+		}
+		if strings.HasPrefix(line, "\x1b[") {
+			return errors.New("colored Git patches are unsupported; pass --no-color to the Git producer")
 		}
 		switch {
 		case strings.HasPrefix(line, "diff --cc "), strings.HasPrefix(line, "diff --combined "):
@@ -85,15 +131,8 @@ func readGitPatch(ctx context.Context, input io.Reader, header func(*gitdiff.Fil
 				return err
 			}
 			content.Reset()
-			if err := readGitHunk(ctx, r, oldLines, newLines, consume != nil, &content); err != nil {
+			if err := readGitHunk(ctx, r, oldLines, newStart, newLines, consume, &content); err != nil {
 				return err
-			}
-			if consume != nil {
-				// One exact-sized copy detaches the yielded string from the
-				// reusable buffer, including when detection is asynchronous.
-				if err := consume(content.String(), newStart); err != nil {
-					return err
-				}
 			}
 			// Do not retain an unusually large hunk for the rest of history.
 			if content.Cap() > 1024*1024 {
@@ -173,7 +212,19 @@ func gitHunkRange(header string) (oldLines, newStart, newLines int, err error) {
 	return
 }
 
-func readGitHunk(ctx context.Context, r *bufio.Reader, oldLines, newLines int, keep bool, content *bytes.Buffer) error {
+func readGitHunk(ctx context.Context, r *bufio.Reader, oldLines, newStart, newLines int, consume gitHunkFunc, content *bytes.Buffer) error {
+	keep := consume != nil
+	line, runStart := newStart, newStart
+	flush := func() error {
+		if !keep || content.Len() == 0 {
+			return nil
+		}
+		if err := consume(content.String(), runStart); err != nil {
+			return err
+		}
+		content.Reset()
+		return nil
+	}
 	var lastOp byte
 	for oldLines > 0 || newLines > 0 {
 		if err := ctx.Err(); err != nil {
@@ -189,10 +240,18 @@ func readGitHunk(ctx context.Context, r *bufio.Reader, oldLines, newLines int, k
 		op := part[0]
 		switch op {
 		case '+':
+			if content.Len() == 0 {
+				runStart = line
+			}
+			line++
 			newLines--
 		case '-':
 			oldLines--
 		case ' ', '\n':
+			if err := flush(); err != nil {
+				return err
+			}
+			line++
 			oldLines--
 			newLines--
 		case '\\':
@@ -235,5 +294,5 @@ func readGitHunk(ctx context.Context, r *bufio.Reader, oldLines, newLines int, k
 			content.Truncate(content.Len() - 1)
 		}
 	}
-	return nil
+	return flush()
 }

@@ -2,107 +2,145 @@ package scm
 
 import (
 	"context"
-	"encoding/base64"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
+	git "github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/config"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/client"
+	"github.com/go-git/go-git/v6/plumbing/transport"
+	githttp "github.com/go-git/go-git/v6/plumbing/transport/http"
+	"github.com/go-git/go-git/v6/storage/filesystem"
 )
 
-// CloneOptions configures a CloneAuthed call. Zero value is valid: full
-// (non-bare, non-mirror) clone with no extra options.
-type CloneOptions struct {
-	// Bare clones with --bare (no working tree). Recommended for scanning
-	// since we only need objects.
-	Bare bool
-
-	// Mirror clones with --mirror (implies bare). Useful when the caller
-	// wants the full set of refs (e.g. PR refs, tags) without further
-	// configuration.
-	Mirror bool
-
-	// SingleBranch limits the clone to the default branch only.
-	SingleBranch bool
-
-	// Depth, if > 0, requests a shallow clone of that many commits.
-	Depth int
-
-	// Configs are extra git config key/value pairs applied only to this clone.
-	Configs []GitConfig
-}
-
-// GitConfig is a single git config entry applied to a command invocation.
-type GitConfig struct {
-	Key   string
-	Value string
-}
-
-// CloneAuthed clones remote into dest. If token is non-empty and the remote
-// is HTTPS, it is passed via a temporary git config entry so the clone can
-// authenticate without mutating the remote URL. The token is stripped from any
-// returned error message via SanitizeOutput.
-//
-// The intent is to let multiple SCM sources (GitHub today, GitLab/Bitbucket
-// later) share one clone helper.
-func CloneAuthed(ctx context.Context, remote, token, dest string, opts CloneOptions) error {
-	if remote == "" {
-		return fmt.Errorf("scm.CloneAuthed: empty remote")
+// CloneAuthed fetches the branches, tags and notes of an HTTP(S) repository
+// into a bare repository at dest, directly in Go. Host review refs such as
+// refs/pull are excluded. It does not check out files, run credential helpers,
+// recurse into submodules, or execute Git/SSH.
+func CloneAuthed(ctx context.Context, remote, token, dest string) error {
+	u, err := url.Parse(remote)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return errors.New("git clone requires an HTTP(S) URL without credentials, query or fragment; use Token for authentication")
 	}
 	if dest == "" {
-		return fmt.Errorf("scm.CloneAuthed: empty dest")
+		return errors.New("git clone destination is empty")
 	}
+	// Like git clone, never mix a clone with existing content: the scan walks
+	// every ref it finds there, including ones this fetch would exclude.
+	if entries, err := os.ReadDir(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("git clone destination: %w", err)
+	} else if len(entries) > 0 {
+		return errors.New("git clone destination is not empty")
+	}
+	if token != "" && u.Scheme != "https" {
+		return errors.New("git clone tokens require HTTPS")
+	}
+	options := cloneHTTPClient()
+	if token != "" {
+		options = append(options, client.WithHTTPAuth(&githttp.BasicAuth{Username: "x-access-token", Password: token}))
+	}
+	if err := fetchPublishedRefs(ctx, remote, dest, options); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("git clone %s: %s", urlredact.Public(u), SanitizeOutput(err.Error(), token))
+	}
+	return nil
+}
 
-	authConfigs, err := authCloneConfigs(remote, token)
+// cloneHTTPClient is go-git's default client limited to HTTP/1.1. A pack arrives
+// as one long response, which HTTP/2 cannot multiplex, and Go's HTTP/2 client
+// was slower at it: downloading kubernetes from GitHub took 35 s with the
+// default stream window and 27 s with a 64 MiB one, against 23 s over HTTP/1.1.
+// go-git still applies its redirect and credential policy to this client.
+//
+//nolint:exhaustruct // Unset client fields keep net/http's defaults.
+func cloneHTTPClient() []client.Option {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil
+	}
+	tr := base.Clone()
+	tr.Protocols = new(http.Protocols)
+	tr.Protocols.SetHTTP1(true)
+	// Clone copies the TLS config after setting up HTTP/2 on the original, so it
+	// would still offer h2 to the server, which would then expect HTTP/2.
+	if tr.TLSClientConfig != nil {
+		tr.TLSClientConfig.NextProtos = nil
+	}
+	return []client.Option{client.WithHTTPClient(&http.Client{Transport: tr})}
+}
+
+// fetchPublishedRefs keeps review-only history out of the download, rather than
+// discarding its refs after fetching all of their objects.
+//
+//nolint:exhaustruct // Unset go-git options keep their defaults.
+func fetchPublishedRefs(ctx context.Context, remote, dest string, options []client.Option) error {
+	repo, err := git.PlainInit(dest, true)
 	if err != nil {
-		return fmt.Errorf("clone auth config: %w", urlredact.Error(err))
+		return err
 	}
-
-	args := []string{"clone", "--quiet"}
-	if opts.Mirror {
-		args = append(args, "--mirror")
-	} else if opts.Bare {
-		args = append(args, "--bare")
-	}
-	if opts.SingleBranch {
-		args = append(args, "--single-branch")
-	}
-	if opts.Depth > 0 {
-		args = append(args, "--depth", fmt.Sprintf("%d", opts.Depth))
-	}
-	args = append(args, remote, dest)
-
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = gitCloneEnv(append(opts.Configs, authConfigs...))
-	out, err := cmd.CombinedOutput()
+	storage := &packStorage{Storage: repo.Storer.(*filesystem.Storage), ctx: ctx,
+		dir: filepath.Join(dest, "objects", "pack"), limits: fetchPackLimits()}
+	repo.Storer = storage
+	defer storage.Close()
+	refs := []config.RefSpec{"+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*", "+refs/notes/*:refs/notes/*"}
+	origin, err := repo.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{remote}, Fetch: refs})
 	if err != nil {
-		publicRemote := SanitizeOutput(remote, token)
-		output := string(out)
-		if u, parseErr := url.Parse(remote); parseErr == nil && u.Host != "" {
-			publicRemote = SanitizeOutput(urlredact.Public(u), token)
-			// Git may remove userinfo or normalize the URL before echoing it.
-			// Remove the known private components before sanitizing free text.
-			for _, private := range []string{u.RawQuery, u.Fragment, u.RawFragment} {
-				if private != "" {
-					output = strings.ReplaceAll(output, private, "***")
+		return err
+	}
+	advertised, err := origin.ListContext(ctx, &git.ListOptions{ClientOptions: options})
+	if errors.Is(err, transport.ErrEmptyRemoteRepository) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	err = origin.FetchContext(ctx, &git.FetchOptions{RefSpecs: refs, ClientOptions: options, Tags: plumbing.NoTags})
+	if errors.Is(err, transport.ErrEmptyRemoteRepository) {
+		// A remote containing only excluded refs is empty for this scan.
+		return nil
+	}
+	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return err
+	}
+	for _, ref := range advertised {
+		if ref.Name() != plumbing.HEAD {
+			continue
+		}
+		if ref.Type() == plumbing.SymbolicReference {
+			for _, spec := range refs {
+				if spec.Match(ref.Target()) {
+					return repo.Storer.SetReference(ref)
 				}
 			}
+			return nil
 		}
-		// Git may echo the original URL verbatim, including unescaped spaces.
-		output = strings.ReplaceAll(output, remote, publicRemote)
-		return fmt.Errorf("git clone %s: %w: %s",
-			publicRemote,
-			err,
-			SanitizeOutput(output, token))
+		if ref.Type() == plumbing.HashReference {
+			// Preserve a detached HEAD only if the selected refs brought its
+			// object with them; HEAD must not pull excluded history back in.
+			if err := repo.Storer.HasEncodedObject(ref.Hash()); err != nil {
+				if errors.Is(err, plumbing.ErrObjectNotFound) {
+					return nil
+				}
+				return err
+			}
+			return repo.Storer.SetReference(ref)
+		}
 	}
 	return nil
 }
 
 // CloneToTempDir clones a remote into a temporary directory, invokes fn with
 // the cloned repo path, and removes the directory afterwards.
-func CloneToTempDir(ctx context.Context, remote, token, tempDirPattern string, opts CloneOptions, fn func(repoPath string) error) error {
+func CloneToTempDir(ctx context.Context, remote, token, tempDirPattern string, fn func(repoPath string) error) error {
 	if tempDirPattern == "" {
 		tempDirPattern = "betterleaks-git-*"
 	}
@@ -112,89 +150,15 @@ func CloneToTempDir(ctx context.Context, remote, token, tempDirPattern string, o
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if err := CloneAuthed(ctx, remote, token, tmpDir, opts); err != nil {
+	if err := CloneAuthed(ctx, remote, token, tmpDir); err != nil {
 		return err
 	}
 	return fn(tmpDir)
 }
 
-func authCloneConfigs(remote, token string) ([]GitConfig, error) {
-	if token == "" {
-		return nil, nil
-	}
-	// SSH-style remotes ("git@host:owner/repo") are not parseable by net/url.
-	// We can't authenticate them with a token anyway, so pass through.
-	if isSSHRemote(remote) {
-		return nil, nil
-	}
-	u, err := url.Parse(remote)
-	if err != nil {
-		return nil, err
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, nil
-	}
-	cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	key := fmt.Sprintf("http.%s://%s.extraHeader", u.Scheme, u.Host)
-	return []GitConfig{{Key: key, Value: "Authorization: basic " + cred}}, nil
-}
-
-// isSSHRemote reports whether s looks like the scp-style SSH remote that
-// GitHub and friends emit (e.g. "git@github.com:owner/repo.git"). Such URLs
-// are not parseable as RFC 3986 URLs.
-func isSSHRemote(s string) bool {
-	if strings.HasPrefix(s, "ssh://") {
-		return true
-	}
-	at := strings.Index(s, "@")
-	if at <= 0 {
-		return false
-	}
-	colon := strings.Index(s[at:], ":")
-	if colon <= 0 {
-		return false
-	}
-	// Reject http(s)://user:pass@host: forms.
-	return !strings.Contains(s[:at], "://")
-}
-
-func gitCloneEnv(configs []GitConfig) []string {
-	// Git recognizes /dev/null on Windows too; Git for Windows 2.56.0 rejects NUL.
-	const nullDevice = "/dev/null"
-	overrides := map[string]string{
-		"GIT_CONFIG_GLOBAL":      nullDevice,
-		"GIT_CONFIG_NOSYSTEM":    "1",
-		"GIT_CONFIG_SYSTEM":      nullDevice,
-		"GIT_NO_REPLACE_OBJECTS": "1",
-		"GIT_TERMINAL_PROMPT":    "0",
-	}
-
-	if len(configs) > 0 {
-		overrides["GIT_CONFIG_COUNT"] = fmt.Sprintf("%d", len(configs))
-		for i, cfg := range configs {
-			overrides[fmt.Sprintf("GIT_CONFIG_KEY_%d", i)] = cfg.Key
-			overrides[fmt.Sprintf("GIT_CONFIG_VALUE_%d", i)] = cfg.Value
-		}
-	}
-
-	env := os.Environ()
-	for i, e := range env {
-		for k, v := range overrides {
-			if strings.HasPrefix(e, k+"=") {
-				env[i] = k + "=" + v
-				delete(overrides, k)
-			}
-		}
-	}
-	for k, v := range overrides {
-		env = append(env, k+"="+v)
-	}
-	return env
-}
-
 // SanitizeOutput redacts the token (and any URL-encoded form of it) from text.
 // It also strips URL userinfo, query parameters, and fragments.
-// Use it whenever you log or wrap text that may have come from a `git` invocation.
+// Use it when wrapping transport errors.
 func SanitizeOutput(text, token string) string {
 	if text == "" {
 		return text

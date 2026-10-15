@@ -12,6 +12,7 @@ import (
 
 type StdinCmd struct {
 	ScanFlags `embed:""`
+	GitDiff   bool     `group:"source" name:"git-diff" help:"Parse additions from git log -p or git diff, preserving file paths, commit headers, and line numbers."`
 	SetAttr   []string `group:"source" name:"set-attr" sep:"none" help:"Set a source attribute as key=value (repeatable)."`
 }
 
@@ -48,6 +49,9 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "stdin")
 	source := newStdinSource(runtime.stdin, attrs, filters.shouldSkip)
+	if options.GitDiff {
+		source = &sources.GitDiff{Content: runtime.stdin, Attributes: attrs, Prefilter: filters.shouldSkip}
+	}
 	findings.startScan(runtime)
 	summary, scanErr := runner.Scan(runtime.Context, source, findings.Add)
 	if scanErr != nil {

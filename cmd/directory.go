@@ -11,6 +11,16 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
+// multipleErrors wraps multiple scan errors into a single error that supports
+// errors.Unwrap so callers can inspect individual errors.
+type multipleErrors struct {
+	msg  string
+	errs []error
+}
+
+func (e *multipleErrors) Error() string   { return e.msg }
+func (e *multipleErrors) Unwrap() []error { return e.errs }
+
 type DirectoryCmd struct {
 	ScanFlags          `embed:""`
 	MaxArchiveDepth    int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`

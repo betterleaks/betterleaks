@@ -169,3 +169,40 @@ func BenchmarkReadGitPatchManyFiles(b *testing.B) {
 		})
 	}
 }
+
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
+func TestGitDiffContextCoordinatesAndMetadata(t *testing.T) {
+	patch := "commit 0123456789012345678901234567890123456789\nAuthor: Test User <test@example.test>\nDate:   Mon Oct 12 12:00:00 2026 +0000\n\n    message\n\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -10,4 +10,6 @@\n context\n-old\n+FIRST\n+SECOND\n context\n+THIRD\n context\n"
+	var fragments []Fragment
+	source := &GitDiff{Content: strings.NewReader(patch)}
+	require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
+		require.NoError(t, err)
+		fragments = append(fragments, f)
+		return nil
+	}))
+	require.Len(t, fragments, 2)
+	require.Equal(t, "FIRST\nSECOND\n", fragments[0].Raw)
+	require.Equal(t, 11, fragments[0].StartLine)
+	require.Equal(t, "THIRD\n", fragments[1].Raw)
+	require.Equal(t, 14, fragments[1].StartLine)
+	require.Equal(t, "a.txt", fragments[0].Attr(AttrPath))
+	require.Equal(t, "Test User", fragments[0].Attr(AttrGitAuthorName))
+	require.Equal(t, "0123456789012345678901234567890123456789", fragments[0].Attr(AttrGitSHA))
+	stop := errors.New("consumer stopped")
+	source.Content = strings.NewReader(patch)
+	require.ErrorIs(t, source.Fragments(t.Context(), func(Fragment, error) error { return stop }), stop)
+	source.Content = strings.NewReader(patch)
+	source.Prefilter = func(a map[string]string) bool { return a[AttrPath] == "a.txt" }
+	require.NoError(t, source.Fragments(t.Context(), func(Fragment, error) error { t.Fatal("filtered patch yielded"); return nil }))
+}
+
+//nolint:exhaustruct // Fixtures specify only relevant fields.
+func TestGitDiffRejectsColoredHeaders(t *testing.T) {
+	patch := "\x1b[1mdiff --git a/secret b/secret\x1b[m\n\x1b[32m+SECRET\x1b[m\n"
+	s := GitDiff{Content: strings.NewReader(patch)}
+	err := s.Fragments(t.Context(), func(Fragment, error) error {
+		t.Fatal("colored input yielded a fragment")
+		return nil
+	})
+	require.ErrorContains(t, err, "--no-color")
+}

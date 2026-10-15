@@ -305,7 +305,7 @@ func TestCommitMessageSCMLinks(t *testing.T) {
 }
 
 func TestTagMessageSCMLinks(t *testing.T) {
-	finding := scmLinkFinding("abc123", "", 3, 5)
+	finding := scmLinkFinding("", "", 3, 5)
 	finding.SetAttr(sources.AttrResource, sources.ResourceGitTagMessage)
 	finding.SetAttr(sources.AttrGitTagName, "original-name")
 	finding.SetAttr(sources.AttrGitTagRef, "refs/tags/release/v1#100%")

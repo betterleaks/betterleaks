@@ -184,6 +184,10 @@ func TestPreCommitHookCommands(t *testing.T) {
 		require.NoError(t, err, "%s", out)
 	}
 	git("init", "--quiet")
+	git("config", "color.ui", "always")
+	// The producer's fixed prefixes must keep paths intact under user settings.
+	git("config", "diff.noprefix", "true")
+	require.NoError(t, os.Mkdir("dir", 0o700))
 	configPath := filepath.Join(t.TempDir(), "rules.toml")
 	require.NoError(t, os.WriteFile(configPath, []byte("[[rules]]\nid='hook-secret'\nregex='SECRET_PRIVATE'\n"), 0o600))
 
@@ -191,39 +195,60 @@ func TestPreCommitHookCommands(t *testing.T) {
 		t.Run(entry, func(t *testing.T) {
 			// Exercise the CLI arguments shipped by every hook, including the
 			// Docker entry. Image execution belongs to the release smoke check.
-			args := strings.Fields(entry)[1:]
-			require.NotContains(t, args, "--validate")
-			require.NotContains(t, args, "--analyze")
-			for _, secret := range []bool{false, true} {
-				t.Run(fmt.Sprintf("secret=%t", secret), func(t *testing.T) {
-					content := "ordinary content\n"
-					if secret {
-						content = "SECRET_PRIVATE\n"
-					}
-					require.NoError(t, os.WriteFile("input.txt", []byte(content), 0o600))
-					git("add", "input.txt")
-					root, output := newTestCLI(t)
-					code := 0
-					root.runtime.exit = func(n int) { code = n; panic(n) }
-					root.SetArgs(append(append([]string{}, args...), "--no-banner", "--config", configPath))
-					func() {
-						defer func() {
-							if p := recover(); p != nil {
-								if _, ok := p.(int); !ok {
-									panic(p)
-								}
+			if strings.HasPrefix(entry, "ghcr.io/") {
+				t.Skip("pinned released Docker image uses the legacy CLI; not the working tree binary")
+			}
+			require.Contains(t, entry, "bash -o pipefail -c '")
+			producer, scannerArgs, ok := strings.Cut(entry, "| betterleaks ")
+			require.True(t, ok)
+			_, producer, ok = strings.Cut(producer, "-c '")
+			require.True(t, ok)
+			producerArgs := strings.Fields(producer)
+			require.Equal(t, []string{"git", "diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-color", "--src-prefix=a/", "--dst-prefix=b/"}, producerArgs)
+			// A CRLF checkout leaves a carriage return after the shell quote.
+			scannerArgs = strings.TrimSuffix(scannerArgs, "\r")
+			for name, ending := range map[string]string{"LF": "", "CRLF": "\r"} {
+				t.Run(name, func(t *testing.T) {
+					args := strings.Fields(strings.TrimSuffix(strings.TrimSpace(scannerArgs+ending), "'"))
+					require.Equal(t, []string{"stdin", "--git-diff", "--redact"}, args)
+					require.NotContains(t, args, "--validate")
+					require.NotContains(t, args, "--analyze")
+					for _, secret := range []bool{false, true} {
+						t.Run(fmt.Sprintf("secret=%t", secret), func(t *testing.T) {
+							content := "ordinary content\n"
+							if secret {
+								content = "SECRET_PRIVATE\n"
 							}
-						}()
-						require.NoError(t, root.Execute())
-					}()
-					if secret {
-						require.Equal(t, 1, code)
-						require.Contains(t, output.String(), "REDACTED")
-					} else {
-						require.Zero(t, code)
-						require.Empty(t, output.String())
+							require.NoError(t, os.WriteFile("dir/input.txt", []byte(content), 0o600))
+							git("add", "dir/input.txt")
+							root, output := newTestCLI(t)
+							code := 0
+							root.runtime.exit = func(n int) { code = n; panic(n) }
+							patch, err := exec.Command(producerArgs[0], producerArgs[1:]...).Output()
+							require.NoError(t, err)
+							root.SetIn(bytes.NewReader(patch))
+							root.SetArgs(append(append([]string{}, args...), "--no-banner", "--config", configPath))
+							func() {
+								defer func() {
+									if p := recover(); p != nil {
+										if _, ok := p.(int); !ok {
+											panic(p)
+										}
+									}
+								}()
+								require.NoError(t, root.Execute())
+							}()
+							if secret {
+								require.Equal(t, 1, code)
+								require.Contains(t, output.String(), "REDACTED")
+								require.Contains(t, output.String(), "dir/input.txt")
+							} else {
+								require.Zero(t, code)
+								require.Empty(t, output.String())
+							}
+							require.NotContains(t, output.String(), "SECRET_PRIVATE")
+						})
 					}
-					require.NotContains(t, output.String(), "SECRET_PRIVATE")
 				})
 			}
 		})
@@ -417,7 +442,7 @@ func TestImplicitTargetsRejectAmbiguityBeforeFetching(t *testing.T) {
 func TestRemoteGitFlagsAndTokens(t *testing.T) {
 	for _, flag := range []string{"--staged", "--unstaged"} {
 		_, err := parseCLIForTest(t, "git", "https://example.com/repo", flag)
-		require.ErrorContains(t, err, "local Git repository")
+		require.ErrorContains(t, err, "unknown flag")
 	}
 	cli, err := parseCLIForTest(t, "git", "https://example.com/repo", "--token", "explicit", "--include", "commit-messages")
 	require.NoError(t, err)
@@ -533,8 +558,8 @@ func TestLeadingFlagsMatchCommandLocalFlags(t *testing.T) {
 		{"partial redaction", []string{"--redact=20", "fs", "."}, []string{"fs", "--redact=20", "."}},
 		{"command as output", []string{"--output", "git", "fs", "."}, []string{"fs", "--output", "git", "."}},
 		{"command as config", []string{"--config", "git", "--analyze", "fs", "."}, []string{"fs", "--config", "git", "--analyze", "."}},
-		{"source flag", []string{"--staged", "--analyze", "git", "."}, []string{"git", "--staged", "--analyze", "."}},
-		{"unstaged flag", []string{"--unstaged", "--analyze", "git", "."}, []string{"git", "--unstaged", "--analyze", "."}},
+		{"source flag", []string{"--revision=HEAD", "--analyze", "git", "."}, []string{"git", "--revision=HEAD", "--analyze", "."}},
+		{"include flag", []string{"--include=notes", "--analyze", "git", "."}, []string{"git", "--include=notes", "--analyze", "."}},
 		{"credential flag", []string{"--rule", "token", "--jsonl", "analyze", "secret"}, []string{"analyze", "--rule", "token", "--jsonl", "secret"}},
 		{"nested command", []string{"--analysis", "config", "show", "ids"}, []string{"config", "show", "ids", "--analysis"}},
 		{"between nested commands", []string{"config", "--analysis", "show", "--validation", "ids"}, []string{"config", "show", "ids", "--analysis", "--validation"}},
@@ -585,11 +610,11 @@ func TestLeadingFlagsRejectInvalidScopeAndValues(t *testing.T) {
 		{[]string{"--no-banner", "config", "show", "ids"}, "unknown flag --no-banner"},
 		{[]string{"--staged", "fs", "."}, "unknown flag --staged"},
 		{[]string{"--unstaged", "fs", "."}, "unknown flag --unstaged"},
-		{[]string{"git", "--staged", "--unstaged"}, "mutually exclusive"},
-		{[]string{"--unstaged", "git", "--staged"}, "mutually exclusive"},
+		{[]string{"git", "--staged", "--unstaged"}, "unknown flag"},
+		{[]string{"--unstaged", "git", "--staged"}, "unknown flag"},
 		{[]string{"git", "--pre-commit"}, "unknown flag --pre-commit"},
-		{[]string{"git", "--staged", "--include=commit-messages"}, "requires a Git history scan"},
-		{[]string{"git", "--unstaged", "--include=commit-messages"}, "requires a Git history scan"},
+		{[]string{"git", "--staged", "--include=commit-messages"}, "unknown flag"},
+		{[]string{"git", "--unstaged", "--include=commit-messages"}, "unknown flag"},
 		{[]string{"--rule", "token", "fs", "."}, "unknown flag --rule"},
 		{[]string{"--bad-opt", "fs", "."}, "unknown flag --bad-opt"},
 		{[]string{"--max-target-megabytes=1", "git", "."}, "unknown flag --max-target-megabytes"},
@@ -661,48 +686,6 @@ validate = '''let r = http.get(%q); {"result": "valid"}'''
 			require.Len(t, findings, 1)
 			assert.Equal(t, "REDACTED", findings[0].Match.Value)
 			assert.True(t, findings[0].Analysis.IsZero())
-		})
-	}
-}
-
-func TestGitFlagsSelectHistoryStagedOrUnstaged(t *testing.T) {
-	repo := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		output, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
-		require.NoError(t, err, "%s", output)
-	}
-	git("init", "--quiet")
-	path := filepath.Join(repo, "input.txt")
-	require.NoError(t, os.WriteFile(path, []byte("SECRET_COMMITTED\n"), 0o600))
-	git("add", ".")
-	git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "initial")
-	require.NoError(t, os.WriteFile(path, []byte("SECRET_STAGED\n"), 0o600))
-	git("add", ".")
-	require.NoError(t, os.WriteFile(path, []byte("SECRET_UNSTAGED\n"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("SECRET_UNTRACKED\n"), 0o600))
-	configPath := writeTestConfig(t, "[[rules]]\nid='fixture-token'\nregex='SECRET_[A-Z]+'\n")
-
-	for _, tc := range []struct{ flag, want string }{
-		{"", "SECRET_COMMITTED"},
-		{"--staged", "SECRET_STAGED"},
-		{"--unstaged", "SECRET_UNSTAGED"},
-	} {
-		t.Run(tc.want, func(t *testing.T) {
-			root, _ := newTestCLI(t)
-			outputPath := filepath.Join(t.TempDir(), "report.json")
-			args := []string{"git", repo, "--config", configPath, "--no-banner", "--exit-code=0", "--output", outputPath}
-			if tc.flag != "" {
-				args = append(args, tc.flag)
-			}
-			root.SetArgs(args)
-			require.NoError(t, root.Execute())
-			raw, err := os.ReadFile(outputPath)
-			require.NoError(t, err)
-			metadata, findings := decodeScanJSON(t, raw)
-			assert.Equal(t, report.ScanSource{Type: "git", Targets: []string{repo}}, metadata.Source)
-			require.Len(t, findings, 1)
-			require.Equal(t, tc.want, findings[0].Match.Value)
 		})
 	}
 }
