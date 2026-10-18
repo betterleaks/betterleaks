@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -115,8 +116,8 @@ func TestDeepDeltaChain(t *testing.T) {
 	require.True(t, found)
 }
 
-// A commit beyond the tree comparison budget is reported, and the rest of
-// history is still scanned.
+// A commit beyond the tree comparison budget is skipped with a warning, and
+// the rest of history is still scanned.
 func TestOversizedCommitIsSkipped(t *testing.T) {
 	repo := initRepo(t)
 	commitFile(t, repo, "early.txt", "TOKEN_EARLY\n", "early")
@@ -131,22 +132,44 @@ func TestOversizedCommitIsSkipped(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	var mu sync.Mutex
 	var fs []sources.Fragment
-	var skipped []error
-	err := (&Source{RepoPath: repo}).Fragments(t.Context(), func(f sources.Fragment, err error) error {
+	var logs bytes.Buffer
+	err := (&Source{RepoPath: repo, Logger: slog.New(slog.NewTextHandler(&logs, nil))}).Fragments(t.Context(), func(f sources.Fragment, err error) error {
 		mu.Lock()
 		defer mu.Unlock()
-		if err != nil {
-			skipped = append(skipped, err)
-		} else {
-			fs = append(fs, f)
-		}
+		require.NoError(t, err)
+		fs = append(fs, f)
 		return nil
 	})
 	require.NoError(t, err)
-	require.Len(t, skipped, 1)
-	require.True(t, isLimit(skipped[0]))
-	require.Contains(t, skipped[0].Error(), wide)
+	require.Equal(t, 1, strings.Count(logs.String(), "skipped Git content over a limit"))
+	require.Contains(t, logs.String(), wide)
 	require.Equal(t, map[string]string{"TOKEN_EARLY\n": "early.txt:1"}, textOccurrences(fs))
+}
+
+// Rename scoring reads whole blobs. A rename candidate over the read limit
+// must not cost its commit's other files: the first public-repository battery
+// missed a secret added beside a replaced 70 MB binary.
+func TestOversizedRenameCandidateKeepsCommit(t *testing.T) {
+	repo := initRepo(t)
+	big := strings.Repeat("\x00", defaultMaxBlobBytes+1)
+	commitFile(t, repo, "old.bin", big+"a", "binary")
+	gitFixture(t, repo, "rm", "-q", "old.bin")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "secret.txt"), []byte("TOKEN_BESIDE\n"), 0600))
+	gitFixture(t, repo, "add", "secret.txt")
+	commitFile(t, repo, "new.bin", big+"b", "replace")
+	var mu sync.Mutex
+	var fs []sources.Fragment
+	var logs bytes.Buffer
+	err := (&Source{RepoPath: repo, Logger: slog.New(slog.NewTextHandler(&logs, nil))}).Fragments(t.Context(), func(f sources.Fragment, err error) error {
+		mu.Lock()
+		defer mu.Unlock()
+		require.NoError(t, err)
+		fs = append(fs, f)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"TOKEN_BESIDE\n": "secret.txt:1"}, textOccurrences(fs))
+	require.Contains(t, logs.String(), `path \"new.bin\"`)
 }
 
 func TestRevisionRange(t *testing.T) {

@@ -264,9 +264,10 @@ CLI JSON reports contain `schema_version`, `findings`, and `scan`:
 ```
 
 `state` is `complete` when scanning finishes normally, even when findings or
-recoverable warnings (such as filesystem/Git archive warnings or permission-denied
-skips) are reported. It is `incomplete` when cancellation or a source or detection
-error prevents full coverage, including failures before any findings are emitted.
+recoverable warnings (such as filesystem/Git archive warnings, Git content over a
+size limit, or permission-denied skips) are reported. It is `incomplete` when
+cancellation or a source or detection error prevents full coverage, including
+failures before any findings are emitted.
 Container scans treat unreadable or corrupt nested archives as coverage errors,
 so those failures mark the report incomplete even if other files finish scanning.
 
@@ -701,18 +702,23 @@ unpublished commit can produce a link that 404s. Findings without a link show
 Some content is too large to scan exactly. Betterleaks either scans more than
 necessary or reports what it skipped; it never drops content silently.
 
-- A blob larger than `--git-max-blob-mib` (default 64) is skipped and reported.
+- A blob larger than `--git-max-blob-mib` (default 64) is skipped with a
+  warning. If rename detection would have to read a blob that large, that
+  commit's files aren't paired as renames: a renamed file scans as an addition,
+  which can repeat findings but never misses any.
 - A commit whose tree comparison exceeds 1,000,000 entries, 100,000 changed
-  paths, or 16 MiB of path names is skipped and reported.
+  paths, or 16 MiB of path names is skipped with a warning.
 - A diff over one million lines, or one that takes more than a minute to compute,
   is not approximated: the whole new file is scanned instead. That can repeat
   findings but never misses any.
 
-Skipped content marks the scan incomplete while the rest of the repository is
-still scanned. Damaged archives produce warnings, as in filesystem scans, and
-don't mark the scan incomplete. Missing or corrupt objects and invalid refs stop
-the scan. `unreachable-objects` holds up to eight million object IDs to
-classify reachability; for larger repositories, use `objects`.
+Skipped content and damaged archives produce warnings, as in filesystem scans.
+The rest of the repository is still scanned, the scan stays complete, and the
+exit code depends only on findings. To scan larger blobs, raise
+`--git-max-blob-mib` (up to 4096). Missing or corrupt objects and invalid refs
+stop the scan and mark it incomplete. `unreachable-objects` holds up to eight
+million object IDs to classify reachability; for larger repositories, use
+`objects`.
 
 ### Storage outside the repository
 
@@ -760,7 +766,7 @@ remote := &gogit.Source{URL: "https://github.com/owner/repo"}
 ```
 
 The zero value scans HEAD and every ref, and `Include`/`Exclude` work as on the
-CLI. Skipped content arrives as an error in the yield callback, and the scan
+CLI. Skipped content is logged as a warning on `Logger`, and the scan
 continues. Storage outside the repository fails with `gogit.ErrExternalStore`
 unless `AllowExternalObjects` is set. `Workers` and `CacheMiB` tune reading.
 `DiskCacheMiB` enables a temporary-file cache of large reconstructed objects for

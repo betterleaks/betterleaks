@@ -49,7 +49,8 @@ func (s *Source) blobs(ctx context.Context, r *git.Repository, unreachable bool,
 		}
 		obj, err := store.EncodedObject(plumbing.AnyObject, id)
 		if isLimit(err) {
-			return skip(yield, err, "object %s", id)
+			s.skip(err, "object %s", id)
+			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("object %s: %w", id, err)

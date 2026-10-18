@@ -34,9 +34,9 @@ import (
 // Diff boundaries and rename choices can differ from Git's.
 //
 // Content that exceeds a limit (MaxBlobBytes, a commit's tree comparison
-// budget) is reported as a source error and skipped; the scan continues and is
-// marked incomplete. Fields must not change while Fragments runs, but one
-// Source can be scanned concurrently.
+// budget) is skipped with a warning on Logger, as damaged archives are, and the
+// rest of the repository is still scanned. Fields must not change while
+// Fragments runs, but one Source can be scanned concurrently.
 type Source struct {
 	RepoPath string
 	// URL fetches branches, tags and notes into a temporary bare repository over
@@ -62,7 +62,7 @@ type Source struct {
 	// holds repository content, so it is off by default. It is created lazily in
 	// os.TempDir and removed when the scan ends.
 	DiskCacheMiB int
-	// MaxBlobBytes defaults to 64 MiB. Larger blobs are skipped and reported. It
+	// MaxBlobBytes defaults to 64 MiB. Larger blobs are skipped with a warning. It
 	// bounds diff inputs, not go-git's internal reads or the process's RSS.
 	MaxBlobBytes int64
 	// Include and Exclude accept history, merges, objects, unreachable-objects,
@@ -348,11 +348,11 @@ type worker struct {
 	merges  bool
 }
 
-// skip reports content that exceeded a limit, so the scan can continue.
-//
-//nolint:exhaustruct // An error result carries no fragment.
-func skip(yield sources.FragmentsFunc, err error, format string, args ...any) error {
-	return yield(sources.Fragment{}, fmt.Errorf(format+": %w", append(args, err)...))
+// skip logs content that exceeded a limit. As sources.Source asks of skippable
+// input, it is a warning rather than a yielded error: a configured limit on one
+// large binary must not fail the scan of everything else.
+func (s *Source) skip(err error, format string, args ...any) {
+	logging.OrDiscard(s.Logger).Warn("skipped Git content over a limit", "content", fmt.Sprintf(format, args...), "error", err)
 }
 
 func (w *worker) commit(ctx context.Context, c *object.Commit, yield sources.FragmentsFunc) error {
@@ -386,7 +386,8 @@ func (w *worker) commit(ctx context.Context, c *object.Commit, yield sources.Fra
 	}
 	changes, err := treeChanges(ctx, w.trees, c, parent)
 	if isLimit(err) {
-		return skip(yield, err, "commit %s", c.Hash)
+		w.source.skip(err, "commit %s", c.Hash)
+		return nil
 	}
 	if err != nil {
 		return err
@@ -407,12 +408,11 @@ func (w *worker) commit(ctx context.Context, c *object.Commit, yield sources.Fra
 		}
 		err := w.change(ctx, change, fileAttrs, yield)
 		if isLimit(err) {
-			err = skip(yield, err, "commit %s path %q", c.Hash, change.To.Name)
-		} else if err != nil {
-			err = fmt.Errorf("path %q: %w", change.To.Name, err)
+			w.source.skip(err, "commit %s path %q", c.Hash, change.To.Name)
+			continue
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("path %q: %w", change.To.Name, err)
 		}
 	}
 	return nil

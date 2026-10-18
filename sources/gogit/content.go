@@ -87,10 +87,12 @@ func (w *worker) change(ctx context.Context, c *object.Change, attrs map[string]
 // Each worker reuses its line bookkeeping, but releases unusually large diffs
 // and clears dictionary keys so scratch space never keeps old blobs alive.
 type lineDiffer struct {
-	ids            map[string]rune
-	old, current   []rune
-	positions      []int
-	present, added []bool
+	ids          map[string]rune
+	old, current []rune
+	positions    []int
+	inOld, inNew []int32
+	classes      []byte
+	added        []bool
 }
 
 func resize[T any](s []T, n int) []T {
@@ -100,34 +102,47 @@ func resize[T any](s []T, n int) []T {
 	return s[:n]
 }
 
-// Lines absent from the other file cannot be matches. Remove them before the
-// quadratic edit search, then map matching destination lines back to their
-// original positions. This matters for generated files with tens of thousands
-// of replaced lines; diffing those unmatched lines wastes almost all CPU time.
+// Like Git's xdiff, trim the lines both versions share at either end, then
+// leave lines that cannot be matches out of the quadratic edit search and map
+// matching destination lines back to their original positions. Most changes
+// touch a few lines of a large file, and generated files can replace tens of
+// thousands of lines; diffing unmatched lines wastes almost all CPU time.
 // As with Git's own preprocessing, ambiguous edit boundaries can differ from
 // an unpruned diff. We preserve exact destination contents and line numbers.
 func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(string, int) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// These are the common-prefix cases the edit engine would remove anyway.
-	// Require a line boundary: appending bytes to an unterminated final line
-	// replaces that line instead of introducing a new one.
-	if src == dst || (strings.HasPrefix(src, dst) && (dst == "" || dst[len(dst)-1] == '\n')) {
+	// Each end must stop at a line boundary: appending bytes to an unterminated
+	// final line replaces that line instead of introducing a new one.
+	whole := dst
+	prefix := commonLinePrefix(src, dst)
+	base := strings.Count(dst[:prefix], "\n")
+	src, dst = src[prefix:], dst[prefix:]
+	suffix := commonLineSuffix(src, dst)
+	src, dst = src[:len(src)-suffix], dst[:len(dst)-suffix]
+	add := func(raw string, line int) error {
+		// Clone parts so a small queued addition cannot keep a large blob alive.
+		if len(raw) < len(whole) {
+			raw = strings.Clone(raw)
+		}
+		return emit(raw, base+line)
+	}
+	if dst == "" {
 		return nil
 	}
-	if strings.HasPrefix(dst, src) && (src == "" || src[len(src)-1] == '\n') {
-		return emit(strings.Clone(dst[len(src):]), strings.Count(src, "\n")+1)
+	if src == "" {
+		return add(dst, 1)
 	}
 	// Tokens must fit the edit engine's Unicode alphabet. This also bounds the
 	// bookkeeping allocated for a diff independently of its input byte limit.
-	// Larger files are scanned whole, which can only add findings.
+	// Larger changes are scanned whole, which can only add findings.
 	if strings.Count(src, "\n")+strings.Count(dst, "\n")+2 > maxDiffLines {
-		return emit(dst, 1)
+		return add(dst, 1)
 	}
-	// Only parent lines can be matches. Tokenize them once; destination-only
-	// lines need neither IDs nor strings in the dictionary. Use valid Unicode
-	// tokens because the edit engine serializes rune sequences as strings.
+	// Tokenize parent lines once; destination-only lines need neither IDs nor
+	// strings in the dictionary. Use valid Unicode tokens because the edit
+	// engine serializes rune sequences as strings.
 	lineCount := func(text string) int {
 		n := strings.Count(text, "\n")
 		if len(text) > 0 && text[len(text)-1] != '\n' {
@@ -152,6 +167,8 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 			*d = lineDiffer{}
 		}
 	}()
+	d.classes = resize(d.classes, oldCount+newCount)
+	oldClasses, newClasses := d.classes[:oldCount], d.classes[oldCount:]
 	d.old = resize(d.old, oldCount)
 	a := d.old[:0]
 	for offset := 0; offset < len(src); {
@@ -170,16 +187,20 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 			}
 			ids[line] = id
 		}
+		oldClasses[len(a)] = blankFlag(line)
 		a = append(a, id)
 		offset = end
 	}
-	d.present = resize(d.present, len(ids)+1)
-	present := d.present
-	clear(present)
+	// Count every line in both versions. Destination-only lines get ID 0.
+	d.inOld, d.inNew = resize(d.inOld, len(ids)+1), resize(d.inNew, len(ids)+1)
+	inOld, inNew := d.inOld, d.inNew
+	clear(inOld)
+	clear(inNew)
+	for _, id := range a {
+		inOld[slot(id)]++
+	}
 	d.current = resize(d.current, newCount)
-	current := d.current[:0]
-	d.positions = resize(d.positions, newCount)
-	positions := d.positions[:0]
+	b := d.current
 	for offset, pos := 0, 0; offset < len(dst); pos++ {
 		end := strings.IndexByte(dst[offset:], '\n')
 		if end < 0 {
@@ -187,38 +208,33 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 		} else {
 			end += offset + 1
 		}
-		if id, ok := ids[dst[offset:end]]; ok {
-			index := id
-			if index >= 0xe000 {
-				index -= 0x800
-			}
-			present[index] = true
-			current = append(current, id)
-			positions = append(positions, pos)
-		}
+		b[pos] = ids[dst[offset:end]]
+		inNew[slot(b[pos])]++
+		newClasses[pos] = blankFlag(dst[offset:end])
 		offset = end
 	}
+	classifyLines(oldClasses, a, inNew)
+	classifyLines(newClasses, b, inOld)
 	old := a[:0]
-	for _, id := range a {
-		index := id
-		if index >= 0xe000 {
-			index -= 0x800
-		}
-		if present[index] {
+	for i, id := range a {
+		if searchable(oldClasses, i) {
 			old = append(old, id)
 		}
 	}
-	if len(current) == 0 {
-		if dst == "" {
-			return ctx.Err()
+	current := b[:0]
+	d.positions = resize(d.positions, newCount)
+	positions := d.positions[:0]
+	for pos, id := range b {
+		if searchable(newClasses, pos) {
+			current = append(current, id)
+			positions = append(positions, pos)
 		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		return emit(dst, 1)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if len(current) == 0 {
+		return add(dst, 1)
 	}
 	d.added = resize(d.added, newCount)
 	added := d.added
@@ -228,7 +244,7 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	// The edit engine has no context hook. Bound its synchronous search rather
 	// than leaving a background goroutine running after cancellation. A search
 	// that runs out of time returns an approximate edit script, so scan the
-	// whole file instead: that can repeat findings but never drops any.
+	// whole change instead: that can repeat findings but never drops any.
 	dmp := diffmatchpatch.New()
 	dmp.DiffTimeout = diffTimeout
 	if deadline, ok := ctx.Deadline(); ok {
@@ -240,7 +256,7 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 		return err
 	}
 	if time.Since(started) >= dmp.DiffTimeout {
-		return emit(dst, 1)
+		return add(dst, 1)
 	}
 	at := 0
 	for _, chunk := range chunks {
@@ -259,8 +275,7 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 		}
 	}
 	// Slice original bytes directly. No equal/deleted contents are reconstructed,
-	// and the final unterminated line retains its original bytes. Clone emitted
-	// slices so a small queued addition cannot keep an entire large blob alive.
+	// and the final unterminated line retains its original bytes.
 	offset, begin, first := 0, -1, 0
 	for i, yes := range added {
 		if yes && begin < 0 {
@@ -268,7 +283,7 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 			first = i + 1
 		}
 		if !yes && begin >= 0 {
-			if err := emit(strings.Clone(dst[begin:offset]), first); err != nil {
+			if err := add(dst[begin:offset], first); err != nil {
 				return err
 			}
 			begin = -1
@@ -281,12 +296,124 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 		}
 	}
 	if begin >= 0 {
-		if begin == 0 && offset == len(dst) {
-			return emit(dst, first)
-		}
-		return emit(strings.Clone(dst[begin:offset]), first)
+		return add(dst[begin:offset], first)
 	}
 	return ctx.Err()
+}
+
+// commonLinePrefix returns the length of the longest common prefix of a and b
+// that ends at a line boundary.
+func commonLinePrefix(a, b string) int {
+	n, i := min(len(a), len(b)), 0
+	for i+64 <= n && a[i:i+64] == b[i:i+64] {
+		i += 64
+	}
+	for i < n && a[i] == b[i] {
+		i++
+	}
+	return strings.LastIndexByte(a[:i], '\n') + 1
+}
+
+// commonLineSuffix returns the length of the longest common suffix of a and b
+// that starts a line in both.
+func commonLineSuffix(a, b string) int {
+	n, i := min(len(a), len(b)), 0
+	for i+64 <= n && a[len(a)-i-64:len(a)-i] == b[len(b)-i-64:len(b)-i] {
+		i += 64
+	}
+	for i < n && a[len(a)-1-i] == b[len(b)-1-i] {
+		i++
+	}
+	if (i == len(a) || a[len(a)-1-i] == '\n') && (i == len(b) || b[len(b)-1-i] == '\n') {
+		return i
+	}
+	// Otherwise start after the first newline the suffix shares.
+	if k := strings.IndexByte(a[len(a)-i:], '\n'); k >= 0 {
+		return i - k - 1
+	}
+	return 0
+}
+
+// slot maps a line token to a dense index; tokens skip the surrogate range.
+func slot(id rune) int {
+	if id >= 0xe000 {
+		return int(id - 0x800)
+	}
+	return int(id)
+}
+
+// Line classes, as in Git's xdl_cleanup_records: a line absent from the other
+// version, one that occurs there, and one that occurs there too often to be a
+// meaningful match, such as a blank line or a closing brace.
+const (
+	lineAbsent = iota
+	lineMatched
+	lineCommon
+)
+
+// blankFlag marks whitespace-only lines for classifyLines.
+func blankFlag(line string) byte {
+	if strings.TrimSpace(line) == "" {
+		return 1
+	}
+	return 0
+}
+
+// classifyLines replaces each line's blankFlag with its class, from its count
+// in the other version and Git's threshold of about the square root of the
+// line count. Git counts whole files; only the changed middle is tokenized
+// here, so lines that are common in any file, the blank ones, always count as
+// common when the other version has them.
+func classifyLines(classes []byte, lines []rune, other []int32) {
+	limit := 1
+	for n := len(lines); n > 0; n >>= 2 {
+		limit <<= 1
+	}
+	limit = min(limit, 1024)
+	for i, id := range lines {
+		switch n := int(other[slot(id)]); {
+		case n == 0:
+			classes[i] = lineAbsent
+		case n >= limit || classes[i] == 1:
+			classes[i] = lineCommon
+		default:
+			classes[i] = lineMatched
+		}
+	}
+}
+
+// searchable reports whether line i takes part in the edit search. Like Git's
+// xdl_clean_mmatch, a common line is left out when it sits among lines absent
+// from the other version: matching it would cut a block of new lines, such as
+// a private key with a blank line, into pieces that no longer match a rule.
+func searchable(classes []byte, i int) bool {
+	if classes[i] != lineCommon {
+		return classes[i] == lineMatched
+	}
+	before, commonBefore := 0, 1
+	for j := i - 1; j >= max(i-100, 0) && classes[j] != lineMatched; j-- {
+		if classes[j] == lineAbsent {
+			before++
+		} else {
+			commonBefore++
+		}
+	}
+	if before == 0 {
+		return true
+	}
+	after, commonAfter := 0, 1
+	for j := i + 1; j <= min(i+100, len(classes)-1) && classes[j] != lineMatched; j++ {
+		if classes[j] == lineAbsent {
+			after++
+		} else {
+			commonAfter++
+		}
+	}
+	if after == 0 {
+		return true
+	}
+	common := commonBefore + commonAfter
+	return common*4 >= common+before+after
 }
 
 func (w *worker) content(ctx context.Context, e object.ChangeEntry) (string, bool, error) {

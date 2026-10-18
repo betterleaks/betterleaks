@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -206,20 +207,21 @@ func TestSource(t *testing.T) {
 		require.ErrorIs(t, (&Source{RepoPath: repo}).Fragments(ctx, func(sources.Fragment, error) error { t.Fatal("yield after cancellation"); return nil }), context.Canceled)
 	})
 	t.Run("limits", func(t *testing.T) {
-		// Oversized blobs are reported and skipped; the scan still finishes.
-		var mu sync.Mutex
-		var skipped []error
-		err := (&Source{RepoPath: repo, MaxBlobBytes: 1}).Fragments(t.Context(), func(f sources.Fragment, err error) error {
-			mu.Lock()
-			defer mu.Unlock()
-			require.Error(t, err, "every blob in the fixture exceeds one byte")
-			require.True(t, isLimit(err), "%v", err)
-			require.Contains(t, err.Error(), "path")
-			skipped = append(skipped, err)
+		// Oversized blobs are skipped with a warning, not a yielded error, so
+		// the scan still finishes and succeeds.
+		var logs bytes.Buffer
+		var yielded atomic.Int32
+		logger := slog.New(slog.NewTextHandler(&logs, nil))
+		err := (&Source{RepoPath: repo, MaxBlobBytes: 1, Logger: logger}).Fragments(t.Context(), func(f sources.Fragment, err error) error {
+			if err != nil || f.Attr(sources.AttrPath) != "" {
+				yielded.Add(1)
+			}
 			return nil
 		})
 		require.NoError(t, err)
-		require.NotEmpty(t, skipped)
+		require.Zero(t, yielded.Load(), "every blob in the fixture exceeds one byte")
+		require.Contains(t, logs.String(), "skipped Git content over a limit")
+		require.Contains(t, logs.String(), "exceeds limit 1")
 		for _, bad := range []*Source{
 			{RepoPath: repo, Author: "["},
 			{RepoPath: repo, Include: []string{"reflogs"}},

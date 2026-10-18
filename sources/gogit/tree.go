@@ -3,6 +3,7 @@ package gogit
 import (
 	"context"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/go-git/go-git/v6/plumbing"
@@ -17,7 +18,14 @@ func treeChanges(ctx context.Context, cache *treeCache, c *object.Commit, parent
 	if err != nil {
 		return nil, err
 	}
-	return detectRenames(changes)
+	paired, err := detectRenames(changes)
+	if isLimit(err) {
+		// Rename scoring reads whole blobs. When one is over a limit, keep the
+		// unpaired changes: a rename then scans as an addition, which can repeat
+		// findings, and only the oversized blob itself is skipped.
+		return changes, nil
+	}
+	return paired, err
 }
 
 // detectRenames pairs similar deletions and additions. go-git's detector opens
@@ -36,8 +44,9 @@ func detectRenames(changes object.Changes) (object.Changes, error) {
 			change.To.TreeEntry.Name = "blob"
 		}
 	}
-	changes, err := object.DetectRenames(changes, &object.DiffTreeOptions{DetectRenames: true, RenameScore: 50, RenameLimit: 1000})
-	for _, change := range changes {
+	paired, err := object.DetectRenames(changes, &object.DiffTreeOptions{DetectRenames: true, RenameScore: 50, RenameLimit: 1000, OnlyExactRenames: false})
+	// Restore the input too: on error it is all the caller has.
+	for _, change := range slices.Concat(changes, paired) {
 		if change.From.Name != "" {
 			change.From.TreeEntry.Name = path.Base(change.From.Name)
 		}
@@ -45,7 +54,7 @@ func detectRenames(changes object.Changes) (object.Changes, error) {
 			change.To.TreeEntry.Name = path.Base(change.To.Name)
 		}
 	}
-	return changes, err
+	return paired, err
 }
 
 func rawTreeChanges(ctx context.Context, cache *treeCache, c *object.Commit, parent plumbing.Hash) (object.Changes, error) {

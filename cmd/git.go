@@ -25,7 +25,7 @@ type GitCmd struct {
 	Committer       string   `group:"source" help:"Go regular expression matching committer name and email."`
 	Revision        string   `group:"source" help:"Revision or range (A..B) to scan; when omitted, scans HEAD and all refs."`
 	MaxCommits      int      `group:"source" name:"max-commits" help:"Scan only the newest N selected commits; zero is unlimited."`
-	GitMaxBlobMiB   int      `group:"source" name:"git-max-blob-mib" default:"64" help:"Skip and report blobs larger than this many MiB."`
+	GitMaxBlobMiB   int      `group:"source" name:"git-max-blob-mib" default:"64" help:"Skip blobs larger than this many MiB, with a warning for each."`
 	AllowExternal   bool     `group:"source" name:"allow-external-objects" help:"Read Git storage outside the repository (a .git file, commondir, or object alternate pointing elsewhere)."`
 	Exclude         []string `group:"source" help:"Remove Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflog-messages, reflog-history."`
 	Include         []string `group:"source" help:"Add Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflog-messages, reflog-history (default: history with merges)."`

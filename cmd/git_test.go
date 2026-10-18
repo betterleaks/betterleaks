@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,6 +55,35 @@ func TestGitBinaryArchiveMembersIncluded(t *testing.T) {
 		values = append(values, finding.Match.Value)
 	}
 	require.ElementsMatch(t, []string{"SECRET_TEXT", "SECRET_NESTED_TEXT", "SECRET_BINARY", "SECRET_NESTED_BINARY"}, values)
+}
+
+// A blob over --git-max-blob-mib is skipped with a warning. The rest of the
+// repository is scanned, the report is complete, and findings alone decide the
+// exit code, so one large binary cannot fail every scan of a repository.
+func TestGitSkippedBlobDoesNotFailScan(t *testing.T) {
+	repo := t.TempDir()
+	gitCmdT(t, repo, "init", "-q")
+	gitCmdT(t, repo, "config", "user.name", "Skip Test")
+	gitCmdT(t, repo, "config", "user.email", "skip@example.test")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "big.bin"), bytes.Repeat([]byte{0}, 1<<20+1), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "secret.txt"), []byte("SECRET_KEPT\n"), 0600))
+	gitCmdT(t, repo, "add", ".")
+	gitCmdT(t, repo, "commit", "-qm", "big")
+	configPath := writeTestConfig(t, "[[rules]]\nid='kept'\nregex='SECRET_[A-Z]+'\n")
+
+	root, stdout := newTestCLI(t)
+	var stderr bytes.Buffer
+	code := -1
+	root.runtime.stderr, root.runtime.exit = &stderr, func(n int) { code = n }
+	root.SetArgs([]string{"git", repo, "--config", configPath, "--no-banner", "--no-color", "--git-max-blob-mib=1", "--exit-code=3", "--output=-"})
+	require.NoError(t, root.Execute())
+	metadata, findings := decodeScanJSON(t, stdout.Bytes())
+	require.Equal(t, report.ScanStateComplete, metadata.State)
+	require.Len(t, findings, 1)
+	require.Equal(t, 3, code)
+	require.Contains(t, stderr.String(), "skipped Git content over a limit")
+	require.Contains(t, stderr.String(), "big.bin")
+	require.NotContains(t, stderr.String(), "ERR")
 }
 
 func TestGitFindingURLs(t *testing.T) {

@@ -79,7 +79,8 @@ func (s *Source) noteVersion(ctx context.Context, store *objectStorage, trees *t
 	}
 	changes, err := treeChanges(ctx, trees, commit, parent)
 	if isLimit(err) {
-		return skip(yield, err, "notes commit %s", commit.Hash)
+		s.skip(err, "notes commit %s", commit.Hash)
+		return nil
 	}
 	if err != nil {
 		return err
@@ -101,9 +102,7 @@ func (s *Source) noteVersion(ctx context.Context, store *objectStorage, trees *t
 		}
 		obj, err := store.read(id)
 		if isLimit(err) {
-			if err := skip(yield, err, "note %s", id); err != nil {
-				return err
-			}
+			s.skip(err, "note %s", id)
 			continue
 		}
 		if err != nil {

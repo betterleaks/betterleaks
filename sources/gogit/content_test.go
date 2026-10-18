@@ -89,20 +89,60 @@ func TestLineAdditions(t *testing.T) {
 		return nil
 	}))
 	require.Equal(t, []string{"secret\n"}, additions)
-	// Inputs beyond the token limit are scanned whole rather than diffed.
+	// Changes beyond the token limit are scanned whole rather than diffed.
 	require.NoError(t, lineAdditions(t.Context(), strings.Repeat("x\n", 1_000_000), "", func(string, int) error { t.Fatal("an empty file yielded"); return nil }))
 	additions = nil
-	require.NoError(t, lineAdditions(t.Context(), strings.Repeat("x\n", 1_000_000), "y\nx\n", func(raw string, line int) error {
+	require.NoError(t, lineAdditions(t.Context(), strings.Repeat("x\n", 1_000_000), "y\nx\nz\n", func(raw string, line int) error {
 		require.Equal(t, 1, line)
 		additions = append(additions, raw)
 		return nil
 	}))
-	require.Equal(t, []string{"y\nx\n"}, additions)
+	require.Equal(t, []string{"y\nx\nz\n"}, additions)
+	// Lines shared at both ends are trimmed first, so one edit to a file over
+	// the limit is still diffed, at its original line.
+	var big strings.Builder
+	for i := range 1_000_000 {
+		fmt.Fprintf(&big, "line-%d\n", i)
+	}
+	edited := strings.Replace(big.String(), "line-500000\n", "secret\n", 1)
+	additions = nil
+	require.NoError(t, lineAdditions(t.Context(), big.String(), edited, func(raw string, line int) error {
+		require.Equal(t, 500001, line)
+		additions = append(additions, raw)
+		return nil
+	}))
+	require.Equal(t, []string{"secret\n"}, additions)
 	stop := errors.New("stop")
 	require.ErrorIs(t, lineAdditions(t.Context(), "old\n", "new\n", func(string, int) error { return stop }), stop)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.ErrorIs(t, lineAdditions(ctx, "old\n", "new\n", func(string, int) error { t.Fatal("emit after cancel"); return nil }), context.Canceled)
+}
+
+// A blank line inside new text must not anchor the diff to one of the blank
+// lines it replaces: that splits a private key into two fragments, neither of
+// which matches a rule. ruby/ruby's c9dc0164 adds such a key.
+func TestLineAdditionsKeepNewBlocksWhole(t *testing.T) {
+	block := func(i int) string { return fmt.Sprintf("  def test_%d\n    check %d\n  end\n\n", i, i) }
+	key := "  def test_encrypted\n    pem = <<~EOF\n    -----BEGIN EC PRIVATE KEY-----\n    Proc-Type: 4,ENCRYPTED\n" +
+		"    DEK-Info: AES-128-CBC,85743EB6FAC9EA76\n\n    MHcCAQEEIIq3fN0QJkVfSZpXXbpl8rUn\n    -----END EC PRIVATE KEY-----\n    EOF\n"
+	var old, current strings.Builder
+	for i := range 40 {
+		old.WriteString(block(i))
+		switch {
+		case i == 20:
+			current.WriteString(key + "  end\n\n")
+		case i < 20 || i > 23:
+			current.WriteString(block(i))
+		}
+	}
+	var additions []string
+	require.NoError(t, lineAdditions(t.Context(), old.String(), current.String(), func(raw string, line int) error {
+		require.Equal(t, 81, line)
+		additions = append(additions, raw)
+		return nil
+	}))
+	require.Equal(t, []string{key}, additions)
 }
 
 func FuzzLineAdditions(f *testing.F) {
