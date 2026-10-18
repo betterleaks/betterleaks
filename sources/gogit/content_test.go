@@ -145,6 +145,75 @@ func TestLineAdditionsKeepNewBlocksWhole(t *testing.T) {
 	require.Equal(t, []string{key}, additions)
 }
 
+type diffCancelContext struct {
+	context.Context
+	onCheck func()
+}
+
+func (c diffCancelContext) Err() error {
+	c.onCheck()
+	return c.Context.Err()
+}
+
+func TestLineAdditionsCancelDuringPreprocessing(t *testing.T) {
+	const padding = 2048
+	const markerLine = padding + 1
+	body := strings.Repeat("\n", padding) + "marker\n" + strings.Repeat("\n", padding)
+	src, dst := "old-start\n"+body+"old-end\n", "new-start\n"+body+"new-end\n"
+	for _, tc := range []struct {
+		name       string
+		started    func(*lineDiffer) bool
+		unfinished func(*lineDiffer) bool
+	}{
+		{
+			name:       "parent tokenization",
+			started:    func(d *lineDiffer) bool { return d.ids["old-start\n"] != 0 },
+			unfinished: func(d *lineDiffer) bool { return d.old[markerLine] == 0 },
+		},
+		{
+			name:       "destination tokenization",
+			started:    func(d *lineDiffer) bool { return len(d.inNew) > 0 && d.inNew[0] > 0 },
+			unfinished: func(d *lineDiffer) bool { return d.current[markerLine] == 0 },
+		},
+		{
+			name: "parent pruning",
+			started: func(d *lineDiffer) bool {
+				return d.ids["\n"] != 0 && d.old[0] == d.ids["\n"]
+			},
+			unfinished: func(d *lineDiffer) bool { return d.old[markerLine] == d.ids["marker\n"] },
+		},
+		{
+			name:       "destination pruning",
+			started:    func(d *lineDiffer) bool { return len(d.positions) > 0 && d.positions[0] > 0 },
+			unfinished: func(d *lineDiffer) bool { return d.positions[markerLine] == 0 },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var d lineDiffer
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var canceled, unfinished bool
+			// Observe scratch progress only from Err, on the same goroutine as
+			// the diff. Cancellation must be checked while the phase is still
+			// running, not just after all its work. This avoids timing thresholds
+			// and does not depend on the precise polling interval.
+			observed := diffCancelContext{Context: ctx, onCheck: func() {
+				if !canceled && tc.started(&d) {
+					canceled, unfinished = true, tc.unfinished(&d)
+					cancel()
+				}
+			}}
+			err := d.additions(observed, src, dst, func(string, int) error {
+				t.Fatal("emitted content after cancellation during preprocessing")
+				return nil
+			})
+			require.ErrorIs(t, err, context.Canceled)
+			require.True(t, canceled, "must reach the selected phase")
+			require.True(t, unfinished, "must check cancellation before finishing the phase")
+		})
+	}
+}
+
 func FuzzLineAdditions(f *testing.F) {
 	f.Add("old\ncommon\n", "new\ncommon\n")
 	f.Add("", "no final newline")

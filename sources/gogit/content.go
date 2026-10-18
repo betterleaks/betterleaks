@@ -113,6 +113,9 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// Preprocessing runs before the edit search's timeout. Poll cancellation
+	// in batches, including pruning where each line can inspect 200 neighbors.
+	const checkEvery = 256
 	// Each end must stop at a line boundary: appending bytes to an unterminated
 	// final line replaces that line instead of introducing a new one.
 	whole := dst
@@ -172,6 +175,11 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	d.old = resize(d.old, oldCount)
 	a := d.old[:0]
 	for offset := 0; offset < len(src); {
+		if len(a)%checkEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		end := strings.IndexByte(src[offset:], '\n')
 		if end < 0 {
 			end = len(src)
@@ -202,6 +210,11 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	d.current = resize(d.current, newCount)
 	b := d.current
 	for offset, pos := 0, 0; offset < len(dst); pos++ {
+		if pos%checkEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		end := strings.IndexByte(dst[offset:], '\n')
 		if end < 0 {
 			end = len(dst)
@@ -217,6 +230,11 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	classifyLines(newClasses, b, inOld)
 	old := a[:0]
 	for i, id := range a {
+		if i%checkEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		if searchable(oldClasses, i) {
 			old = append(old, id)
 		}
@@ -225,6 +243,11 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	d.positions = resize(d.positions, newCount)
 	positions := d.positions[:0]
 	for pos, id := range b {
+		if pos%checkEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		if searchable(newClasses, pos) {
 			current = append(current, id)
 			positions = append(positions, pos)
