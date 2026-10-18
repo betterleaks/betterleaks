@@ -2,6 +2,7 @@ package scm
 
 import (
 	"encoding/base64"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -102,6 +103,13 @@ func TestGitCloneEnv(t *testing.T) {
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("gitCloneEnv() missing %q in %q", want, joined)
+		}
+	}
+
+	mustBeEmpty := []string{"GIT_ASKPASS", "SSH_ASKPASS"}
+	for _, key := range mustBeEmpty {
+		if !slices.Contains(env, key+"=") {
+			t.Fatalf("gitCloneEnv() did not clear %s (env: %v)", key, env)
 		}
 	}
 }
