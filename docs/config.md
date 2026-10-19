@@ -3,6 +3,36 @@
 The `betterleaks.toml` file controls detection, filtering, and validation.
 It is TOML because rules are mostly flat data plus Expr expressions.
 
+## Loading a config
+
+Betterleaks uses the built-in config unless you select a custom config. The
+order of precedence is:
+
+1. `--config` / `-c`.
+2. `BETTERLEAKS_CONFIG` or `GITLEAKS_CONFIG` (file path).
+3. `BETTERLEAKS_CONFIG_TOML` or `GITLEAKS_CONFIG_TOML` (inline TOML).
+4. `.betterleaks.toml`, then `.gitleaks.toml`, in the target directory, **only
+   when `--unsafe-auto-load-config` is enabled**.
+5. The built-in default config.
+
+Configs discovered in git repositories or source directories are not loaded
+by default. To opt in for a trusted target:
+
+```sh
+betterleaks git --unsafe-auto-load-config /path/to/repo
+betterleaks dir --unsafe-auto-load-config /path/to/source
+```
+
+For directory scans with multiple targets, discovery applies to each target
+individually. Commands without a local target, including `stdin`, `config`,
+and `validate`, use the current directory for discovery when the flag is enabled.
+`config check` and `config show` also accept an explicit config path as a
+positional argument, which takes precedence over `--config`.
+
+Only enable automatic loading for targets you trust: a discovered config can
+change detection rules, suppress findings, and define validation requests.
+Explicit config paths and environment variables do not require the flag.
+
 ## Top-level shape
 
 Every config can use these fields:

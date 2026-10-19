@@ -712,6 +712,7 @@ func newValidateTestRoot(t *testing.T) (*cobra.Command, *bytes.Buffer) {
 		SilenceUsage:  true,
 	}
 	root.PersistentFlags().String("config", "", "")
+	root.PersistentFlags().Bool("unsafe-auto-load-config", false, "")
 	root.PersistentFlags().String("report-path", "", "")
 	root.PersistentFlags().String("report-format", "", "")
 	root.PersistentFlags().String("report-template", "", "")

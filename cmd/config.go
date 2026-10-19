@@ -105,8 +105,10 @@ func resolveConfig(cmd *cobra.Command, args []string) (*resolvedConfig, error) {
 		}
 		return &resolvedConfig{cfg: cfg, source: "env:" + name}, nil
 	}
-	if path := findConfigFile("."); path != "" {
-		return loadConfigFile(path)
+	if mustGetBoolFlag(cmd, "unsafe-auto-load-config") {
+		if path := findConfigFile("."); path != "" {
+			return loadConfigFile(path)
+		}
 	}
 	cfg, err := configpkg.Default()
 	if err != nil {

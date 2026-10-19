@@ -40,7 +40,7 @@ order of precedence:
 1. --config/-c
 2. env var BETTERLEAKS_CONFIG or GITLEAKS_CONFIG
 3. env var BETTERLEAKS_CONFIG_TOML or GITLEAKS_CONFIG_TOML with the file content
-4. (target path)/.betterleaks.toml or .gitleaks.toml
+4. (target path)/.betterleaks.toml or .gitleaks.toml (only with --unsafe-auto-load-config)
 If none of the four options are used, then the default config will be used`
 
 var (
@@ -79,6 +79,7 @@ const (
 func init() {
 	cobra.OnInitialize(initLog)
 	rootCmd.PersistentFlags().StringP("config", "c", "", configDescription)
+	rootCmd.PersistentFlags().Bool("unsafe-auto-load-config", false, "automatically load .betterleaks.toml or .gitleaks.toml from the target directory (unsafe for untrusted targets)")
 	rootCmd.PersistentFlags().Int("exit-code", 1, "exit code when leaks have been encountered")
 	rootCmd.PersistentFlags().StringP("report-path", "r", "", "report file (use \"-\" for stdout)")
 	rootCmd.PersistentFlags().StringP("report-format", "f", "", "output format (json, csv, junit, sarif, template; validate supports pretty or jsonl)")
@@ -212,6 +213,12 @@ func initConfig(source string) {
 		// resolvedConfigPath stays "" — inline content, no file to skip.
 		loadedConfig = cfg
 		return
+	} else if !mustGetBoolFlag(rootCmd, "unsafe-auto-load-config") {
+		logging.Debug().Msg("automatic config loading disabled, using default config")
+		loadedConfig, err = config.Default()
+		if err != nil {
+			logging.Fatal().Msgf("err reading default config toml %s", err.Error())
+		}
 	} else {
 		fileInfo, err := os.Stat(source)
 		if err != nil {

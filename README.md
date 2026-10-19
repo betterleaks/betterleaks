@@ -94,6 +94,12 @@ For more advanced scanning examples check out the [scanning doc](docs/scanning.m
 
 ### Configuration
 
+Betterleaks uses its built-in config by default. Select a custom config with
+`--config` or the config environment variables. Automatically loading
+`.betterleaks.toml` or `.gitleaks.toml` from a git or source target requires
+`--unsafe-auto-load-config`; only enable it for targets you trust. See
+[config loading](docs/config.md#loading-a-config) for precedence and examples.
+
 Betterleaks' strength comes from its expressive configuration. Filtering and validation logic are defined as [Expr](https://expr-lang.org). Previously this logic was implemented in CEL; existing CEL-shaped configs are still accepted for compatibility, but new configs should use Expr. `prefilter`s run before any regex matching occurs and only have access to the `attributes` map. `attributes` describe a resource like a git patch. Use `prefilter`s to quickly bail out before more expensive scanning happens. `filter`s, on the other hand, get evaluated post-regex match and have access to the `attributes` map and candidate `finding` data like `finding["secret"]` or `finding["match"]`.
 
 ```toml
