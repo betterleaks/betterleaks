@@ -444,6 +444,13 @@ func TestRemoteGitFlagsAndTokens(t *testing.T) {
 		_, err := parseCLIForTest(t, "git", "https://example.com/repo", flag)
 		require.ErrorContains(t, err, "unknown flag")
 	}
+	// Unsupported transports and missing paths fail before any ignore-file lookup.
+	for _, target := range []string{"git@github.com:owner/repo.git", "ssh://git@github.com/owner/repo.git", "git://github.com/owner/repo.git"} {
+		_, err := parseCLIForTest(t, "git", target)
+		require.ErrorContains(t, err, "SSH and git:// URLs are not supported; use an HTTPS URL such as https://github.com/owner/repo")
+	}
+	_, err := parseCLIForTest(t, "git", filepath.Join(t.TempDir(), "missing"))
+	require.ErrorContains(t, err, "does not exist")
 	cli, err := parseCLIForTest(t, "git", "https://example.com/repo", "--token", "explicit", "--include", "commit-messages")
 	require.NoError(t, err)
 	require.Equal(t, "explicit", cli.Git.Token)

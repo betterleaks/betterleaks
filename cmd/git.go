@@ -143,6 +143,15 @@ func (cmd GitCmd) gitSource() (*gogit.Source, error) {
 		if token == "" {
 			token = remoteGitToken(url)
 		}
+	} else if _, err := os.Stat(repo); err != nil {
+		// Report a missing target here, before the ignore-file lookup stats it.
+		if _, web := scm.ResolveRemoteURL(scm.UnknownPlatform, repo); web != "" {
+			return nil, fmt.Errorf("SSH and git:// URLs are not supported; use an HTTPS URL such as %s", web)
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("repository %q does not exist", repo)
+		}
+		return nil, err
 	}
 	return &gogit.Source{
 		RepoPath: repo, URL: url, Token: token,
