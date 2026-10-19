@@ -70,6 +70,9 @@ type Source struct {
 	// Scan config (passed through to gogit.Source per project)
 	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
+	// CloneAllRefs fetches every advertised ref when cloning, including review
+	// refs such as refs/merge-requests. By default only branches, tags and notes are fetched.
+	CloneAllRefs bool
 
 	// Date-range filtering for API-backed resources
 	DateRangeOpts DateRangeOptions
@@ -907,7 +910,7 @@ func (s *Source) scanProjectGit(ctx context.Context, proj *gitlabProject, yield 
 	if proj.HTTPURLToRepo == "" {
 		return nil
 	}
-	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", func(repoPath string) error {
+	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
 		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,

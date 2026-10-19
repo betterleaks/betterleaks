@@ -54,6 +54,9 @@ type Source struct {
 
 	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
+	// CloneAllRefs fetches every advertised ref when cloning, including review
+	// refs such as refs/pr. By default only branches, tags and notes are fetched.
+	CloneAllRefs bool
 
 	MaxBucketObjectSize int64
 
@@ -597,7 +600,7 @@ func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.Fragm
 //nolint:exhaustruct // Unspecified Git source options retain their documented defaults.
 func (s *Source) scanRepoGit(ctx context.Context, repo huggingFaceRepo, yield sources.FragmentsFunc) error {
 	remote := repo.GitURL(s.baseURL)
-	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", func(repoPath string) error {
+	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", scm.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
 		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,

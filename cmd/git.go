@@ -17,18 +17,20 @@ import (
 type GitCmd struct {
 	ScanFlags       `embed:""`
 	MaxArchiveDepth int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
-	Token           string   `group:"source" help:"Token for an HTTP(S) clone (or the known host's GITHUB_TOKEN, GITLAB_TOKEN, HUGGINGFACE_TOKEN/HF_TOKEN)."`
-	Platform        string   `group:"source" help:"Target platform used to generate links: github or gitlab."`
+	Token           string   `group:"source" help:"Token for an HTTPS clone (or the known host's GITHUB_TOKEN, GITLAB_TOKEN, HUGGINGFACE_TOKEN/HF_TOKEN)."`
+	CloneRefs       []string `group:"source" name:"clone-ref" sep:"none" help:"Fetch an additional refs/... name or pattern with at most one '*' (repeatable; URL scans only)."`
+	CloneAllRefs    bool     `group:"source" name:"clone-all-refs" help:"Fetch all advertised refs, including review refs (URL scans only)."`
+	Platform        string   `group:"source" help:"Link platform: github, gitlab, azuredevops, gitea, bitbucket, unknown (auto), or none."`
 	Since           string   `group:"source" help:"Minimum committer date, RFC3339 or YYYY-MM-DD (UTC)."`
 	Until           string   `group:"source" help:"Maximum committer date, RFC3339 or YYYY-MM-DD (UTC)."`
 	Author          string   `group:"source" help:"Go regular expression matching author name and email."`
 	Committer       string   `group:"source" help:"Go regular expression matching committer name and email."`
-	Revision        string   `group:"source" help:"Revision or range (A..B) to scan; when omitted, scans HEAD and all refs."`
-	MaxCommits      int      `group:"source" name:"max-commits" help:"Scan only the newest N selected commits; zero is unlimited."`
+	Revision        string   `group:"source" help:"Revision or range (A..B) from fetched or local history; does not fetch refs. Omit to scan HEAD and all non-note refs."`
+	MaxCommits      int      `group:"source" name:"max-commits" help:"Limit selected commits in the history walk; zero is unlimited."`
 	GitMaxBlobMiB   int      `group:"source" name:"git-max-blob-mib" default:"64" help:"Skip blobs larger than this many MiB, with a warning for each."`
 	AllowExternal   bool     `group:"source" name:"allow-external-objects" help:"Read Git storage outside the repository (a .git file, commondir, or object alternate pointing elsewhere)."`
 	Exclude         []string `group:"source" help:"Remove Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflog-messages, reflog-history."`
-	Include         []string `group:"source" help:"Add Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflog-messages, reflog-history (default: history with merges)."`
+	Include         []string `group:"source" help:"Add Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflog-messages, reflog-history (default: history, without merge patches)."`
 	Repo            string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
 }
 
@@ -144,6 +146,7 @@ func (cmd GitCmd) gitSource() (*gogit.Source, error) {
 	}
 	return &gogit.Source{
 		RepoPath: repo, URL: url, Token: token,
+		CloneRefs: cmd.CloneRefs, CloneAllRefs: cmd.CloneAllRefs,
 		Revision: cmd.Revision, Since: since, Until: until, Author: cmd.Author, Committer: cmd.Committer, MaxCount: cmd.MaxCommits,
 		MaxBlobBytes: int64(cmd.GitMaxBlobMiB) << 20, Include: cmd.Include, Exclude: cmd.Exclude,
 		AllowExternalObjects: cmd.AllowExternal, Platform: platform, MaxArchiveDepth: cmd.MaxArchiveDepth,

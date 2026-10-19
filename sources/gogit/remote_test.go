@@ -14,6 +14,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
+	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +50,13 @@ func TestRemotePackScanParity(t *testing.T) {
 	want := observe(&Source{RepoPath: repo})
 	require.NotEmpty(t, want)
 	require.ElementsMatch(t, want, observe(&Source{URL: remote}))
-	require.NoError(t, scm.CloneToTempDir(t.Context(), remote, "", "", func(path string) error {
+	err = (&Source{URL: remote, Revision: "refs/pull/123/head"}).Fragments(t.Context(), func(sources.Fragment, error) error {
+		t.Fatal("an unavailable revision must fail before scanning")
+		return nil
+	})
+	require.ErrorIs(t, err, plumbing.ErrReferenceNotFound)
+	require.ErrorContains(t, err, "--clone-ref=refs/...")
+	require.NoError(t, scm.CloneToTempDir(t.Context(), remote, "", "", scm.CloneOptions{}, func(path string) error {
 		r, cleanup, err := (&Source{RepoPath: path}).open(t.Context())
 		require.NoError(t, err)
 		defer cleanup()

@@ -176,10 +176,11 @@ func TestRevisionRange(t *testing.T) {
 	repo := newHistory(t)
 	t.Setenv("PATH", t.TempDir())
 	// Commits on main that side lacks: modify, rename, merge, and attributes.
-	// The merge's first-parent patch adds side.txt, as git log -p reports it.
-	onMain := map[string]string{"TOKEN_CHANGED\n": "file.txt:2", "TOKEN_SIDE\n": "side.txt:1"}
+	// Only the merge's first-parent patch adds side.txt, as git log -p
+	// --diff-merges=first-parent reports it.
+	onMain := map[string]string{"TOKEN_CHANGED\n": "file.txt:2"}
 	require.Equal(t, onMain, textOccurrences(collect(t, &Source{RepoPath: repo, Revision: "side..main"})))
-	require.Equal(t, map[string]string{"TOKEN_CHANGED\n": "file.txt:2"}, textOccurrences(collect(t, &Source{RepoPath: repo, Revision: "side..main", Exclude: []string{"merges"}})))
+	require.Equal(t, map[string]string{"TOKEN_CHANGED\n": "file.txt:2", "TOKEN_SIDE\n": "side.txt:1"}, textOccurrences(collect(t, &Source{RepoPath: repo, Revision: "side..main", Include: []string{"merges"}})))
 	// An omitted end means HEAD, like Git.
 	require.Equal(t, onMain, textOccurrences(collect(t, &Source{RepoPath: repo, Revision: "side.."})))
 	require.Empty(t, textOccurrences(collect(t, &Source{RepoPath: repo, Revision: "main..side"})))
@@ -231,10 +232,10 @@ func TestExternalStores(t *testing.T) {
 	})
 }
 
-// The object reader must find exactly the added lines git log -p reports, for
-// history with modifications, deletions, renames, merges, mode changes, and an
-// unterminated final line. Every line in the fixture is unique, so the diff is
-// unambiguous and the two implementations must agree exactly.
+// The object reader must find exactly the added lines git log -p reports, with and
+// without merge patches, for history with modifications, deletions, renames,
+// merges, mode changes, and an unterminated final line. Every line in the fixture
+// is unique, so the diff is unambiguous and the two implementations must agree.
 func TestMatchesGitLog(t *testing.T) {
 	repo := initRepo(t)
 	commitFile(t, repo, "a.txt", "a1\na2\na3\na4\na5\na6\na7\na8\n", "add a")
@@ -272,21 +273,25 @@ func TestMatchesGitLog(t *testing.T) {
 		}
 		return result
 	}
-	patch := gitFixture(t, repo, "log", "-p", "--all", "--diff-merges=first-parent", "--no-ext-diff", "--no-textconv",
-		"--no-color", "--format=medium", "--no-abbrev-commit", "--src-prefix=a/", "--dst-prefix=b/", "-U0")
-	var mu sync.Mutex
-	var fromGit []sources.Fragment
-	require.NoError(t, (&sources.GitDiff{Content: strings.NewReader(patch + "\n")}).Fragments(t.Context(), func(f sources.Fragment, err error) error {
-		require.NoError(t, err)
-		mu.Lock()
-		defer mu.Unlock()
-		fromGit = append(fromGit, f)
-		return nil
-	}))
+	fromGit := func(merges string) map[line]int {
+		patch := gitFixture(t, repo, "log", "-p", "--all", "--diff-merges="+merges, "--no-ext-diff", "--no-textconv",
+			"--no-color", "--format=medium", "--no-abbrev-commit", "--src-prefix=a/", "--dst-prefix=b/", "-U0")
+		var mu sync.Mutex
+		var fragments []sources.Fragment
+		require.NoError(t, (&sources.GitDiff{Content: strings.NewReader(patch + "\n")}).Fragments(t.Context(), func(f sources.Fragment, err error) error {
+			require.NoError(t, err)
+			mu.Lock()
+			defer mu.Unlock()
+			fragments = append(fragments, f)
+			return nil
+		}))
+		return lines(fragments)
+	}
+	withoutMerges, withMerges := fromGit("off"), fromGit("first-parent")
+	require.NotEqual(t, withoutMerges, withMerges, "the fixture's merge must add lines")
 	t.Setenv("PATH", t.TempDir())
-	want := lines(fromGit)
-	require.NotEmpty(t, want)
-	require.Equal(t, want, lines(collect(t, &Source{RepoPath: repo})))
+	require.Equal(t, withoutMerges, lines(collect(t, &Source{RepoPath: repo})))
+	require.Equal(t, withMerges, lines(collect(t, &Source{RepoPath: repo, Include: []string{"merges"}})))
 }
 
 func TestUnsafeStorageFiles(t *testing.T) {

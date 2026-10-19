@@ -1,8 +1,10 @@
+//nolint:exhaustruct // Test fixtures specify only the fields relevant to each scenario.
 package scm
 
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/cgi"
 	"net/http/httptest"
@@ -85,7 +87,7 @@ func TestCloneTransportBoundary(t *testing.T) {
 	}))
 	defer server.Close()
 	for _, remote := range []string{"ssh://git@example.test/repo", "file:///tmp/repo", "git@example.test:repo", server.URL + "/repo?token=secret", server.URL + "/repo?", "http://user:secret@" + strings.TrimPrefix(server.URL, "http://") + "/repo"} {
-		err := CloneAuthed(t.Context(), remote, "", filepath.Join(t.TempDir(), "repo"))
+		err := CloneAuthed(t.Context(), remote, "", filepath.Join(t.TempDir(), "repo"), CloneOptions{})
 		if err == nil || !strings.Contains(err.Error(), "HTTP(S) URL") {
 			t.Fatalf("unexpected URL validation result for %q: %v", remote, err)
 		}
@@ -93,13 +95,13 @@ func TestCloneTransportBoundary(t *testing.T) {
 			t.Fatalf("URL credentials leaked: %v", err)
 		}
 	}
-	if err := CloneAuthed(t.Context(), server.URL+"/repo", "secret", filepath.Join(t.TempDir(), "repo")); err == nil || !strings.Contains(err.Error(), "require HTTPS") {
+	if err := CloneAuthed(t.Context(), server.URL+"/repo", "secret", filepath.Join(t.TempDir(), "repo"), CloneOptions{}); err == nil || !strings.Contains(err.Error(), "require HTTPS") {
 		t.Fatalf("expected insecure token rejection, got %v", err)
 	}
 	if requests.Load() != 0 {
 		t.Fatal("rejected clone made a network request")
 	}
-	if err := CloneAuthed(t.Context(), server.URL+"/repo", "", filepath.Join(t.TempDir(), "repo")); err == nil {
+	if err := CloneAuthed(t.Context(), server.URL+"/repo", "", filepath.Join(t.TempDir(), "repo"), CloneOptions{}); err == nil {
 		t.Fatal("expected missing repository error")
 	}
 	if requests.Load() == 0 {
@@ -107,7 +109,7 @@ func TestCloneTransportBoundary(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	err := CloneAuthed(ctx, server.URL+"/repo", "", filepath.Join(t.TempDir(), "repo"))
+	err := CloneAuthed(ctx, server.URL+"/repo", "", filepath.Join(t.TempDir(), "repo"), CloneOptions{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected cancellation, got %v", err)
 	}
@@ -153,7 +155,7 @@ func TestCloneRedirectCredentials(t *testing.T) {
 			previous := http.DefaultTransport
 			http.DefaultTransport = origin.Client().Transport
 			t.Cleanup(func() { http.DefaultTransport = previous })
-			err := CloneAuthed(t.Context(), origin.URL+"/repo", "TEST_TOKEN", filepath.Join(t.TempDir(), "repo"))
+			err := CloneAuthed(t.Context(), origin.URL+"/repo", "TEST_TOKEN", filepath.Join(t.TempDir(), "repo"), CloneOptions{})
 			if err == nil || strings.Contains(err.Error(), "TEST_TOKEN") {
 				t.Fatalf("expected sanitized clone failure: %v", err)
 			}
@@ -171,8 +173,6 @@ func TestCloneRedirectCredentials(t *testing.T) {
 }
 
 // Git serves the fixture; the clone under test still uses go-git's HTTP transport.
-//
-//nolint:exhaustruct // The fixture server's unset CGI fields keep their defaults.
 func cloneTestRemote(t *testing.T, tlsHTTP2 bool) (string, func(string, ...string) string) {
 	t.Helper()
 	binary, err := exec.LookPath("git")
@@ -218,7 +218,7 @@ func TestCloneRequiresEmptyDestination(t *testing.T) {
 	defer server.Close()
 	dest := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dest, "HEAD"), []byte("ref: refs/pull/1/head\n"), 0o600))
-	err := CloneAuthed(t.Context(), server.URL+"/repo", "", dest)
+	err := CloneAuthed(t.Context(), server.URL+"/repo", "", dest, CloneOptions{})
 	require.ErrorContains(t, err, "not empty")
 	require.Zero(t, requests.Load(), "a rejected destination must not reach the network")
 }
@@ -231,7 +231,7 @@ func TestCloneFromHTTP2Server(t *testing.T) {
 	commit := run("", "commit-tree", tree, "-m", "root")
 	run("", "update-ref", "refs/heads/trunk", commit)
 	dest := filepath.Join(t.TempDir(), "clone")
-	require.NoError(t, CloneAuthed(t.Context(), remote, "", dest))
+	require.NoError(t, CloneAuthed(t.Context(), remote, "", dest, CloneOptions{}))
 	repo, err := git.PlainOpen(dest)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, repo.Close()) })
@@ -239,7 +239,7 @@ func TestCloneFromHTTP2Server(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestClonePublishedRefs(t *testing.T) {
+func TestCloneRefSelection(t *testing.T) {
 	remote, run := cloneTestRemote(t, false)
 	commit := func(name, parent string) (plumbing.Hash, plumbing.Hash) {
 		blob := run(name+"\n", "hash-object", "-w", "--stdin")
@@ -265,43 +265,118 @@ func TestClonePublishedRefs(t *testing.T) {
 		"refs/tags/annotated":   plumbing.NewHash(run("", "rev-parse", "refs/tags/annotated")),
 		"refs/notes/commits":    plumbing.NewHash(run("", "rev-parse", "refs/notes/commits")),
 	}
-	var excluded []plumbing.Hash
+	additional := map[plumbing.ReferenceName]plumbing.Hash{}
+	blobs := map[plumbing.ReferenceName]plumbing.Hash{}
 	for _, name := range []string{
-		"refs/pull/1/head", "refs/pull/1/merge", "refs/merge-requests/1/head",
+		"refs/pull/1/head", "refs/pull/2/head", "refs/pull/1/merge", "refs/merge-requests/1/head",
 		"refs/pipelines/1", "refs/environments/1", "refs/changes/01/1/1",
 		"refs/users/01/1", "refs/cache-automerge/01/1", "refs/pr/1",
-		"refs/remotes/upstream/main", "refs/custom/private",
+		"refs/remotes/upstream/main", "refs/custom/private", "refs/custom/hidden",
 	} {
 		id, blob := commit(name, main.String())
 		run("", "update-ref", name, id.String())
-		excluded = append(excluded, id, blob)
+		additional[plumbing.ReferenceName(name)] = id
+		blobs[plumbing.ReferenceName(name)] = blob
 	}
+	run("", "config", "uploadpack.hideRefs", "refs/custom/hidden")
 
-	dest := filepath.Join(t.TempDir(), "clone")
-	require.NoError(t, CloneAuthed(t.Context(), remote, "", dest))
-	repo, err := git.PlainOpen(dest)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, repo.Close()) })
-	refs, err := repo.References()
-	require.NoError(t, err)
-	got := map[plumbing.ReferenceName]plumbing.Hash{}
-	require.NoError(t, refs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Name() != plumbing.HEAD {
-			got[ref.Name()] = ref.Hash()
-		}
-		return nil
+	for _, tc := range []struct {
+		name    string
+		options CloneOptions
+		extra   []plumbing.ReferenceName
+	}{
+		{name: "default"},
+		{name: "one PR", options: CloneOptions{Refs: []string{"refs/pull/1/head"}}, extra: []plumbing.ReferenceName{"refs/pull/1/head"}},
+		{name: "PR heads", options: CloneOptions{Refs: []string{"refs/pull/*/head"}}, extra: []plumbing.ReferenceName{"refs/pull/1/head", "refs/pull/2/head"}},
+		{name: "repeated and overlapping", options: CloneOptions{Refs: []string{"refs/pull/*/head", "refs/pull/1/head", "refs/pull/1/head", "refs/custom/private"}}, extra: []plumbing.ReferenceName{"refs/pull/1/head", "refs/pull/2/head", "refs/custom/private"}},
+		{name: "unmatched pattern", options: CloneOptions{Refs: []string{"refs/missing/*"}}},
+		{name: "all refs", options: CloneOptions{AllRefs: true}},
+		{name: "all subsumes additional", options: CloneOptions{AllRefs: true, Refs: []string{"refs/pull/1/head"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dest := filepath.Join(t.TempDir(), "clone")
+			require.NoError(t, CloneAuthed(t.Context(), remote, "", dest, tc.options))
+			repo, err := git.PlainOpen(dest)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, repo.Close()) })
+			_, err = repo.Worktree()
+			require.ErrorIs(t, err, git.ErrIsBareRepository)
+			require.NoFileExists(t, filepath.Join(dest, "content.txt"))
+			refs, err := repo.References()
+			require.NoError(t, err)
+			got := map[plumbing.ReferenceName]plumbing.Hash{}
+			require.NoError(t, refs.ForEach(func(ref *plumbing.Reference) error {
+				if ref.Name() != plumbing.HEAD {
+					got[ref.Name()] = ref.Hash()
+				}
+				return nil
+			}))
+			want := maps.Clone(wanted)
+			if tc.options.AllRefs {
+				maps.Copy(want, additional)
+				delete(want, "refs/custom/hidden")
+			}
+			for _, name := range tc.extra {
+				want[name] = additional[name]
+			}
+			require.Equal(t, want, got)
+			head, err := repo.Reference(plumbing.HEAD, false)
+			require.NoError(t, err)
+			require.Equal(t, plumbing.ReferenceName("refs/heads/trunk"), head.Target())
+			_, err = repo.CommitObject(root)
+			require.NoError(t, err, "full branch history must be fetched")
+			_, err = repo.CommitObject(tagOnly)
+			require.NoError(t, err, "history reachable only from tags must be fetched")
+			for name, id := range additional {
+				for _, object := range []plumbing.Hash{id, blobs[name]} {
+					if _, selected := want[name]; selected {
+						require.NoError(t, repo.Storer.HasEncodedObject(object), "selected object %s", name)
+					} else {
+						require.ErrorIs(t, repo.Storer.HasEncodedObject(object), plumbing.ErrObjectNotFound,
+							"unselected object %s must not be downloaded", name)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCloneInvalidRefs(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.NotFound(w, r)
 	}))
-	require.Equal(t, wanted, got)
-	head, err := repo.Reference(plumbing.HEAD, false)
-	require.NoError(t, err)
-	require.Equal(t, plumbing.ReferenceName("refs/heads/trunk"), head.Target())
-	_, err = repo.CommitObject(root)
-	require.NoError(t, err, "full branch history must be fetched")
-	_, err = repo.CommitObject(tagOnly)
-	require.NoError(t, err, "history reachable only from tags must be fetched")
-	for _, id := range excluded {
-		require.ErrorIs(t, repo.Storer.HasEncodedObject(id), plumbing.ErrObjectNotFound,
-			"review-only object %s must not be downloaded", id)
+	t.Cleanup(server.Close)
+	for _, ref := range []string{"", "main", "HEAD", strings.Repeat("a", 40), "+refs/pull/1/head", "refs/pull/1/head:refs/heads/pr", "refs/../HEAD", "refs//head", "refs/head/", "refs/a.lock", "refs/.hidden", "refs/a..b", "refs/a@{1}", "refs/a\\b", "refs/a b", "refs/a\n", "refs/pull/?/head", "refs/pull/[12]/head", "refs/*/*"} {
+		t.Run(ref, func(t *testing.T) {
+			// AllRefs must not bypass validation of supplied values.
+			for _, all := range []bool{false, true} {
+				dest := filepath.Join(t.TempDir(), "clone")
+				err := CloneAuthed(t.Context(), server.URL, "", dest, CloneOptions{Refs: []string{ref}, AllRefs: all})
+				require.ErrorContains(t, err, "invalid clone ref")
+				require.NoDirExists(t, dest)
+			}
+		})
+	}
+	require.Zero(t, requests.Load(), "invalid refs must be rejected before network access")
+}
+
+func TestCloneMissingExactRef(t *testing.T) {
+	remote, run := cloneTestRemote(t, false)
+	for _, empty := range []bool{true, false} {
+		if !empty {
+			tree := run("", "mktree")
+			id := run("", "commit-tree", tree, "-m", "root")
+			run("", "update-ref", "refs/heads/trunk", id)
+		}
+		called := false
+		err := CloneToTempDir(t.Context(), remote, "", "", CloneOptions{Refs: []string{"refs/pull/404/head"}, AllRefs: false}, func(string) error {
+			called = true
+			return nil
+		})
+		require.ErrorContains(t, err, "refs/pull/404/head")
+		require.False(t, called, "a missing exact ref must not silently scan default history")
 	}
 }
 
@@ -323,7 +398,7 @@ func TestClonePublishedRefsWithoutBranches(t *testing.T) {
 				}
 			}
 			dest := filepath.Join(t.TempDir(), "clone")
-			require.NoError(t, CloneAuthed(t.Context(), remote, "", dest))
+			require.NoError(t, CloneAuthed(t.Context(), remote, "", dest, CloneOptions{}))
 			repo, err := git.PlainOpen(dest)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, repo.Close()) })

@@ -63,6 +63,9 @@ type Source struct {
 	// Scan config (passed through to gogit.Source per repo)
 	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
+	// CloneAllRefs fetches every advertised ref when cloning, including review
+	// refs such as refs/pull. By default only branches, tags and notes are fetched.
+	CloneAllRefs bool
 
 	// GitHub API
 	BaseURL       string // GitHub Enterprise base URL; empty = github.com
@@ -618,7 +621,7 @@ func (s *Source) newClient(ctx context.Context) *github.Client {
 //
 //nolint:exhaustruct // Unspecified Git source options retain their documented defaults.
 func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, yield sources.FragmentsFunc) error {
-	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", func(repoPath string) error {
+	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
 		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,

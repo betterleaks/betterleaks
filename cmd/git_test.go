@@ -3,6 +3,8 @@ package cmd
 import (
 	"archive/zip"
 	"bytes"
+	"net/http/cgi"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -194,7 +196,7 @@ func TestGitIncludeMerges(t *testing.T) {
 		flag      string
 		wantMerge bool
 	}{
-		{"default", "", true},
+		{"default", "", false},
 		{"included", "--include=merges", true},
 		{"excluded", "--exclude=merges", false},
 	} {
@@ -274,6 +276,8 @@ func TestGoGitOptionValidation(t *testing.T) {
 		{Exclude: []string{"unknown"}}, {Exclude: []string{"history"}}, {Include: []string{"notes"}, Exclude: []string{"notes"}}, {Exclude: []string{""}}, {Author: "["}, {Since: "yesterday"}, {Until: "2001-01-01", Since: "2001-01-02"},
 		{MaxCommits: -1}, {GitMaxBlobMiB: -1}, {GitMaxBlobMiB: 4097}, {Revision: "main...side"},
 		{Include: []string{"reflog-history"}, Exclude: []string{"history"}},
+		{CloneRefs: []string{"refs/pull/1/head"}}, {CloneAllRefs: true},
+		{Repo: "https://example.test/repo", CloneRefs: []string{"main"}},
 	} {
 		require.Error(t, cmd.Validate())
 	}
@@ -297,6 +301,72 @@ func TestGoGitOptionValidation(t *testing.T) {
 	require.Equal(t, []string{"commit-messages", "notes"}, source.Include)
 	require.Equal(t, []string{"history"}, source.Exclude)
 	require.NoError(t, source.Validate())
+	cli, err = parseCLIForTest(t, "git", "https://example.test/repo", "--clone-ref=refs/pull/*/head", "--clone-ref=refs/custom/with,comma", "--clone-all-refs")
+	require.NoError(t, err)
+	source, err = cli.Git.gitSource()
+	require.NoError(t, err)
+	require.Equal(t, []string{"refs/pull/*/head", "refs/custom/with,comma"}, source.CloneRefs)
+	require.True(t, source.CloneAllRefs)
+	require.NoError(t, source.Validate())
+}
+
+//nolint:exhaustruct // CGI and scenario fields not set keep their defaults.
+func TestGitCloneOptions(t *testing.T) {
+	repo := t.TempDir()
+	gitCmdT(t, repo, "init", "-q", "-b", "main")
+	gitCmdT(t, repo, "config", "user.name", "Test User")
+	gitCmdT(t, repo, "config", "user.email", "test@example.test")
+	commit := func(value string) {
+		require.NoError(t, os.WriteFile(filepath.Join(repo, "secret.txt"), []byte(value+"\n"), 0600))
+		gitCmdT(t, repo, "add", ".")
+		gitCmdT(t, repo, "commit", "-qm", value)
+	}
+	commit("SECRET_MAIN")
+	for _, ref := range []struct{ name, value string }{
+		{"refs/pull/123/head", "SECRET_PR"},
+		{"refs/pull/456/head", "SECRET_SECOND"},
+		{"refs/pull/123/merge", "SECRET_MERGE"},
+		{"refs/custom/review", "SECRET_CUSTOM"},
+	} {
+		gitCmdT(t, repo, "checkout", "-q", "--detach", "main")
+		commit(ref.value)
+		gitCmdT(t, repo, "update-ref", ref.name, "HEAD")
+	}
+	gitCmdT(t, repo, "checkout", "-q", "main")
+	binary, err := exec.LookPath("git")
+	require.NoError(t, err)
+	server := httptest.NewServer(&cgi.Handler{Path: binary, Args: []string{"http-backend"},
+		Env: []string{"GIT_PROJECT_ROOT=" + repo, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1"}})
+	t.Cleanup(server.Close)
+	configPath := writeTestConfig(t, "[[rules]]\nid='test'\nregex='SECRET_[A-Z]+'\n")
+	// Only the server invokes Git; the entire URL scan works without a Git client.
+	t.Setenv("PATH", t.TempDir())
+	for _, tc := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "default", want: []string{"SECRET_MAIN"}},
+		{name: "one PR adds to defaults", args: []string{"--clone-ref=refs/pull/123/head"}, want: []string{"SECRET_MAIN", "SECRET_PR"}},
+		{name: "PR heads", args: []string{"--clone-ref=refs/pull/*/head"}, want: []string{"SECRET_MAIN", "SECRET_PR", "SECRET_SECOND"}},
+		{name: "repeated refs", args: []string{"--clone-ref=refs/pull/123/head", "--clone-ref=refs/custom/review"}, want: []string{"SECRET_MAIN", "SECRET_PR", "SECRET_CUSTOM"}},
+		{name: "all refs", args: []string{"--clone-all-refs"}, want: []string{"SECRET_MAIN", "SECRET_PR", "SECRET_SECOND", "SECRET_MERGE", "SECRET_CUSTOM"}},
+		{name: "PR range", args: []string{"--clone-ref=refs/pull/123/head", "--revision=main..refs/pull/123/head"}, want: []string{"SECRET_PR"}},
+		{name: "all refs with range", args: []string{"--clone-all-refs", "--revision=main..refs/pull/123/head"}, want: []string{"SECRET_PR"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, stdout := newTestCLI(t)
+			args := append([]string{"git", server.URL + "/.git", "--config", configPath, "--no-banner", "--exit-code=0", "--output=-"}, tc.args...)
+			root.SetArgs(args)
+			require.NoError(t, root.Execute())
+			_, findings := decodeScanJSON(t, stdout.Bytes())
+			var got []string
+			for _, finding := range findings {
+				got = append(got, finding.Match.Value)
+			}
+			require.ElementsMatch(t, tc.want, got)
+		})
+	}
 }
 
 func TestStdinGitDiff(t *testing.T) {

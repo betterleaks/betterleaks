@@ -27,11 +27,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Source scans the history reachable from HEAD and every ref, comparing each
-// commit with its first parent and scanning added lines. Include adds resources
-// to that default and Exclude removes them; conflicts and empty selections are
-// rejected. Object scans read whole blobs without path or commit attribution.
-// Diff boundaries and rename choices can differ from Git's.
+// Source scans the history reachable from HEAD and every non-note ref, comparing
+// each commit with its first parent and scanning added lines. Merge commits are
+// walked but not diffed unless merges is included. Include adds resources to that
+// default and Exclude removes them; conflicts and empty selections are rejected.
+// Object scans read whole blobs without path or commit attribution. Diff
+// boundaries and rename choices can differ from Git's.
 //
 // Content that exceeds a limit (MaxBlobBytes, a commit's tree comparison
 // budget) is skipped with a warning on Logger, as damaged archives are, and the
@@ -40,17 +41,24 @@ import (
 type Source struct {
 	RepoPath string
 	// URL fetches branches, tags and notes into a temporary bare repository over
-	// HTTP(S), excluding host review refs. Mutually exclusive with RepoPath.
+	// HTTP(S), excluding host review refs by default. Mutually exclusive with RepoPath.
 	URL, Token string
+	// CloneRefs adds fully qualified refs or patterns with at most one '*' to
+	// the URL fetch. CloneAllRefs fetches every advertised ref under refs/.
+	// These options require URL and do not restrict the subsequent scan.
+	CloneRefs    []string
+	CloneAllRefs bool
 	// Revision starts history at one revision, or selects a range "A..B": the
-	// commits reachable from B but not from A. Empty scans HEAD and every ref.
+	// commits reachable from B but not from A. Empty scans HEAD and every non-note
+	// ref. It selects existing history and never fetches additional refs.
 	Revision string
 	// Since and Until filter committer time inclusively, without pruning ancestors
 	// based on timestamps. Non-monotonic history therefore remains traversable.
 	Since, Until *time.Time
 	// Author and Committer are Go regular expressions over "Name <email>".
 	Author, Committer string
-	// MaxCount limits scanning to the newest MaxCount selected commits.
+	// MaxCount limits selected commits in the date-prioritized history walk.
+	// It also limits note commits separately for each notes ref. Zero is unlimited.
 	MaxCount int
 	// Workers defaults to min(GOMAXPROCS, 8), at most 16.
 	Workers int
@@ -73,8 +81,10 @@ type Source struct {
 	// worktrees registered by their main repository are always allowed.
 	AllowExternalObjects bool
 	Prefilter            sources.PrefilterFunc
-	MaxArchiveDepth      int
-	Logger               *slog.Logger
+	// MaxArchiveDepth controls nested archive expansion; zero disables it.
+	// The CLI uses 8 by default.
+	MaxArchiveDepth int
+	Logger          *slog.Logger
 	// Platform and RemoteURL control finding links. By default they are resolved
 	// from the local repository's fetch remote without invoking Git. NoPlatform
 	// disables links; RemoteURL overrides the configured remote.
@@ -88,6 +98,8 @@ func (s *Source) Validate() error {
 	switch {
 	case (s.RepoPath == "") == (s.URL == ""):
 		return errors.New("git source requires either a local repository path or an HTTP(S) URL")
+	case s.URL == "" && (len(s.CloneRefs) > 0 || s.CloneAllRefs):
+		return errors.New("clone-ref and clone-all-refs require an HTTP(S) repository URL")
 	case s.Workers < 0 || s.Workers > maxWorkers:
 		return fmt.Errorf("git workers must be between 0 and %d", maxWorkers)
 	case s.CacheMiB < 0 || s.CacheMiB > maxCacheMiB:
@@ -102,6 +114,9 @@ func (s *Source) Validate() error {
 		return errors.New("until must not precede since")
 	case strings.Contains(s.Revision, "..."):
 		return errors.New("symmetric revision ranges (A...B) are not supported; use A..B")
+	}
+	if err := (scm.CloneOptions{Refs: s.CloneRefs, AllRefs: s.CloneAllRefs}).Validate(); err != nil {
+		return err
 	}
 	for _, pattern := range []string{s.Author, s.Committer} {
 		if _, err := regexp.Compile(pattern); err != nil {
@@ -121,7 +136,7 @@ type selection struct {
 
 //nolint:exhaustruct // Resources not on by default start false.
 func (s *Source) selection() (selection, error) {
-	sel := selection{history: true, merges: true}
+	sel := selection{history: true}
 	flags := map[string]*bool{
 		sources.GitResourceTypeHistory:            &sel.history,
 		sources.GitResourceTypeMerges:             &sel.merges,
@@ -151,11 +166,8 @@ func (s *Source) selection() (selection, error) {
 	}
 	// Merge patches are part of history, and reflog-history adds commits to the
 	// history or message scan rather than scanning anything itself.
-	if !sel.history {
-		if slices.Contains(s.Include, sources.GitResourceTypeMerges) {
-			return selection{}, errors.New("including merges requires history")
-		}
-		sel.merges = false
+	if sel.merges && !sel.history {
+		return selection{}, errors.New("including merges requires history")
 	}
 	if sel.reflogHistory && !sel.history && !sel.messages {
 		return selection{}, errors.New("reflog-history adds commits to history or commit-messages; enable one of them")
@@ -195,13 +207,15 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if s.URL != "" {
 		logger, start := logging.OrDiscard(s.Logger), time.Now()
 		logger.Info("starting clone", "url", urlredact.PublicString(s.URL))
-		return scm.CloneToTempDir(ctx, s.URL, s.Token, "betterleaks-git-*", func(path string) error {
+		options := scm.CloneOptions{Refs: s.CloneRefs, AllRefs: s.CloneAllRefs}
+		return scm.CloneToTempDir(ctx, s.URL, s.Token, "betterleaks-git-*", options, func(path string) error {
 			logger.Info("clone complete, starting scan", "duration", time.Since(start).Round(time.Millisecond))
 			local := *s
 			local.RepoPath, local.URL, local.Token = path, "", ""
+			local.CloneRefs, local.CloneAllRefs = nil, false
 			err := local.Fragments(ctx, yield)
-			if s.Revision != "" && errors.Is(err, plumbing.ErrReferenceNotFound) {
-				return fmt.Errorf("%w; URL scans fetch only branches, tags and notes", err)
+			if s.Revision != "" && !s.CloneAllRefs && errors.Is(err, plumbing.ErrReferenceNotFound) {
+				return fmt.Errorf("%w; --revision selects fetched history; use --clone-ref=refs/... to fetch additional refs", err)
 			}
 			return err
 		})

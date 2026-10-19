@@ -114,32 +114,37 @@ and the banner while still writing an explicitly requested report. The old
 `-s` source-path shorthand is not retained.
 
 Git history is read in-process; Betterleaks no longer runs `git`.
-`--git-engine`, `--log-opts`, `--staged`, `--unstaged`, `--pre-receive`, and the
-`--git-workers` and cache tuning flags are removed:
+`--log-opts`, `--staged`, `--unstaged`, `--pre-receive`, and
+`--pre-receive-error-message` are removed:
 
 - For a commit range, use `--revision=A..B` (for example `origin/main..HEAD`).
 - For staged or unstaged changes, pre-receive hooks, or any other Git selection,
   pipe a patch into `stdin --git-diff`. See [Git scanning](scanning.md#git).
 
-Remote Git scans now fetch only branches, tags, and notes. This applies to `git`
-HTTP(S) URLs and Git history fetched by `github`, `gitlab`, and `huggingface`.
+Remote Git scans now fetch only branches, tags, and notes by default. This applies
+to `git` HTTP(S) URLs and Git history fetched by `github`, `gitlab`, and `huggingface`.
 Earlier versions mirrored every advertised ref, including pull requests and
 other host review refs. Findings reachable only through those refs no longer
-appear in remote scans. To retain that scope, run `git clone --mirror URL repo.git`
-and scan it with `betterleaks git repo.git`.
-`--revision` selects available history and does not fetch excluded refs. To scan
-a single PR from a fork, fetch that PR into a local clone first; see
+appear in default remote scans. To retain that scope, add `--clone-all-refs`
+to `git`, `github`, `gitlab`, or `huggingface`.
+`--revision` selects available history and does not fetch excluded refs. To add
+a single PR from a fork, use `--clone-ref=refs/pull/123/head`; see
 [Scanning a pull request](scanning.md#scanning-a-pull-request).
+`--clone-ref` belongs to the explicit `git` command. All URL clones are bare,
+with full selected history and no checkout. Commit filters and
+`--include`/`--exclude` affect scanning after the fetch.
 
 The default scans history only. `--include` adds resources and `--exclude`
 removes them: `--include=commit-messages,notes` adds messages and notes,
 `--include=unreachable-objects` adds abandoned or uncommitted blobs, and
-`--include=commit-messages --exclude=history` scans only messages. The
-`loose-objects` selector is removed. `--include=reflogs` is replaced by
-`reflog-messages` (the journal text) and `reflog-history` (commits the reflogs
-remember). The standalone `--include-merges` and `--no-merge-patches` flags are
-replaced by `--include=merges` and `--exclude=merges`; merge patches remain on by
-default.
+`--include=commit-messages --exclude=history` scans only messages.
+`--include=reflogs` is replaced by `reflog-messages` (the journal text) and
+`reflog-history` (commits the reflogs remember).
+
+Merge commits are no longer diffed by default. Earlier versions scanned each
+merge's patch against its first parent, which repeats changes its branch's
+commits already added. Add `--include=merges` to scan conflict resolutions and
+edits made in merge commits.
 
 You can now omit the command for a path or supported remote URL:
 
@@ -377,7 +382,7 @@ array; `report.WriteJSONL` writes finding envelopes. Neither adds CLI scan metad
 
 ## Go SDK changes
 
-Update all imports to `/v2` and use Go 1.25 or newer:
+Update all imports to `/v2` and use Go 1.26 or newer (required by go-git v6):
 
 ```sh
 go get github.com/betterleaks/betterleaks/v2@v2.0.0-rc.1
@@ -452,6 +457,8 @@ For staged changes, supply a caller-produced patch stream to
 
 GitHub, GitLab, and Hugging Face resource selection uses `Include`/`Exclude`;
 the derived resource map is private. Configure a fresh source for each scan.
+`scm.CloneOptions.Mirror` is replaced by `AllRefs` and `Refs`; the zero value
+fetches branches, tags, and notes. Provider sources expose `CloneAllRefs`.
 `File` manages its own read buffer; callers no longer supply `File.Buffer`.
 
 Callbacks are serialized within a scan; returning an error stops it. Finding

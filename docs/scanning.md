@@ -154,8 +154,9 @@ error. They do not silently scan a different source.
 
 Explicit commands always override detection. Use `git <url>` when discovery
 cannot identify a repository, or `url <url>` to scan the HTTP response itself.
-Source-specific flags such as `--include`, `--token`, and `--region` require
-an explicit command. Shared scan flags work before or after an implicit target.
+Source-specific flags such as `--include`, `--token`, `--clone-ref`,
+`--clone-all-refs`, `--revision`, and `--region` require an explicit command.
+Shared scan flags work before or after an implicit target.
 SSH Git URLs and scheme-less remote addresses are not supported by this shorthand.
 Self-hosted provider resources and custom S3-compatible endpoints use explicit
 provider commands; arbitrary HTTP(S) Git servers can use discovery or `git`.
@@ -476,11 +477,13 @@ printf 'secret bytes' | sha256sum
 printf 'secret bytes' | shasum -a 256
 ```
 
-An explicit `--ignore-file PATH` applies to every target. Otherwise `filesystem` and
-`git` use `<target>/.betterleaksignore` (or the parent directory for one file),
-while `stdin`, GitHub, GitLab, Hugging Face, and S3 use
-`./.betterleaksignore`. Git scans read only the current working-tree policy,
-never a historical version. The active policy file is excluded from scanning.
+An explicit `--ignore-file PATH` applies to every target. Otherwise `filesystem`
+and local `git` scans use `<target>/.betterleaksignore` (or the parent directory
+for one file). Git URL scans, `stdin`, GitHub, GitLab, Hugging Face, and S3 use
+`./.betterleaksignore`. Local Git scans read the policy from the supplied path,
+including a bare repository or a work-tree subdirectory; they do not search
+parent directories for a policy. Git scans never load a historical or remotely
+fetched policy file. The active policy file is excluded from scanning.
 A missing default is fine; a missing or unreadable explicit file is an error.
 
 Fingerprints are identifiers, not confidential storage. Weak secrets can be
@@ -565,17 +568,21 @@ The Git source reads repository objects in-process with go-git. It never runs
 `git`, hooks, diff or textconv helpers, filters, SSH, or credential helpers, so
 scanning an untrusted repository cannot execute anything it configures.
 
-By default it scans the history reachable from HEAD and every ref in the
-repository. Each commit is compared with its first parent and only added lines
-are scanned; both parents of a merge are walked.
+With no target, `betterleaks git` scans the repository containing the current
+directory. By default it scans the history reachable from HEAD and every ref
+except `refs/notes/*`, which has a separate `notes` resource. Each commit is
+compared with its first parent and added lines are scanned. Merge commits are
+walked through all parents but not diffed; `--include=merges` adds their
+patches. To scan added lines in staged or uncommitted working-tree
+changes, use the [patch workflow](#caller-supplied-patches).
 
-HTTP(S) URL scans fetch branches (`refs/heads/*`), tags (`refs/tags/*`), and notes
-(`refs/notes/*`). This also applies to Git history fetched by the `github`,
+By default, HTTP(S) URL scans fetch branches (`refs/heads/*`), tags (`refs/tags/*`),
+and notes (`refs/notes/*`). This also applies to Git history fetched by the `github`,
 `gitlab`, and `huggingface` sources. Hosting services also publish refs for pull
 requests, merge requests, and other code reviews, such as `refs/pull/*`,
-`refs/merge-requests/*`, `refs/changes/*`, and `refs/pr/*`. These refs are excluded,
-so history reachable only through them is not downloaded or scanned. Notes are
-scanned when `--include=notes` is selected.
+`refs/merge-requests/*`, `refs/changes/*`, and `refs/pr/*`. These refs are excluded
+by default, so history reachable only through them is not downloaded or scanned.
+Notes are scanned when `--include=notes` is selected.
 
 ```sh
 betterleaks git .                                # all history
@@ -585,13 +592,65 @@ betterleaks git . --since=2026-01-01 --author='Example <'
 betterleaks git https://github.com/owner/repo
 ```
 
-To also scan pull-request and merge-request history, create a mirror yourself
-and scan it locally. To scan just one PR, see [Scanning a pull request](#scanning-a-pull-request).
+### Git options
+
+These options belong to the explicit `git` command. Shared detection, output,
+validation, and diagnostic flags are also available; see `betterleaks git --help`.
+
+| Option | Default | Effect |
+|---|---|---|
+| `[repo]` | `.` | Local repository, a path inside it, or an HTTP(S) repository URL. |
+| `--token` | Known-host environment variable, if set | Authenticate an HTTPS clone; see [Remote repositories](#remote-repositories). |
+| `--clone-ref` | None | Add a fully qualified ref or pattern to the URL fetch; repeatable. |
+| `--clone-all-refs` | Off | Fetch all advertised refs under `refs/`; URL scans only. |
+| `--revision` | HEAD and all non-note refs | Start at a revision, or select an `A..B` range, from available history. |
+| `--since`, `--until` | Unbounded | Inclusive committer-date bounds, RFC3339 or `YYYY-MM-DD` (UTC). |
+| `--author`, `--committer` | No filter | Go regular expressions over `Name <email>`. |
+| `--max-commits` | `0` (unlimited) | Limit selected commits in the history walk. |
+| `--include` | No additions | Add resource types; comma-separated or repeated. |
+| `--exclude` | No exclusions | Remove resource types; comma-separated or repeated. |
+| `--git-max-blob-mib` | `64` | Skip larger blobs with a warning; `0` also selects 64, maximum 4096. |
+| `--max-archive-depth` | `8` | Expand nested archives up to this depth; `0` disables expansion. |
+| `--allow-external-objects` | Off | Permit Git storage outside the repository's directory. |
+| `--platform` | Infer from the fetch remote | Link platform: `github`, `gitlab`, `azuredevops`, `gitea`, `bitbucket`, `unknown` (auto), or `none`. |
+
+### What to fetch
+
+For `git` URL scans, `--clone-ref` adds a fully qualified ref or a pattern with at
+most one `*` to the default branches, tags, and notes. Repeat the flag for multiple
+refs, and quote patterns to keep the shell from expanding them. Names are kept
+unchanged in the clone; short branch names, commit hashes, and `source:destination`
+refspecs are not accepted. A missing exact ref is an error; an unmatched pattern
+adds nothing. Values are not comma-separated: a comma is part of the ref name.
 
 ```sh
-git clone --mirror https://github.com/owner/repo repo.git
-betterleaks git repo.git
+# Add all GitHub PR heads, including PRs from forks
+betterleaks git https://github.com/owner/repo --clone-ref='refs/pull/*/head'
+
+# Add all GitLab merge-request heads
+betterleaks git https://gitlab.com/owner/repo --clone-ref='refs/merge-requests/*/head'
+
+# Fetch every advertised ref, including review and other host-specific refs
+betterleaks git https://github.com/owner/repo --clone-all-refs
 ```
+
+`--clone-all-refs` includes every advertised ref under `refs/`. When both options
+are supplied, `--clone-ref` values are checked for valid syntax but otherwise
+ignored. Fetching all refs can download substantially more history. It does not
+enumerate or clone fork repositories, but review refs in the target repository
+can bring in commits from forks. Hidden refs and unreachable objects are not
+requested.
+
+Both options require a URL and always produce a temporary bare repository with
+full history and no checkout. They control the download; `--revision` and
+`--include`/`--exclude` control the scan afterwards. Without a revision, fetched
+review history is scanned along with the repository's ordinary history. Notes
+still require `--include=notes`. These options fetch Git content, not PR titles,
+descriptions, or comments. To scan just one PR, see below. Local scans read the
+refs already present and never fetch; clone flags are rejected for local paths.
+The `github`, `gitlab`, and `huggingface` commands accept `--clone-all-refs` and
+apply it to every repository they clone. `--clone-ref` needs the `git` command,
+and implicit targets accept neither flag.
 
 ### What to scan
 
@@ -602,7 +661,7 @@ selection that leaves nothing to scan are errors.
 | Resource | Scans | Default |
 |---|---|---|
 | `history` | Added lines in each commit's patch | On |
-| `merges` | Merge commits' patches against their first parent | On with `history` |
+| `merges` | Merge commits' patches against their first parent | Off |
 | `commit-messages` | Each commit's full message | Off |
 | `reflog-history` | Also walks commits that local reflogs remember, such as ones removed by reset, amend, or rebase | Off |
 | `notes` | Every version of every note under `refs/notes/*`, including removed notes | Off |
@@ -611,9 +670,13 @@ selection that leaves nothing to scan are errors.
 | `objects` | Every stored blob, whole, once per object | Off |
 | `unreachable-objects` | Stored blobs not reachable from HEAD or any ref | Off |
 
-`merges` and `reflog-history` change the commit walk rather than scanning
-anything themselves. `merges` needs `history`. `reflog-history` adds commits to
-`history`, `commit-messages`, or both, so one of them must be on.
+`merges` controls which history patches are scanned and requires `history`.
+`reflog-history` adds commits to `history`, `commit-messages`, or both, so one
+of them must be on.
+Without `merges`, merge commits are still walked through all parents, and their
+messages are scanned when `commit-messages` is on. A merge patch repeats the
+changes its branch's commits already added; only conflict resolutions and edits
+made in the merge itself are new.
 
 `objects` and `unreachable-objects` scan whole blobs, archives included, with
 `resource=git.blob` and `git.blob_sha` but no path or commit: a blob has neither.
@@ -622,24 +685,26 @@ content counts as unreachable. `objects` includes the unreachable blobs.
 
 | Goal | Flags |
 |---|---|
-| History without merge patches | `--exclude=merges` |
+| History with merge patches | `--include=merges` |
 | Only commit messages | `--include=commit-messages --exclude=history` |
 | Abandoned local history | `--include=reflog-history` |
-| Everything | `--include=commit-messages,notes,tag-messages,reflog-messages,reflog-history,objects` |
+| Everything | `--include=merges,commit-messages,notes,tag-messages,reflog-messages,reflog-history,objects` |
 
 ### Which commits
 
 - `--revision=REV` starts at one revision. `--revision=A..B` scans the commits
-  reachable from B but not from A, and `A..` means `A..HEAD`. `A...B` is not
-  supported. This selects commits from available history; it does not fetch
-  additional refs.
+  reachable from B but not from A; `A..` means `A..HEAD` and `..B` means `HEAD..B`.
+  `A...B` is not supported. This selects commits from available history; it does
+  not fetch additional refs.
 - `--since` and `--until` filter by committer time, in RFC3339 or `YYYY-MM-DD`
   (UTC). A date-only `--until` includes that whole day. Filtering never prunes the
   walk, so backdated commits are still found.
 - `--author` and `--committer` are Go regular expressions matched against
   `Name <email>`.
-- `--max-commits=N` scans the newest N selected commits by committer time, across
-  every starting point.
+- `--max-commits=N` stops after N commits pass the date and identity filters,
+  across all history starting points. The walk prioritizes newer committer dates
+  among discovered commits. Parents become available as their children are
+  visited, so timestamps out of ancestry order do not produce a global date sort.
 - `--include=reflog-history` adds the reflogs' commits to whatever `--revision`
   selects. Commits a range excludes stay excluded.
 - A path inside a work tree scans the whole repository containing it, as Git does.
@@ -647,9 +712,15 @@ content counts as unreachable. `objects` includes the unreachable blobs.
   commits, as `git log -p` shows them: their whole tree appears as added. For
   exact attribution, fetch full history (`fetch-depth: 0` in GitHub Actions).
 
-Notes and tag and reflog messages aren't restricted by `--revision`. Date,
-identity, and count filters apply to note commits but not to tag or reflog
-messages.
+The revision, date, and identity filters combine with AND. Object scans are not
+restricted by these filters or `--max-commits`. Notes and tag and reflog messages
+aren't restricted by `--revision`. Date and identity filters apply to note
+commits, and `--max-commits` applies separately to each notes ref. Tag and reflog
+messages have none of these commit filters.
+
+On URL scans these flags do not reduce the fetch. Branch refs are stored as
+`refs/heads/main` (short name `main`), rather than `origin/main`. Use
+`--revision=main..feature-branch` for a URL and your local ref names for a local scan.
 
 ### Scanning a pull request
 
@@ -661,20 +732,32 @@ that are not reachable from `main`:
 betterleaks git https://github.com/owner/repo --revision=main..feature-branch
 ```
 
-For a GitHub PR from a fork, fetch that specific PR into a local clone first.
-Run these commands in a clone whose `origin` points to the target repository,
-replacing `main` with the PR's base branch and `123` with its number:
+For a GitHub PR from a fork, add that specific PR ref to the URL fetch and select
+its commits with `--revision`. Replace `main` with the PR's base branch and `123`
+with its number:
+
+```sh
+betterleaks git https://github.com/owner/repo \
+  --clone-ref=refs/pull/123/head \
+  --revision=main..refs/pull/123/head
+
+# The equivalent for a GitLab merge request
+betterleaks git https://gitlab.com/owner/repo \
+  --clone-ref=refs/merge-requests/123/head \
+  --revision=main..refs/merge-requests/123/head
+```
+
+`--clone-ref` adds the PR's history to the download; the range scans only commits
+reachable from the PR head but not from `main`. Passing only
+`--revision=refs/pull/123/head` does not fetch the PR ref and fails because it is
+unavailable. This also works for a GitHub PR whose source branch has been deleted,
+provided its PR ref is still advertised. For a local scan, fetch the PR yourself:
 
 ```sh
 git fetch origin main
 git fetch origin refs/pull/123/head:refs/heads/pr-123
 betterleaks git . --revision=origin/main..pr-123
 ```
-
-Passing `--revision=refs/pull/123/head` to a URL scan does not fetch that PR ref
-and fails because it is unavailable. The local fetch above explicitly includes
-one PR without downloading every PR's history. This also works for a GitHub PR
-whose source branch has been deleted, provided its PR ref is still available.
 
 ### Finding metadata
 
@@ -691,10 +774,13 @@ whose source branch has been deleted, provided its PR ref is still available.
   `git.reflog_date`, old and new IDs, and the log file and line. A reflog actor
   is who moved the ref, not who wrote the commit.
 
-Links are built from the local repository's fetch remote. Use
-`--platform=github` or `--platform=gitlab` for self-hosted services, or
-`--platform=none` to disable them. Links aren't checked over the network, so an
-unpublished commit can produce a link that 404s. Findings without a link show
+Links are built from the repository's fetch remote. `--platform` accepts
+`github`, `gitlab`, `azuredevops`, `gitea` (also for Forgejo), and `bitbucket`;
+set it explicitly for self-hosted services. Omit it or use `unknown` to infer
+the platform from known public hosts, or use `none` to disable links.
+This only controls finding metadata and links, not authentication or fetching.
+Links aren't checked over the network, so an unpublished commit can produce a
+link that 404s. Findings without a link show
 `local only` in terminal output.
 
 ### Limits and incomplete scans
@@ -750,8 +836,8 @@ Fetched packs are indexed as they download, without limiting pack size,
 object count, or object size: plain objects of any size are streamed. Objects
 stored as deltas are then rebuilt in parallel, one delta chain per worker,
 keeping up to 1 GiB of chains in memory and rebuilding older links when needed.
-Index metadata grows with the object count, about 52 bytes per object. The only packs refused are ones Git does not write by
-default: delta chains longer than 4,096 links (Git writes at most 4,095), and
+Index metadata grows with the object count, about 52 bytes per object. Structural
+limits reject delta chains longer than 4,096 links (Git writes at most 4,095), and
 delta bases or results over 4 GiB (Git deltifies only objects under
 `core.bigFileThreshold`, 512 MiB by default). A corrupt pack or cancellation
 aborts the fetch and removes its temporary files. `--git-max-blob-mib` applies
@@ -763,15 +849,39 @@ to scanning, not fetching.
 history := &gogit.Source{RepoPath: "."}
 pullRequest := &gogit.Source{RepoPath: ".", Revision: "origin/main..HEAD"}
 remote := &gogit.Source{URL: "https://github.com/owner/repo"}
+remotePR := &gogit.Source{
+    URL:       "https://github.com/owner/repo",
+    CloneRefs: []string{"refs/pull/123/head"},
+    Revision:  "main..refs/pull/123/head",
+}
 ```
 
-The zero value scans HEAD and every ref, and `Include`/`Exclude` work as on the
-CLI. Skipped content is logged as a warning on `Logger`, and the scan
-continues. Storage outside the repository fails with `gogit.ErrExternalStore`
-unless `AllowExternalObjects` is set. `Workers` and `CacheMiB` tune reading.
+Set exactly one of `RepoPath` or `URL`; an empty `Source` is invalid. With an
+empty `Revision`, history starts at HEAD and all non-note refs.
+`Include`/`Exclude` use the CLI's resource names. `CloneRefs` and `CloneAllRefs`
+correspond to the URL-only clone flags. Supply `Token` explicitly for an
+authenticated URL; the SDK does not infer environment tokens.
+
+| CLI option | `gogit.Source` field | SDK behavior |
+|---|---|---|
+| `--max-commits` | `MaxCount` | `0` is unlimited. |
+| `--since`, `--until` | `Since`, `Until` | Inclusive `*time.Time` bounds; callers parse dates and choose any end-of-day adjustment. |
+| `--git-max-blob-mib` | `MaxBlobBytes` | Bytes, not MiB; `0` selects 64 MiB. |
+| `--max-archive-depth` | `MaxArchiveDepth` | `0` disables expansion; set `8` to match the CLI default. |
+| `--allow-external-objects` | `AllowExternalObjects` | Off by default. |
+| `--platform` | `Platform` | An `scm.Platform` value; `scm.NoPlatform` disables links. |
+
+Skipped content is logged as a warning on `Logger`, and the scan continues.
+Storage outside the repository fails with `gogit.ErrExternalStore` unless
+`AllowExternalObjects` is set. The SDK additionally exposes `Workers` (default
+`min(GOMAXPROCS, 8)`, maximum 16) and `CacheMiB` (default 256, maximum 4096).
 `DiskCacheMiB` enables a temporary-file cache of large reconstructed objects for
-repositories with deep delta chains of large files; the file holds repository
-content, so it is off by default. Don't change a Source while it is scanning.
+repositories with deep delta chains; `0` disables it and the maximum is 4096.
+These three tuning fields have no CLI flags. `RemoteURL` overrides the fetch
+remote used for finding links. Don't change a Source while it is scanning.
+
+For a complete program that applies the configuration's source prefilter and
+reports warnings, see [`examples/git.go`](../examples/git.go).
 
 ### Caller-supplied patches
 
@@ -791,7 +901,8 @@ git diff --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ 
   betterleaks stdin --git-diff
 
 # Any history selection your Git supports
-git log -p --all --since='90 days ago' --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ |
+git log -p --all --since='90 days ago' --diff-merges=first-parent --format=medium --no-abbrev-commit \
+  --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ |
   betterleaks stdin --git-diff
 ```
 
@@ -801,6 +912,8 @@ Each flag matters:
   repository configuration selects.
 - `--no-color` is needed even when piping, because configuration can force color.
 - The fixed prefixes keep file paths intact under settings like `diff.noprefix`.
+- For `git log`, `--diff-merges=first-parent` supplies supported merge patches;
+  `--format=medium --no-abbrev-commit` supplies the commit metadata the parser reads.
 - `pipefail` makes a failed Git command fail the pipeline instead of looking like
   an empty, clean scan.
 
@@ -833,6 +946,13 @@ done | betterleaks stdin --git-diff --redact
 
 `github` takes a target URL. Owner and repo targets scan git history by default; specific resource URLs scan the matching resource plus associated comments or assets by default. Use `--include` to add resource types and `--exclude` to skip types.
 
+Here, `prs` and `pr-comments` select API text, not PR Git history. `forks`
+controls repository enumeration, not which refs a clone fetches.
+`--clone-all-refs` adds every advertised ref, including `refs/pull/*`, to each
+repository's clone. To scan one PR's commits, use
+[`git --clone-ref` with `--revision`](#scanning-a-pull-request).
+The `github` command's `--since` and `--until` filter API items, not Git commits.
+
 Set `GITHUB_TOKEN` in the environment before running these examples.
 
 ### Resource types
@@ -841,7 +961,7 @@ Set `GITHUB_TOKEN` in the environment before running these examples.
 | :--- | :--- |
 | `repos` | Git repository history (default) |
 | `forks` | Include forked repositories |
-| `prs` | Pull request descriptions |
+| `prs` | Pull request titles and descriptions |
 | `pr-comments` | Comments on pull requests (auto-included with `prs`) |
 | `issues` | Issue descriptions |
 | `issue-comments` | Comments on issues  (auto-included with `issues`) |
@@ -973,6 +1093,13 @@ betterleaks github https://github.example.com/platform-team
 
 `gitlab` takes a target URL. Project, group, and user targets scan git history by default; specific resource URLs scan the matching resource plus associated comments or assets by default. Use `--include` to add resource types and `--exclude` to skip types.
 
+Here, `mrs` and `mr-comments` select API text, not merge-request Git history.
+`forks` controls project enumeration, not which refs a clone fetches.
+`--clone-all-refs` adds every advertised ref, including `refs/merge-requests/*`,
+to each project's clone. To scan one MR's commits, use
+[`git --clone-ref` with `--revision`](#scanning-a-pull-request).
+The `gitlab` command's `--since` and `--until` filter API items, not Git commits.
+
 Set `GITLAB_TOKEN` in the environment before running these examples. Public project git history can be scanned without a token, but group/user enumeration and API-backed resources require one.
 
 ### Resource types
@@ -981,7 +1108,7 @@ Set `GITLAB_TOKEN` in the environment before running these examples. Public proj
 | :--- | :--- |
 | `repos` | Git repository history (default) |
 | `forks` | Include forked projects |
-| `mrs` | Merge request descriptions |
+| `mrs` | Merge request titles and descriptions |
 | `mr-comments` | Comments on merge requests (auto-included with `mrs`) |
 | `issues` | Issue descriptions |
 | `issue-comments` | Comments on issues (auto-included with `issues`) |
@@ -1104,6 +1231,10 @@ betterleaks gitlab \
 ## `huggingface`
 
 `huggingface` takes a Hugging Face owner, repository, or Storage Bucket URL. The alias `hf` is equivalent. Owner and repo targets scan model, dataset, and Space git history by default. Use `--include` to add community resources or buckets, and `--exclude` to skip resource types.
+
+`--include=prs` scans community PR comments; it does not fetch PR Git refs.
+`--clone-all-refs` adds every advertised ref, including `refs/pr/*`, to each
+repository's clone. To add specific refs, use the [`git` command](#what-to-fetch).
 
 Set `HUGGINGFACE_TOKEN` or `HF_TOKEN` in the environment before scanning private resources, owner resources that require auth, community content, or Storage Buckets. You can also pass `--token`.
 
