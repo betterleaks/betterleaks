@@ -224,7 +224,7 @@ func TestSource(t *testing.T) {
 		require.Contains(t, logs.String(), "exceeds limit 1")
 		for _, bad := range []*Source{
 			{RepoPath: repo, Author: "["},
-			{RepoPath: repo, Include: []string{"reflogs"}},
+			{RepoPath: repo, Include: []string{"reflog-history"}},
 			{RepoPath: repo, Revision: "main...side"},
 			{RepoPath: repo, MaxBlobBytes: 5 << 30},
 			{RepoPath: repo, Workers: 17},
@@ -344,7 +344,7 @@ func TestSHA256(t *testing.T) {
 	gitFixture(t, repo, "reset", "--hard", root)
 	gitFixture(t, repo, "notes", "add", "-m", "NOTE_SHA256")
 	t.Setenv("PATH", t.TempDir())
-	fs = collect(t, &Source{RepoPath: repo, Include: []string{"reflog-history", "reflog-messages", "notes"}})
+	fs = collect(t, &Source{RepoPath: repo, Include: []string{"reflogs", "notes"}})
 	var abandoned, messages, note bool
 	for _, f := range fs {
 		abandoned = abandoned || f.Raw == "ABANDONED_SHA256\n"
@@ -646,7 +646,7 @@ func TestGitResourceSelection(t *testing.T) {
 		s.RepoPath = repo
 		require.Error(t, s.Validate())
 	}
-	for _, resource := range []string{"history", "merges", "objects", "unreachable-objects", "notes", "commit-messages", "tag-messages", "reflog-messages", "reflog-history"} {
+	for _, resource := range []string{"history", "merges", "objects", "unreachable-objects", "notes", "commit-messages", "tag-messages", "reflogs"} {
 		s := &Source{RepoPath: repo, Include: []string{resource}, Exclude: []string{resource}}
 		require.ErrorContains(t, s.Validate(), "both included and excluded")
 	}

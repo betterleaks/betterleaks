@@ -29,8 +29,8 @@ type GitCmd struct {
 	MaxCommits      int      `group:"source" name:"max-commits" help:"Limit selected commits in the history walk; zero is unlimited."`
 	GitMaxBlobMiB   int      `group:"source" name:"git-max-blob-mib" default:"64" help:"Skip blobs larger than this many MiB, with a warning for each."`
 	AllowExternal   bool     `group:"source" name:"allow-external-objects" help:"Read Git storage outside the repository (a .git file, commondir, or object alternate pointing elsewhere)."`
-	Exclude         []string `group:"source" help:"Remove Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflog-messages, reflog-history."`
-	Include         []string `group:"source" help:"Add Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflog-messages, reflog-history (default: history, without merge patches)."`
+	Exclude         []string `group:"source" help:"Remove Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflogs."`
+	Include         []string `group:"source" help:"Add Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflogs (default: history, without merge patches)."`
 	Repo            string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
 }
 

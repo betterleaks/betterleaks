@@ -138,8 +138,7 @@ The default scans history only. `--include` adds resources and `--exclude`
 removes them: `--include=commit-messages,notes` adds messages and notes,
 `--include=unreachable-objects` adds abandoned or uncommitted blobs, and
 `--include=commit-messages --exclude=history` scans only messages.
-`--include=reflogs` is replaced by `reflog-messages` (the journal text) and
-`reflog-history` (commits the reflogs remember).
+`--include=reflogs` still scans reflog entries and the commits they remember.
 
 Merge commits are no longer diffed by default. Earlier versions scanned each
 merge's patch against its first parent, which repeats changes its branch's

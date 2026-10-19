@@ -663,16 +663,16 @@ selection that leaves nothing to scan are errors.
 | `history` | Added lines in each commit's patch | On |
 | `merges` | Merge commits' patches against their first parent | Off |
 | `commit-messages` | Each commit's full message | Off |
-| `reflog-history` | Also walks commits that local reflogs remember, such as ones removed by reset, amend, or rebase | Off |
 | `notes` | Every version of every note under `refs/notes/*`, including removed notes | Off |
 | `tag-messages` | Annotated tag messages | Off |
-| `reflog-messages` | The text of local reflog entries | Off |
+| `reflogs` | The text of local reflog entries, and the commits they remember, such as ones removed by reset, amend, or rebase | Off |
 | `objects` | Every stored blob, whole, once per object | Off |
 | `unreachable-objects` | Stored blobs not reachable from HEAD or any ref | Off |
 
 `merges` controls which history patches are scanned and requires `history`.
-`reflog-history` adds commits to `history`, `commit-messages`, or both, so one
-of them must be on.
+`reflogs` adds the commits it remembers to `history` and `commit-messages`,
+whichever are on, and always scans the entry text. Entries record each commit's
+subject line and URLs passed to `git pull`, credentials included.
 Without `merges`, merge commits are still walked through all parents, and their
 messages are scanned when `commit-messages` is on. A merge patch repeats the
 changes its branch's commits already added; only conflict resolutions and edits
@@ -687,8 +687,8 @@ content counts as unreachable. `objects` includes the unreachable blobs.
 |---|---|
 | History with merge patches | `--include=merges` |
 | Only commit messages | `--include=commit-messages --exclude=history` |
-| Abandoned local history | `--include=reflog-history` |
-| Everything | `--include=merges,commit-messages,notes,tag-messages,reflog-messages,reflog-history,objects` |
+| Abandoned local history | `--include=reflogs` |
+| Everything | `--include=merges,commit-messages,notes,tag-messages,reflogs,objects` |
 
 ### Which commits
 
@@ -705,7 +705,7 @@ content counts as unreachable. `objects` includes the unreachable blobs.
   across all history starting points. The walk prioritizes newer committer dates
   among discovered commits. Parents become available as their children are
   visited, so timestamps out of ancestry order do not produce a global date sort.
-- `--include=reflog-history` adds the reflogs' commits to whatever `--revision`
+- `--include=reflogs` adds the reflogs' commits to whatever `--revision`
   selects. Commits a range excludes stay excluded.
 - A path inside a work tree scans the whole repository containing it, as Git does.
 - In a shallow clone, the oldest fetched commits are scanned as if they were root

@@ -8,8 +8,7 @@ const (
 	GitResourceTypeCommitMessages     = "commit-messages"
 	GitResourceTypeNotes              = "notes"
 	GitResourceTypeTagMessages        = "tag-messages"
-	GitResourceTypeReflogMessages     = "reflog-messages"
-	GitResourceTypeReflogHistory      = "reflog-history"
+	GitResourceTypeReflogs            = "reflogs"
 	GitResourceTypeObjects            = "objects"
 	GitResourceTypeUnreachableObjects = "unreachable-objects"
 )

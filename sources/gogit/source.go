@@ -74,7 +74,8 @@ type Source struct {
 	// bounds diff inputs, not go-git's internal reads or the process's RSS.
 	MaxBlobBytes int64
 	// Include and Exclude accept history, merges, objects, unreachable-objects,
-	// commit-messages, notes, tag-messages, reflog-messages, and reflog-history.
+	// commit-messages, notes, tag-messages, and reflogs. Reflogs scans each entry's
+	// message and adds the commits it records to history and commit-messages.
 	Include, Exclude []string
 	// AllowExternalObjects permits Git storage outside the repository: a .git
 	// file, commondir, or object alternate that points elsewhere. Linked
@@ -129,9 +130,9 @@ func (s *Source) Validate() error {
 
 // selection is the resolved Include/Exclude choice.
 type selection struct {
-	history, merges, messages, reflogHistory bool
-	notes, tags, reflogMessages              bool
-	objects, unreachable                     bool
+	history, merges, messages, reflogs bool
+	notes, tags                        bool
+	objects, unreachable               bool
 }
 
 //nolint:exhaustruct // Resources not on by default start false.
@@ -141,17 +142,16 @@ func (s *Source) selection() (selection, error) {
 		sources.GitResourceTypeHistory:            &sel.history,
 		sources.GitResourceTypeMerges:             &sel.merges,
 		sources.GitResourceTypeCommitMessages:     &sel.messages,
-		sources.GitResourceTypeReflogHistory:      &sel.reflogHistory,
+		sources.GitResourceTypeReflogs:            &sel.reflogs,
 		sources.GitResourceTypeNotes:              &sel.notes,
 		sources.GitResourceTypeTagMessages:        &sel.tags,
-		sources.GitResourceTypeReflogMessages:     &sel.reflogMessages,
 		sources.GitResourceTypeObjects:            &sel.objects,
 		sources.GitResourceTypeUnreachableObjects: &sel.unreachable,
 	}
 	for _, list := range [][]string{s.Include, s.Exclude} {
 		for _, name := range list {
 			if flags[name] == nil {
-				return selection{}, fmt.Errorf("unsupported Git resource %q; supported: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflog-messages, reflog-history", name)
+				return selection{}, fmt.Errorf("unsupported Git resource %q; supported: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflogs", name)
 			}
 		}
 	}
@@ -164,13 +164,9 @@ func (s *Source) selection() (selection, error) {
 	for _, name := range s.Exclude {
 		*flags[name] = false
 	}
-	// Merge patches are part of history, and reflog-history adds commits to the
-	// history or message scan rather than scanning anything itself.
+	// Merge patches are part of history.
 	if sel.merges && !sel.history {
 		return selection{}, errors.New("including merges requires history")
-	}
-	if sel.reflogHistory && !sel.history && !sel.messages {
-		return selection{}, errors.New("reflog-history adds commits to history or commit-messages; enable one of them")
 	}
 	if sel == (selection{}) {
 		return selection{}, errors.New("git resource selection leaves nothing to scan")
@@ -232,20 +228,16 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if sel.history || sel.messages || sel.tags {
 		resolved.Platform, resolved.RemoteURL = s.resolveRemote(r)
 	}
-	// One walk covers every commit resource. Reflogs, when selected, add roots
-	// to it before it starts.
+	// One walk covers every commit resource. Reflogs, when selected, add the
+	// commits they record to it before it starts.
 	var walk *history
 	if sel.scope() != 0 {
 		if walk, err = resolved.history(ctx, r); err != nil {
 			return err
 		}
 	}
-	if sel.reflogHistory || sel.reflogMessages {
-		var roots *history
-		if sel.reflogHistory {
-			roots = walk
-		}
-		if err := resolved.reflogs(ctx, r.Storer.(*objectStorage), roots, sel.reflogMessages, yield); err != nil {
+	if sel.reflogs {
+		if err := resolved.reflogs(ctx, r.Storer.(*objectStorage), walk, yield); err != nil {
 			return err
 		}
 	}

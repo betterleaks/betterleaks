@@ -18,10 +18,11 @@ import (
 )
 
 // Reflogs are local journals, not Git objects. Stream them without keeping a
-// reverse index or sorting by timestamps. When roots is set, every recorded old
-// and new commit becomes a history root; the walk's visited set deduplicates
-// them with ref history. Old IDs matter: a reset can discard its old tip.
-func (s *Source) reflogs(ctx context.Context, store *objectStorage, roots *history, messages bool, yield sources.FragmentsFunc) error {
+// reverse index or sorting by timestamps. Every entry's message is scanned.
+// When roots is set, every recorded old and new commit becomes a history root;
+// the walk's visited set deduplicates them with ref history. Old IDs matter: a
+// reset can discard its old tip.
+func (s *Source) reflogs(ctx context.Context, store *objectStorage, roots *history, yield sources.FragmentsFunc) error {
 	cfg, err := store.Config()
 	if err != nil {
 		return err
@@ -58,22 +59,20 @@ func (s *Source) reflogs(ctx context.Context, store *objectStorage, roots *histo
 			if err != nil {
 				return fmt.Errorf("reflog %s line %d: %w", name, line, err)
 			}
-			if messages {
-				attrs := map[string]string{
-					sources.AttrResource:            sources.ResourceGitReflogMessage,
-					sources.AttrGitReflogRef:        ref,
-					sources.AttrGitReflogActorName:  e.name,
-					sources.AttrGitReflogActorEmail: e.email,
-					sources.AttrGitReflogDate:       e.when.UTC().Format(time.RFC3339),
-					sources.AttrGitReflogOldSHA:     e.old.String(),
-					sources.AttrGitReflogNewSHA:     e.new.String(),
-					sources.AttrGitReflogLog:        name,
-					sources.AttrGitReflogLine:       strconv.Itoa(line),
-				}
-				if s.Prefilter == nil || !s.Prefilter(attrs) {
-					if err := yield(sources.Fragment{Raw: e.message, StartLine: 1, Attributes: attrs}, nil); err != nil {
-						return err
-					}
+			attrs := map[string]string{
+				sources.AttrResource:            sources.ResourceGitReflogMessage,
+				sources.AttrGitReflogRef:        ref,
+				sources.AttrGitReflogActorName:  e.name,
+				sources.AttrGitReflogActorEmail: e.email,
+				sources.AttrGitReflogDate:       e.when.UTC().Format(time.RFC3339),
+				sources.AttrGitReflogOldSHA:     e.old.String(),
+				sources.AttrGitReflogNewSHA:     e.new.String(),
+				sources.AttrGitReflogLog:        name,
+				sources.AttrGitReflogLine:       strconv.Itoa(line),
+			}
+			if s.Prefilter == nil || !s.Prefilter(attrs) {
+				if err := yield(sources.Fragment{Raw: e.message, StartLine: 1, Attributes: attrs}, nil); err != nil {
+					return err
 				}
 			}
 			if roots != nil {

@@ -275,7 +275,6 @@ func TestGoGitOptionValidation(t *testing.T) {
 	for _, cmd := range []GitCmd{
 		{Exclude: []string{"unknown"}}, {Exclude: []string{"history"}}, {Include: []string{"notes"}, Exclude: []string{"notes"}}, {Exclude: []string{""}}, {Author: "["}, {Since: "yesterday"}, {Until: "2001-01-01", Since: "2001-01-02"},
 		{MaxCommits: -1}, {GitMaxBlobMiB: -1}, {GitMaxBlobMiB: 4097}, {Revision: "main...side"},
-		{Include: []string{"reflog-history"}, Exclude: []string{"history"}},
 		{CloneRefs: []string{"refs/pull/1/head"}}, {CloneAllRefs: true},
 		{Repo: "https://example.test/repo", CloneRefs: []string{"main"}},
 	} {
