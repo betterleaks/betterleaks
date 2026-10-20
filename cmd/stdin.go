@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"golang.org/x/term"
 )
 
 type StdinCmd struct {
@@ -48,17 +51,42 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 	}
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "stdin")
-	source := newStdinSource(runtime.stdin, attrs, filters.shouldSkip)
+	input, closeInput := cancellableStdin(runtime.Context, runtime.stdin)
+	defer closeInput()
+	source := newStdinSource(input, attrs, filters.shouldSkip)
 	if options.GitDiff {
-		source = &sources.GitDiff{Content: runtime.stdin, Attributes: attrs, Prefilter: filters.shouldSkip}
+		source = &sources.GitDiff{Content: input, Attributes: attrs, Prefilter: filters.shouldSkip}
 	}
 	findings.startScan(runtime)
+	if file, ok := runtime.stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {
+		runtime.Logger().Info("waiting for stdin; pipe or redirect input, or press Ctrl-C to cancel")
+	}
 	summary, scanErr := runner.Scan(runtime.Context, source, findings.Add)
 	if scanErr != nil {
 		runtime.Logger().Error("failed scan input from stdin", "error", scanErr)
 	}
 
 	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, scanErr)
+}
+
+// cancellableStdin lets the CLI finish an interrupted scan even when the OS
+// cannot interrupt a blocked stdin Read. The copying goroutine owns its buffer;
+// it may remain blocked until input arrives or the process exits. Keep this
+// bridge at the CLI boundary: SDK sources leave reader ownership to callers.
+func cancellableStdin(ctx context.Context, content io.Reader) (io.Reader, func()) {
+	reader, writer := io.Pipe()
+	stop := context.AfterFunc(ctx, func() { _ = writer.CloseWithError(ctx.Err()) })
+	go func() {
+		err := ctx.Err()
+		if err == nil {
+			_, err = io.Copy(writer, content)
+		}
+		_ = writer.CloseWithError(err)
+	}()
+	return reader, func() {
+		stop()
+		_ = reader.Close()
+	}
 }
 
 func newStdinSource(content io.Reader, attrs map[string]string, shouldSkip sources.PrefilterFunc) sources.Source {

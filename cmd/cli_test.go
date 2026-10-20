@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -853,6 +854,66 @@ func TestStdinReadFailureFinalizesIncompleteReport(t *testing.T) {
 	assert.Equal(t, 1, exitCode)
 	assert.Empty(t, findings)
 	assert.Zero(t, metadata.BytesScanned)
+}
+
+type blockedStdin struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *blockedStdin) Read([]byte) (int, error) {
+	close(r.started)
+	<-r.release
+	return 0, io.EOF
+}
+
+func TestStdinCancellationFinalizesIncompleteReport(t *testing.T) {
+	configPath := writeTestConfig(t, "[[rules]]\nid='token'\nregex='TOKEN'\n")
+	for _, gitDiff := range []bool{false, true} {
+		t.Run(fmt.Sprintf("git-diff=%v", gitDiff), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			input := &blockedStdin{started: make(chan struct{}), release: make(chan struct{})}
+			root, stdout := newTestCLI(t)
+			root.runtime.Context = ctx
+			root.SetIn(input)
+			var exitCode int
+			root.runtime.exit = func(code int) { exitCode = code }
+			args := []string{"stdin", "--config", configPath, "--no-banner", "--output=-"}
+			if gitDiff {
+				args = append(args, "--git-diff")
+			}
+			root.SetArgs(args)
+			done := make(chan error, 1)
+			finished := make(chan struct{})
+			defer func() {
+				cancel()
+				close(input.release)
+				<-finished
+			}()
+			go func() {
+				defer close(finished)
+				done <- root.Execute()
+			}()
+			select {
+			case <-input.started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("scan did not start reading stdin")
+			}
+			cancel()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("canceling the scan did not interrupt the stdin read")
+			}
+			metadata, findings := decodeScanJSON(t, stdout.Bytes())
+			assert.Equal(t, report.ScanStateIncomplete, metadata.State)
+			assert.Equal(t, 1, exitCode)
+			assert.Empty(t, findings)
+			assert.Zero(t, metadata.BytesScanned)
+		})
+	}
 }
 
 func TestCorruptArchiveWarningKeepsScanComplete(t *testing.T) {
