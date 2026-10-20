@@ -2000,6 +2000,11 @@ Use `stdin` for generated or piped content. It reads a plain byte stream;
 unpack archives before piping them in. `--max-archive-depth` and
 `--max-target-megabytes` do not apply to this command.
 
+With terminal input, the command displays a waiting message and reads until
+end-of-file. Ctrl-C cancels both plain and `--git-diff` stdin scans, including
+when no input has arrived; canceled scans exit nonzero and reports are marked
+incomplete.
+
 ```sh
 # file through a pipe
 cat .env | betterleaks stdin
