@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,8 @@ type GitCmd struct {
 
 // gitConfigIsolationEnv contains the standard Git configuration isolation environment variables.
 // These settings prevent Git from reading user or system configuration files.
+// Repository configuration still applies. Commands that compute diffs must
+// explicitly disable external diff and textconv helpers.
 func gitConfigIsolationEnv() []string {
 	// Git recognizes /dev/null on Windows too; Git for Windows 2.56.0 rejects NUL.
 	const nullDevice = "/dev/null"
@@ -60,6 +63,16 @@ func gitConfigIsolationEnv() []string {
 		env = append(env, k+"="+v)
 	}
 	return env
+}
+
+// disableGitDiffHelpers overrides user options before any pathspecs so scans
+// cannot run repository-configured external diff or textconv commands.
+func disableGitDiffHelpers(args []string) []string {
+	optionsEnd := slices.Index(args, "--")
+	if optionsEnd < 0 {
+		optionsEnd = len(args)
+	}
+	return slices.Insert(args, optionsEnd, "--no-ext-diff", "--no-textconv")
 }
 
 // blobReader provides a ReadCloser interface git cat-file blob to fetch
@@ -98,24 +111,21 @@ func NewGitLogCmd(source string, logOpts string) (*GitCmd, error) {
 }
 
 // NewGitLogCmdContext is the same as NewGitLogCmd but supports passing in a
-// context to use for timeouts
+// context to use for timeouts. External diff and textconv helpers are always disabled.
 func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*GitCmd, error) {
 	sourceClean := filepath.Clean(source)
-	var cmd *exec.Cmd
+	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
 	if logOpts != "" {
-		args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
-
 		userArgs, err := splitGitLogOpts(logOpts)
 		if err != nil {
 			return nil, fmt.Errorf("invalid --log-opts: %w", err)
 		}
 
 		args = append(args, userArgs...)
-		cmd = exec.CommandContext(ctx, "git", args...)
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
-			"--diff-merges=first-parent", "--full-history", "--all", "--diff-filter=tuxdb")
+		args = append(args, "--full-history", "--all", "--diff-filter=tuxdb")
 	}
+	cmd := exec.CommandContext(ctx, "git", disableGitDiffHelpers(args)...)
 	cmd.Env = gitConfigIsolationEnv()
 
 	logging.Debug().Msgf("executing: %s", cmd.String())
@@ -220,9 +230,9 @@ func NewGitDiffCmd(source string, staged bool) (*GitCmd, error) {
 func NewGitDiffCmdContext(ctx context.Context, source string, staged bool) (*GitCmd, error) {
 	sourceClean := filepath.Clean(source)
 	var cmd *exec.Cmd
-	cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff", ".")
+	cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff", "--no-textconv", ".")
 	if staged {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff",
+		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff", "--no-textconv",
 			"--staged", ".")
 	}
 	cmd.Env = gitConfigIsolationEnv()
