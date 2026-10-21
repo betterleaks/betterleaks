@@ -2,6 +2,7 @@ package sources
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -82,12 +83,15 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 	defer putReader(reader)
 
 	nextLine := 1
+	pending := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		n, readErr := reader.Read(buffer)
+		n, readErr := reader.Read(buffer[pending:])
+		n += pending
+		pending = 0
 		if n == 0 {
 			if readErr != nil && !errors.Is(readErr, io.EOF) {
 				return yield(Fragment{StartLine: nextLine}, readErr)
@@ -102,8 +106,18 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 			chunk, boundaryErr = readUntilSafeBoundary(reader, chunk, n, maxPeekSize)
 		}
 
+		end := len(chunk)
+		if readErr == nil && boundaryErr == nil && len(chunk) == n+maxPeekSize {
+			// Lookahead ran out without a blank line. Keep the unfinished
+			// line for the next fragment if it fits in the read buffer.
+			// Longer lines retain the bounded-size fallback.
+			if newline := bytes.LastIndexByte(chunk, '\n'); newline >= 0 && len(chunk)-newline-1 < len(buffer) {
+				end = newline + 1
+			}
+		}
+
 		fragment := Fragment{
-			Raw:       string(chunk),
+			Raw:       string(chunk[:end]),
 			StartLine: nextLine,
 		}
 		if err := yield(fragment, nil); err != nil {
@@ -120,6 +134,7 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 		if readErr != nil {
 			return yield(Fragment{StartLine: nextLine}, readErr)
 		}
+		pending = copy(buffer, chunk[end:])
 	}
 }
 

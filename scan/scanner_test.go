@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,59 @@ import (
 )
 
 const maxDecodeDepth = 8
+
+func TestScanReaderPreservesFindingsAtFragmentBoundary(t *testing.T) {
+	token := "ghr_" + strings.Repeat("aB3dE5fG7hI9jK1lM2nO4pQ6rS8tU0vW", 3)[:76]
+	cases := []struct {
+		name  string
+		line  string
+		rule  config.Rule
+		count int
+	}{
+		{name: "complete-token", line: token, count: 1, rule: config.Rule{
+			ID: "github-refresh-token", Regex: `(ghr_[0-9a-zA-Z]{76})(?:[^0-9a-zA-Z]|$)`, ValueGroup: 1, Keywords: []string{"ghr_"},
+		}},
+		{name: "log-password", line: "password=" + strings.Repeat("syntheticPassword0123", 4), count: 1, rule: config.Rule{
+			ID: "log-password", Regex: `password=([a-zA-Z0-9]+)`, ValueGroup: 1, Keywords: []string{"password="},
+		}},
+		{name: "signed-url-filter", line: "AKIA0123456789ABCDEF" + strings.Repeat("x", 80) + "&X-Amz-Signature=synthetic", rule: config.Rule{
+			ID: "aws-access-key", Regex: `(AKIA[A-Z0-9]{16})`, ValueGroup: 1, Keywords: []string{"AKIA"}, FilterExpr: `finding.line contains "X-Amz-Signature"`,
+		}},
+	}
+	for _, tc := range cases {
+		scanner := mustNew(t, &config.Config{Rules: []config.Rule{tc.rule}})
+		for _, size := range []int{125000, 32768 + 25000} {
+			for _, ending := range []string{"\n", "\r\n"} {
+				t.Run(fmt.Sprintf("%s-boundary-%d-ending-%q", tc.name, size, ending), func(t *testing.T) {
+					prefix := strings.Repeat("padding"+ending, (size-54)/(7+len(ending)))
+					prefix += strings.Repeat("!", size-54-len(prefix))
+					input := prefix + tc.line + ending + strings.Repeat("tail"+ending, 30000)
+					var content io.Reader = strings.NewReader(input)
+					if size != 125000 {
+						var compressed bytes.Buffer
+						writer := gzip.NewWriter(&compressed)
+						_, err := writer.Write([]byte(input))
+						require.NoError(t, err)
+						require.NoError(t, writer.Close())
+						reader, err := gzip.NewReader(&compressed)
+						require.NoError(t, err)
+						defer reader.Close()
+						content = reader
+					}
+					var findings []report.Finding
+					_, err := scanner.Scan(t.Context(), &sources.Reader{Content: content}, func(f report.Finding) error {
+						findings = append(findings, f)
+						return nil
+					})
+					require.NoError(t, err)
+					require.Equal(t, scanner.ScanString(input), findings)
+					require.Len(t, findings, tc.count)
+				})
+			}
+		}
+	}
+}
+
 const configPath = "../testdata/config/"
 const repoBasePath = "../testdata/repos/"
 const archivesBasePath = "../testdata/archives/"
