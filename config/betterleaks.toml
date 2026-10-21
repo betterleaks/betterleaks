@@ -12574,3 +12574,28 @@ filter = '''
 entropy(finding["secret"]) < 3.3
 '''
 
+# ──────────────────────────────────────────────────────────────────────────────
+# runwayml-secret-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "runwayml-secret-key"
+description = "Detected a RunwayML Secret Key, risking unauthorized access to customer support services and sensitive ticketing data."
+regex = '''\b(key_[0-9a-f]{128})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["key_"]
+validate = '''
+let r = http.post("https://api.dev.runwayml.com/v1/image_to_video", {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer " + finding["secret"],
+    "X-Runway-Version": "2024-11-06"
+  }, "{\"promptImage\":\"https://upload.wikimedia.org/wikipedia/commons/8/85/Tour_Eiffel_Wikimedia_Commons_(cropped).jpg\",\"promptText\":\" timelapse on a sunny day with clouds flying by\",\"model\":\"gen4.5\",\"ratio\":\"1280:720\",\"duration\":5}");
+  r.status in [200, 400] ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Authorization failed"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
+'''
