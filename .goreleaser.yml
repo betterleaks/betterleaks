@@ -73,12 +73,16 @@ homebrew_casks:
       owner: betterleaks
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/betterleaks"]
-          end
+    # Homebrew deprecated `postflight`. GoReleaser still emits that stanza from
+    # hooks.post.install. Until hooks.post.install_steps ships, emit
+    # postflight_steps via custom_block. {{ "{{staged_path}}" }} survives
+    # GoReleaser's template pass as Homebrew's install-time {{staged_path}} token.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/betterleaks"]
+        end
+      end
 
 signs:
   - id: checksum
