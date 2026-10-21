@@ -100,6 +100,11 @@ validated repository-format and working-tree settings. It copies HEAD, refs,
 and reflogs, then reads the original object database in place. Object files are
 not cloned or copied.
 
+Repository discovery follows symlinks in the requested directory. The working
+tree is resolved from `core.worktree` (including enabled `config.worktree`
+overrides), with `GIT_WORK_TREE` taking precedence. Relative `core.worktree`
+paths are resolved against the original Git directory before isolation.
+
 Staged and working-tree scans use a private copy of the index, including split
 indexes and sparse-checkout patterns. Permitted settings from `config.worktree`
 override the common configuration when `extensions.worktreeConfig` is enabled.

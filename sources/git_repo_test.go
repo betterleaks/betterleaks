@@ -355,6 +355,142 @@ func TestGitIsolationHistoryPathspecs(t *testing.T) {
 	require.Len(t, got, 3)
 }
 
+func TestGitIsolationSymlinkedSource(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation can require privileges on Windows")
+	}
+	f := newGitFixture(t)
+	for i := range 3 {
+		f.write("sub/secret.txt", fmt.Sprintf("HISTORY_SECRET_%d\n", i))
+		f.write("other.txt", fmt.Sprintf("OTHER_SECRET_%d\n", i))
+		f.commit(fmt.Sprintf("commit %d", i))
+	}
+	f.write("sub/deleted.txt", "DELETED_HISTORY_SECRET\n")
+	f.commit("historical file")
+	f.git("rm", "sub/deleted.txt")
+	f.commit("delete historical file")
+	f.write("sub/secret.txt", "STAGED_SECRET\n")
+	f.git("add", "sub/secret.txt")
+	f.write("sub/secret.txt", "WORKTREE_SECRET\n")
+	link := filepath.Join(t.TempDir(), "linked-subdirectory")
+	require.NoError(t, os.Symlink(filepath.Join(f.path, "sub"), link))
+	for _, mode := range gitScanModes {
+		t.Run(mode, func(t *testing.T) {
+			logOpts := ""
+			if mode == "history" || mode == "parallel" {
+				logOpts = "--all -- secret.txt"
+			}
+			want := scanGit(t, link, mode, logOpts, GitOptions{TrustLocalGitConfig: true})
+			require.NotEmpty(t, want)
+			require.Equal(t, want, scanGit(t, link, mode, logOpts, GitOptions{}))
+		})
+	}
+	rootLink := filepath.Join(t.TempDir(), "linked-root")
+	require.NoError(t, os.Symlink(f.path, rootLink))
+	for _, pathspec := range []string{"secret.txt", "deleted.txt", "*.txt"} {
+		t.Run("absolute/"+pathspec, func(t *testing.T) {
+			opts := "--all -- '" + filepath.ToSlash(filepath.Join(rootLink, "sub", pathspec)) + "'"
+			want := scanGit(t, link, "history", opts, GitOptions{TrustLocalGitConfig: true})
+			require.NotEmpty(t, want)
+			for _, mode := range []string{"history", "parallel"} {
+				require.Equal(t, want, scanGit(t, link, mode, opts, GitOptions{}))
+			}
+		})
+	}
+}
+
+func TestGitIsolationConfiguredWorktree(t *testing.T) {
+	for _, relative := range []bool{false, true} {
+		for _, worktreeConfig := range []bool{false, true} {
+			t.Run(fmt.Sprintf("relative=%t/worktreeConfig=%t", relative, worktreeConfig), func(t *testing.T) {
+				f := newGitFixture(t)
+				for i := range 3 {
+					f.write("secret.txt", fmt.Sprintf("HISTORY_SECRET_%d\n", i))
+					f.write("sub/nested.txt", fmt.Sprintf("NESTED_SECRET_%d\n", i))
+					f.commit(fmt.Sprintf("commit %d", i))
+				}
+				worktree := filepath.Join(f.path, "tree")
+				require.NoError(t, os.Mkdir(worktree, 0o755))
+				for _, name := range []string{"secret.txt", "sub"} {
+					require.NoError(t, os.Rename(filepath.Join(f.path, name), filepath.Join(worktree, name)))
+				}
+				value := filepath.ToSlash(worktree)
+				if relative {
+					value = "../tree"
+				}
+				if worktreeConfig {
+					f.git("config", "extensions.worktreeConfig", "true")
+					// The per-worktree value must override this common setting.
+					f.git("config", "core.worktree", "..")
+					f.git("config", "--worktree", "core.worktree", value)
+				} else {
+					f.git("config", "core.worktree", value)
+				}
+				for _, name := range []string{"secret.txt", "sub/nested.txt"} {
+					require.NoError(t, os.WriteFile(filepath.Join(worktree, name), []byte("STAGED_SECRET\n"), 0o644))
+				}
+				f.gitIn(worktree, "", "add", "-A")
+				for _, name := range []string{"secret.txt", "sub/nested.txt"} {
+					require.NoError(t, os.WriteFile(filepath.Join(worktree, name), []byte("WORKTREE_SECRET\n"), 0o644))
+				}
+				for _, sub := range []string{"", "sub"} {
+					for _, mode := range gitScanModes {
+						t.Run(filepath.Join(sub, mode), func(t *testing.T) {
+							path := filepath.Join(worktree, sub)
+							logOpts := ""
+							if mode == "history" || mode == "parallel" {
+								logOpts = "--all -- ."
+							}
+							want := scanGit(t, path, mode, logOpts, GitOptions{TrustLocalGitConfig: true})
+							require.NotEmpty(t, want)
+							require.Equal(t, want, scanGit(t, path, mode, logOpts, GitOptions{}))
+						})
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestGitIsolationWorktreeRootPrecedence(t *testing.T) {
+	for _, kind := range []string{"linked", "linked-config.worktree", "GIT_WORK_TREE"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newGitFixture(t)
+			for i := range 3 {
+				f.write("secret.txt", fmt.Sprintf("HISTORY_SECRET_%d\n", i))
+				f.commit(fmt.Sprintf("commit %d", i))
+			}
+			path := f.path
+			if strings.HasPrefix(kind, "linked") {
+				path = filepath.Join(t.TempDir(), "linked")
+				f.git("worktree", "add", "-q", "-b", "linked", path)
+				f.git("config", "core.worktree", filepath.ToSlash(f.path))
+				if kind == "linked-config.worktree" {
+					f.git("config", "extensions.worktreeConfig", "true")
+					layout, err := findGitLayout(path)
+					require.NoError(t, err)
+					// A relative override is relative to this worktree's Git
+					// directory, not the common directory or source argument.
+					rel, err := filepath.Rel(layout.gitDir, path)
+					require.NoError(t, err)
+					f.gitIn(path, "", "config", "--worktree", "core.worktree", filepath.ToSlash(rel))
+				}
+			} else {
+				f.git("config", "core.worktree", "../missing")
+				t.Setenv("GIT_WORK_TREE", path)
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(path, "secret.txt"), []byte("STAGED_SECRET\n"), 0o644))
+			f.gitIn(path, "", "add", "secret.txt")
+			require.NoError(t, os.WriteFile(filepath.Join(path, "secret.txt"), []byte("WORKTREE_SECRET\n"), 0o644))
+			for _, mode := range gitScanModes {
+				want := scanGit(t, path, mode, "", GitOptions{TrustLocalGitConfig: true})
+				require.NotEmpty(t, want)
+				require.Equal(t, want, scanGit(t, path, mode, "", GitOptions{}), mode)
+			}
+		})
+	}
+}
+
 func TestGitIsolationMailmap(t *testing.T) {
 	for _, linked := range []bool{false, true} {
 		t.Run(fmt.Sprintf("linked=%t", linked), func(t *testing.T) {

@@ -50,33 +50,35 @@ func openGitRepo(ctx context.Context, source string, opts GitOptions, withWorkTr
 	if err != nil {
 		return nil, err
 	}
-	if withWorkTree && layout.workTree == "" {
-		return nil, fmt.Errorf("%s has no working tree", source)
-	}
 	cfg, err := readGitConfig(ctx, filepath.Join(layout.commonDir, "config"))
 	if err != nil {
 		return nil, err
 	}
-	if withWorkTree {
-		if value, ok := cfg.last("extensions.worktreeconfig"); ok {
-			enabled, err := parseGitBool(value)
+	var worktreeConfig bool
+	if value, ok := cfg.last("extensions.worktreeconfig"); ok {
+		worktreeConfig, err = parseGitBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("extensions.worktreeConfig: %w", err)
+		}
+		if worktreeConfig {
+			worktreeCfg, err := readGitConfig(ctx, filepath.Join(layout.gitDir, "config.worktree"))
 			if err != nil {
-				return nil, fmt.Errorf("extensions.worktreeConfig: %w", err)
+				return nil, err
 			}
-			if enabled {
-				worktreeCfg, err := readGitConfig(ctx, filepath.Join(layout.gitDir, "config.worktree"))
-				if err != nil {
-					return nil, err
-				}
-				for _, entry := range worktreeCfg {
-					// Repository format is determined by the common config;
-					// only permitted working-tree settings may override it.
-					if slices.Contains(gitWorktreeBoolSettings, entry.key) || entry.key == "core.autocrlf" || entry.key == "core.eol" {
-						cfg = append(cfg, entry)
-					}
+			for _, entry := range worktreeCfg {
+				// Repository format is determined by the common config;
+				// only permitted working-tree settings may override it.
+				if slices.Contains(gitWorktreeBoolSettings, entry.key) || entry.key == "core.autocrlf" || entry.key == "core.eol" || entry.key == "core.worktree" || entry.key == "core.bare" {
+					cfg = append(cfg, entry)
 				}
 			}
 		}
+	}
+	if err := layout.setWorkTree(cfg, worktreeConfig); err != nil {
+		return nil, err
+	}
+	if withWorkTree && layout.workTree == "" {
+		return nil, fmt.Errorf("%s has no working tree", source)
 	}
 	config, err := privateGitConfig(cfg, withWorkTree)
 	if err != nil {
@@ -245,7 +247,7 @@ func (r *gitRepo) command(ctx context.Context, args ...string) *exec.Cmd {
 		paths := false
 		for i, arg := range args {
 			if paths && filepath.IsAbs(arg) {
-				if rel, err := filepath.Rel(r.sourceWorkTree, arg); err == nil && filepath.IsLocal(rel) {
+				if rel, ok := relativeGitPath(r.sourceWorkTree, arg); ok {
 					args[i] = filepath.Join(r.workTree, rel)
 				}
 			}
@@ -258,6 +260,25 @@ func (r *gitRepo) command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd.Dir = r.commandDir
 	cmd.Env = isolatedGitEnv()
 	return cmd
+}
+
+// relativeGitPath translates an absolute pathspec into a worktree-relative
+// path. Resolve symlinks only outside the worktree, as Git does; the suffix
+// may contain globs or refer to historical files that no longer exist.
+func relativeGitPath(worktree, path string) (string, bool) {
+	path = filepath.Clean(path)
+	if rel, err := filepath.Rel(worktree, path); err == nil && filepath.IsLocal(rel) {
+		return rel, true
+	}
+	prefix := filepath.VolumeName(path) + string(filepath.Separator)
+	parts := strings.Split(strings.TrimPrefix(path, prefix), string(filepath.Separator))
+	for i, part := range parts {
+		prefix = filepath.Join(prefix, part)
+		if samePath(worktree, prefix) {
+			return filepath.Join(parts[i+1:]...), true
+		}
+	}
+	return "", false
 }
 
 // Close removes the private Git directory, if any.
@@ -516,6 +537,46 @@ type gitLayout struct {
 	workTree  string // empty for bare repositories
 }
 
+// setWorkTree resolves the small, non-executable subset of configuration that
+// determines the working-tree root. Keep it out of the generated config: the
+// private command receives an explicit, resolved --work-tree instead.
+func (l *gitLayout) setWorkTree(cfg gitConfig, worktreeConfig bool) error {
+	if dir := os.Getenv("GIT_WORK_TREE"); dir != "" {
+		l.workTree = gitPath(l.source, dir)
+	} else if worktreeConfig || samePath(l.gitDir, l.commonDir) {
+		// Without worktreeConfig, common core.bare/core.worktree settings
+		// apply only to the main worktree, matching Git's linked-worktree rules.
+		bare := false
+		if value, ok := cfg.last("core.bare"); ok {
+			var err error
+			bare, err = parseGitBool(value)
+			if err != nil {
+				return fmt.Errorf("core.bare: %w", err)
+			}
+		}
+		dir, configured := cfg.last("core.worktree")
+		if bare && configured {
+			return errors.New("core.bare=true cannot be combined with core.worktree")
+		}
+		if bare {
+			l.workTree = ""
+		} else if configured {
+			l.workTree = gitPath(l.gitDir, dir)
+		}
+	}
+	if l.workTree != "" {
+		path, err := filepath.EvalSymlinks(l.workTree)
+		if err != nil {
+			return fmt.Errorf("resolve Git working tree: %w", err)
+		}
+		if info, err := os.Stat(path); err != nil || !info.IsDir() {
+			return fmt.Errorf("not a working-tree directory: %s", path)
+		}
+		l.workTree = path
+	}
+	return nil
+}
+
 // findGitLayout locates the repository containing source as Git does, reading
 // .git files and commondir as data rather than running Git there.
 func findGitLayout(source string) (gitLayout, error) {
@@ -525,6 +586,12 @@ func findGitLayout(source string) (gitLayout, error) {
 	}
 	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
 		return gitLayout{}, fmt.Errorf("not a directory: %s", source)
+	}
+	// git -C changes into the physical directory before discovering parents.
+	// Walking the lexical parents of a symlink can select a different repo.
+	abs, err = filepath.EvalSymlinks(abs)
+	if err != nil {
+		return gitLayout{}, err
 	}
 	l := gitLayout{source: abs}
 	if dir := os.Getenv("GIT_DIR"); dir != "" {
@@ -579,7 +646,7 @@ func resolveGitDir(path string) (string, error) {
 	if !isGitDir(path) {
 		return "", fmt.Errorf("not a git repository: %s", path)
 	}
-	return path, nil
+	return filepath.EvalSymlinks(path)
 }
 
 func isGitDir(dir string) bool {
