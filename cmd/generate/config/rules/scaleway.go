@@ -11,7 +11,7 @@ func ScalewaySecretKey() *config.Rule {
 		ID:          "scaleway-secret-key",
 		Confidence:  "high",
 		Description: "Identified a standalone Scaleway Secret Key. This can be used to authenticate API requests.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`(?:scaleway|scw).{0,20}?(?:secret|token)`},
 			utils.Hex8_4_4_4_12(),
 			true,

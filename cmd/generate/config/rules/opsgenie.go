@@ -14,7 +14,7 @@ func OpsgenieAPIKey() *config.Rule {
 		ID:          "opsgenie-api-key.1",
 		Confidence:  "high",
 		Description: "Opsgenie API key, which may allow access to alerts, incidents, and account configuration.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"opsgenie"}, utils.Hex8_4_4_4_12(), true),
+		Regex:       utils.GenerateProviderRegex([]string{"opsgenie"}, utils.Hex8_4_4_4_12(), true),
 		Keywords:    []string{"opsgenie"},
 		ValidateExpr: `let us = http.get("https://api.opsgenie.com/v2/account", {
     "Authorization": "GenieKey " + finding["secret"],

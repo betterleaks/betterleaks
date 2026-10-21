@@ -11,7 +11,7 @@ func Upstage() *config.Rule {
 		ID:          "upstage-api-key",
 		Confidence:  "medium",
 		Description: "Detected an Upstage AI API key, which may expose Solar language models and document AI services to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"upstage"}, `[A-Za-z0-9]{40,50}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"upstage"}, `[A-Za-z0-9]{40,50}`, true),
 		Keywords:    []string{"upstage"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 		ValidateExpr: `let r = http.get("https://api.upstage.ai/v1/models", {

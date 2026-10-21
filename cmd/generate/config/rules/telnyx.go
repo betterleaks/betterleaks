@@ -11,7 +11,7 @@ func TelnyxAPIV2Key() *config.Rule {
 		ID:          "telnyx-api-v2-key.1",
 		Confidence:  "high",
 		Description: "Telnyx API v2 key.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`telnyx(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
 			`KEY[0-9A-Za-z_-]{55}`,
 			false,

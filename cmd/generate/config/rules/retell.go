@@ -11,7 +11,7 @@ func RetellAPIKey() *config.Rule {
 		ID:          "retell-api-key.1",
 		Confidence:  "high",
 		Description: "Retell AI API key, which may allow access to agents, calls, and account configuration.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"retell"}, `key_`+utils.Hex("28"), false),
+		Regex:       utils.GenerateProviderRegex([]string{"retell"}, `key_`+utils.Hex("28"), false),
 		Keywords:    []string{"retell"},
 		ValidateExpr: `let r = http.get("https://api.retellai.com/get-concurrency", {
     "Authorization": "Bearer " + finding["secret"],

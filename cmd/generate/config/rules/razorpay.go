@@ -38,7 +38,7 @@ func RazorpayKeySecret() *config.Rule {
 		ID:          "razorpay-key-secret.1",
 		Confidence:  "high",
 		Description: "Razorpay key secret, which may authorize payment APIs when paired with its key ID.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`razorpay[_.-]?(?:(?:api|key)[_.-]?)?(?:secret|private|token)`},
 			`[A-Za-z0-9]{24}`,
 			false,

@@ -23,7 +23,7 @@ func HighnoteSecretLiveKey() *config.Rule {
 		ID:          "highnote-secret-live-key",
 		Confidence:  "high",
 		Description: "Highnote secret API key for the live environment.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`highnote(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token|sk[_. -]*live)`},
 			`sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2}`,
 			false,

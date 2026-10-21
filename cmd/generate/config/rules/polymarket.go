@@ -11,7 +11,7 @@ func PolymarketAPISecret() *config.Rule {
 		ID:          "polymarket-api-secret",
 		Confidence:  "medium",
 		Description: "Discovered a Polymarket API secret, which could be used to sign authenticated requests to the Polymarket L2 API.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}secret"}, `[a-zA-Z0-9+/]{40,}={0,2}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"poly.{0,20}secret"}, `[a-zA-Z0-9+/]{40,}={0,2}`, false),
 		Keywords:    []string{"poly"},
 		SkipReport:  true,
 		FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
@@ -27,7 +27,7 @@ func PolymarketPassphrase() *config.Rule {
 		ID:          "polymarket-passphrase",
 		Confidence:  "medium",
 		Description: "Found a Polymarket API passphrase, used as a component of authenticated Polymarket API requests.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}passphrase"}, `[a-zA-Z0-9_]{8,128}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"poly.{0,20}passphrase"}, `[a-zA-Z0-9_]{8,128}`, false),
 		Keywords:    []string{"poly"},
 		SkipReport:  true,
 	}
@@ -42,7 +42,7 @@ func PolymarketAddress() *config.Rule {
 		ID:          "polymarket-address",
 		Confidence:  "medium",
 		Description: "Found a Polymarket wallet address, used as a component of authenticated Polymarket API requests.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}address"}, `0x[a-fA-F0-9]{40}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"poly.{0,20}address"}, `0x[a-fA-F0-9]{40}`, false),
 		Keywords:    []string{"poly"},
 		SkipReport:  true,
 	}
@@ -56,7 +56,7 @@ func PolymarketAPIKey() *config.Rule {
 		ID:          "polymarket-api-key",
 		Confidence:  "high",
 		Description: "Identified a Polymarket API key, potentially compromising access to the Polymarket trading platform.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}key"}, utils.Hex8_4_4_4_12(), false),
+		Regex:       utils.GenerateProviderRegex([]string{"poly.{0,20}key"}, utils.Hex8_4_4_4_12(), false),
 		Keywords:    []string{"poly"},
 		Components: []config.Component{
 			{
@@ -94,7 +94,7 @@ func PolymarketPrivateKey() *config.Rule {
 		ID:          "polymarket-private-key",
 		Confidence:  "medium",
 		Description: "Discovered a Polymarket private key, which could allow unauthorized trading and fund transfers.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"poly.{0,20}private.{0,20}key"}, `0x[a-fA-F0-9]{64}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{"poly.{0,20}private.{0,20}key"}, `0x[a-fA-F0-9]{64}`, false),
 		Keywords:    []string{"poly"},
 		FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 	}

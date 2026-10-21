@@ -11,7 +11,7 @@ func DatabentoAPIKey() *config.Rule {
 		ID:          "databento-api-key",
 		Confidence:  "high",
 		Description: "Databento API key.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"databento"}, `db-[A-Za-z0-9]{29}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"databento"}, `db-[A-Za-z0-9]{29}`, true),
 		Keywords:    []string{"databento"},
 		ValidateExpr: `let r = http.get("https://hist.databento.com/v0/metadata.list_datasets", {
     "Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":"))

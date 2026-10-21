@@ -11,7 +11,7 @@ func PayPalClientID() *config.Rule {
 		ID:          "paypal-client-id.1",
 		Confidence:  "medium",
 		Description: "PayPal OAuth client ID, used as a component of the PayPal client-secret composite rule.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`paypal[_.-]?(?:client[_.-]?)?(?:id|user)`},
 			`A[A-Za-z0-9_-]{78,99}`,
 			false,
@@ -41,7 +41,7 @@ func PayPalClientSecret() *config.Rule {
 		ID:          "paypal-client-secret.1",
 		Confidence:  "high",
 		Description: "PayPal OAuth client secret, which may allow access to PayPal REST APIs when paired with its client ID.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`paypal[_.-]?(?:client[_.-]?)?(?:secret|private|access|key|token)`},
 			`[A-Za-z0-9_.-]{78,120}`,
 			false,

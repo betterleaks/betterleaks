@@ -60,7 +60,7 @@ func AlgoliaApplicationID() *config.Rule {
 		Description: "Detected an Algolia application ID, used as a component of the algolia-api-key composite rule.",
 		ID:          "algolia-application-id",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{10}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"algolia"}, `[a-z0-9]{10}`, true),
 		Keywords:    []string{"algolia"},
 		SkipReport:  true,
 		FilterExpr:  `entropy(finding["secret"]) < 2.75 || tokenRatio(finding["secret"]) >= 2.5`,
@@ -83,7 +83,7 @@ func AlgoliaApiKey() *config.Rule {
 		Description: "Identified an Algolia API Key, which could result in unauthorized search operations and data exposure on Algolia-managed platforms.",
 		ID:          "algolia-api-key",
 		Confidence:  "high",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"algolia"}, `[a-z0-9]{32}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"algolia"}, `[a-z0-9]{32}`, true),
 		Keywords:    []string{"algolia"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 		Components: []config.Component{

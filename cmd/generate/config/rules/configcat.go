@@ -19,7 +19,7 @@ func ConfigCatSDKKey() *config.Rule {
 		ID:           "configcat-sdk-key",
 		Confidence:   "high",
 		Description:  "Detected a ConfigCat SDK key, which may allow access to feature flag configuration data.",
-		Regex:        utils.GenerateSemiGenericRegex([]string{"configcat"}, `[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, true),
+		Regex:        utils.GenerateProviderRegex([]string{"configcat"}, `[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22}`, true),
 		Keywords:     []string{"configcat"},
 		ValidateExpr: configCatValidationExpr,
 		FilterExpr:   `entropy(finding["secret"]) < 3.5`,

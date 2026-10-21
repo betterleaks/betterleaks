@@ -75,7 +75,7 @@ func MiroClientID() *config.Rule {
 		ID:          "miro-client-id",
 		Confidence:  "medium",
 		Description: "Detected a Miro OAuth client ID, used as a component of the miro-client-secret composite rule.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{`miro[_. -]*client[_. -]*id`}, utils.Numeric("15,21"), true),
+		Regex:       utils.GenerateProviderRegex([]string{`miro[_. -]*client[_. -]*id`}, utils.Numeric("15,21"), true),
 		Keywords:    []string{"miro"},
 		SkipReport:  true,
 		FilterExpr:  utils.MinEntropy(2.5),
@@ -100,7 +100,7 @@ func MiroClientSecret() *config.Rule {
 		ID:          "miro-client-secret",
 		Confidence:  "high",
 		Description: "Detected a Miro OAuth client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"miro"}, utils.AlphaNumeric("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"miro"}, utils.AlphaNumeric("32"), true),
 		Keywords:    []string{"miro"},
 		Components: []config.Component{
 			{RuleID: "miro-client-id", Within: "5L"},

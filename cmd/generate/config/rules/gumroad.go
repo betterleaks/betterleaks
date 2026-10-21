@@ -10,7 +10,7 @@ func GumroadAccessToken() *config.Rule {
 		ID:          "gumroad-access-token",
 		Confidence:  "high",
 		Description: "Detected a Gumroad access token, which may expose Gumroad account and product data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"gumroad"}, `(?:[a-f0-9]{64}|[A-Za-z0-9-]{43})`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"gumroad"}, `(?:[a-f0-9]{64}|[A-Za-z0-9-]{43})`, true),
 		Keywords:    []string{"gumroad"},
 		ValidateExpr: `let r = http.get("https://api.gumroad.com/v2/user?access_token=" + finding["secret"], {
     "Accept": "application/json"

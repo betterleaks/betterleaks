@@ -12,7 +12,7 @@ func Typeform() *config.Rule {
 		ID:          "typeform-api-token",
 		Confidence:  "high",
 		Description: "Uncovered a Typeform API token, which could lead to unauthorized survey management and data collection.",
-		Regex: utils.GenerateSemiGenericRegex([]string{"typeform"},
+		Regex: utils.GenerateProviderRegex([]string{"typeform"},
 			`tfp_[a-z0-9\-_\.=]{59}`, true),
 		Keywords: []string{
 			"tfp_",

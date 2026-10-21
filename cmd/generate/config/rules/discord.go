@@ -12,7 +12,7 @@ func DiscordAPIToken() *config.Rule {
 		ID:          "discord-api-token",
 		Confidence:  "medium",
 		Description: "Detected a Discord API key, potentially compromising communication channels and user data privacy on Discord.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.Hex("64"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"discord"}, utils.Hex("64"), true),
 		Keywords:    []string{"discord"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
@@ -28,7 +28,7 @@ func DiscordClientID() *config.Rule {
 		ID:          "discord-client-id",
 		Confidence:  "medium",
 		Description: "Identified a Discord client ID, which may lead to unauthorized integrations and data exposure in Discord applications.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.Numeric("18"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"discord"}, utils.Numeric("18"), true),
 		Keywords:    []string{"discord"},
 		FilterExpr:  `entropy(finding["secret"]) < 2.75`,
 	}
@@ -48,7 +48,7 @@ func DiscordClientSecret() *config.Rule {
 		ID:          "discord-client-secret",
 		Confidence:  "medium",
 		Description: "Discovered a potential Discord client secret, risking compromised Discord bot integrations and data leaks.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"discord"}, utils.AlphaNumericExtended("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"discord"}, utils.AlphaNumericExtended("32"), true),
 		Keywords:    []string{"discord"},
 		FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	}
