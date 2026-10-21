@@ -141,6 +141,7 @@ func main() {
 		rules.CanvaClientID(),
 		rules.CanvaClientSecret(),
 		rules.CartesiaAPIKey(),
+		rules.CastAI(),
 		rules.Cerebras(),
 		rules.Civo(),
 		rules.ClickHouseCloudKeyID(),
