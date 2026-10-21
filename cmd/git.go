@@ -29,6 +29,7 @@ func init() {
 	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
 	gitCmd.Flags().String("log-opts", "", "git log options")
 	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process)")
+	gitCmd.Flags().Bool("trust-local-git-config", false, "trust the repository's local Git configuration and hooks, which can execute programs; use only for trusted repositories")
 }
 
 var gitCmd = &cobra.Command{
@@ -69,6 +70,7 @@ func runGit(cmd *cobra.Command, args []string) {
 	noColor := mustGetBoolFlag(cmd, "no-color")
 	redact := mustGetUIntFlag(cmd, "redact")
 	verbose := mustGetBoolFlag(cmd, "verbose")
+	gitOpts := sources.GitOptions{TrustLocalGitConfig: mustGetBoolFlag(cmd, "trust-local-git-config")}
 
 	var (
 		findings    []report.Finding
@@ -78,7 +80,7 @@ func runGit(cmd *cobra.Command, args []string) {
 	)
 
 	if preCommit || staged {
-		gitCmd, cmdErr := sources.NewGitDiffCmdContext(cmd.Context(), source, staged)
+		gitCmd, cmdErr := gitOpts.NewDiffCmd(cmd.Context(), source, staged)
 		if cmdErr != nil {
 			logging.Fatal().Err(cmdErr).Msg("could not create Git diff cmd")
 		}
@@ -98,17 +100,18 @@ func runGit(cmd *cobra.Command, args []string) {
 
 		if gitWorkers > 0 {
 			src = &sources.ParallelGit{
-				RepoPath:        source,
-				ShouldSkip:      detector.SkipFunc(),
-				Platform:        resolvedPlatform,
-				RemoteURL:       remoteURL,
-				Sema:            detector.Sema,
-				MaxArchiveDepth: detector.MaxArchiveDepth,
-				LogOpts:         logOpts,
-				Workers:         gitWorkers,
+				RepoPath:            source,
+				ShouldSkip:          detector.SkipFunc(),
+				Platform:            resolvedPlatform,
+				RemoteURL:           remoteURL,
+				Sema:                detector.Sema,
+				MaxArchiveDepth:     detector.MaxArchiveDepth,
+				LogOpts:             logOpts,
+				Workers:             gitWorkers,
+				TrustLocalGitConfig: gitOpts.TrustLocalGitConfig,
 			}
 		} else {
-			gitCmd, cmdErr := sources.NewGitLogCmdContext(cmd.Context(), source, logOpts)
+			gitCmd, cmdErr := gitOpts.NewLogCmd(cmd.Context(), source, logOpts)
 			if cmdErr != nil {
 				logging.Fatal().Err(cmdErr).Msg("could not create Git log cmd")
 			}

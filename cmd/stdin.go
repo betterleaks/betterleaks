@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -44,9 +45,11 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 		logging.Fatal().Err(err).Msg("invalid --set-attr value")
 	}
 
+	stdin, closeInput := cancellableStdin(cmd.Context())
+	defer closeInput()
 	findings, err := detector.DetectSource(
 		cmd.Context(),
-		newStdinSource(os.Stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth),
+		newStdinSource(stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth),
 	)
 
 	if err != nil {
@@ -56,6 +59,22 @@ func runStdIn(cmd *cobra.Command, _ []string) {
 	}
 
 	findingSummaryAndExit(detector, findings, exitCode, start, err)
+}
+
+// cancellableStdin lets the CLI stop even when stdin is blocked in a read that
+// closing the descriptor cannot interrupt. The copier's lifetime is bounded by
+// stdin EOF or process exit; this wrapper is only used for process-owned stdin.
+func cancellableStdin(ctx context.Context) (io.Reader, func()) {
+	reader, writer := io.Pipe()
+	stop := context.AfterFunc(ctx, func() { _ = reader.CloseWithError(ctx.Err()) })
+	go func() {
+		_, err := io.Copy(writer, os.Stdin)
+		_ = writer.CloseWithError(err)
+	}()
+	return reader, func() {
+		stop()
+		_ = reader.Close()
+	}
 }
 
 func newStdinSource(content io.Reader, attrs map[string]string, shouldSkip sources.SkipFunc, maxArchiveDepth int) sources.Source {

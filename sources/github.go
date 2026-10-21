@@ -617,6 +617,7 @@ func (s *GitHub) newClient(ctx context.Context) *github.Client {
 // scanRepoGit clones and scans a repo's git history.
 func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield FragmentsFunc) error {
 	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
+		// Betterleaks created this clone, so its configuration is trusted.
 		var src Source
 		if s.Workers > 0 {
 			src = &ParallelGit{
@@ -624,9 +625,10 @@ func (s *GitHub) scanRepoGit(ctx context.Context, repo *github.Repository, yield
 				Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
 				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
 				LogOpts: s.LogOpts, Workers: s.Workers,
+				TrustLocalGitConfig: true,
 			}
 		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
+			gitCmd, err := GitOptions{TrustLocalGitConfig: true}.NewLogCmd(ctx, repoPath, s.LogOpts)
 			if err != nil {
 				return err
 			}

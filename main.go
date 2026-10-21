@@ -1,24 +1,21 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/betterleaks/betterleaks/cmd"
-	"github.com/betterleaks/betterleaks/logging"
 )
 
 func main() {
-	// this block sets up a go routine to listen for an interrupt signal
-	// which will immediately exit betterleaks
-	stopChan := make(chan os.Signal, 1)
-	signal.Notify(stopChan, os.Interrupt)
-	go listenForInterrupt(stopChan)
-
-	cmd.Execute()
-}
-
-func listenForInterrupt(stopScan chan os.Signal) {
-	<-stopScan
-	logging.Fatal().Msg("Interrupt signal received. Exiting...")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		// A second signal uses the default handler if graceful shutdown stalls.
+		stop()
+	}()
+	cmd.ExecuteContext(ctx)
 }

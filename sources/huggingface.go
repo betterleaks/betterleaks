@@ -687,6 +687,7 @@ func (s *HuggingFace) wrapYieldWithAttrs(attrs map[string]string, yield Fragment
 func (s *HuggingFace) scanRepoGit(ctx context.Context, repo huggingFaceRepo, yield FragmentsFunc) error {
 	remote := repo.GitURL(s.baseURL)
 	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
+		// Betterleaks created this clone, so its configuration is trusted.
 		var src Source
 		if s.Workers > 0 {
 			src = &ParallelGit{
@@ -694,9 +695,10 @@ func (s *HuggingFace) scanRepoGit(ctx context.Context, repo huggingFaceRepo, yie
 				Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
 				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
 				LogOpts: s.LogOpts, Workers: s.Workers,
+				TrustLocalGitConfig: true,
 			}
 		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
+			gitCmd, err := GitOptions{TrustLocalGitConfig: true}.NewLogCmd(ctx, repoPath, s.LogOpts)
 			if err != nil {
 				return err
 			}

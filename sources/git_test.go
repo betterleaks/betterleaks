@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +33,82 @@ func TestGitConfigIsolationEnv(t *testing.T) {
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
+}
+
+// A Git failure is reported once. What Git wrote before failing is still
+// scanned, and the other ParallelGit workers keep going.
+func TestGitFailureKeepsScanning(t *testing.T) {
+	f := newGitFixture(t)
+	for i := range 6 {
+		// Distinct dates fix the order in which each worker's Git shows commits.
+		t.Setenv("GIT_COMMITTER_DATE", fmt.Sprintf("%d +0000", 1700000000+i))
+		f.write(fmt.Sprintf("file%d.txt", i), fmt.Sprintf("SECRET_%d\n", i))
+		f.commit(fmt.Sprintf("commit %d", i))
+	}
+	// Git fails at the third-newest commit, the last in the first worker's chunk.
+	blob := f.git("rev-parse", "HEAD~2:file3.txt")
+	object := filepath.Join(f.path, ".git", "objects", blob[:2], blob[2:])
+	require.NoError(t, os.Chmod(object, 0o644)) // Git makes objects read-only
+	require.NoError(t, os.Remove(object))
+
+	for _, mode := range []string{"history", "parallel"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := t.Context()
+			sema := semgroup.NewGroup(ctx, 4)
+			var src Source = &ParallelGit{RepoPath: f.path, Workers: 2, Sema: sema}
+			if mode == "history" {
+				cmd, err := GitOptions{}.NewLogCmd(ctx, f.path, "")
+				require.NoError(t, err)
+				src = &Git{Cmd: cmd, Sema: sema}
+			}
+			var (
+				mu      sync.Mutex
+				secrets []string
+				errs    []error
+			)
+			require.NoError(t, src.Fragments(ctx, func(fragment Fragment, err error) error {
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					errs = append(errs, err)
+				} else {
+					secrets = append(secrets, strings.TrimSpace(fragment.Raw))
+				}
+				return nil
+			}))
+			require.NoError(t, sema.Wait())
+			require.Len(t, errs, 1)
+			require.ErrorContains(t, errs[0], blob)
+			want := []string{"SECRET_4", "SECRET_5"}
+			if mode == "parallel" {
+				want = append(want, "SECRET_0", "SECRET_1", "SECRET_2")
+			}
+			require.ElementsMatch(t, want, secrets)
+		})
+	}
+}
+
+// Git exiting without an error message, for example when killed, is reported.
+func TestGitSilentFailureIsReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a shell script as git")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nkill -9 $$\n"), 0o700))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx := t.Context()
+	cmd, err := startGitLogCmd(ctx, &gitRepo{source: t.TempDir()}, []string{"log"})
+	require.NoError(t, err)
+	var errs []error
+	require.NoError(t, (&Git{Cmd: cmd, Sema: semgroup.NewGroup(ctx, 1)}).Fragments(ctx, func(_ Fragment, err error) error {
+		if err != nil {
+			errs = append(errs, err)
+		}
+		return nil
+	}))
+	require.Len(t, errs, 1)
+	require.ErrorContains(t, errs[0], "git failed")
 }
 
 func TestGitMergeSecrets(t *testing.T) {

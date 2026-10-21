@@ -325,10 +325,15 @@ func initDiagnostics() {
 }
 
 func Execute() {
+	ExecuteContext(context.Background())
+}
+
+// ExecuteContext runs the CLI with cancellation shared by its sources.
+func ExecuteContext(ctx context.Context) {
 	// pflag only supports single-character shorthands. Expand the requested
 	// multi-character aliases before Cobra parses the command line.
 	rootCmd.SetArgs(expandRuleFlagShorthands(os.Args[1:]))
-	if err := rootCmd.Execute(); err != nil {
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		if strings.Contains(err.Error(), "unknown flag") {
 			// exit code 126: Command invoked cannot execute
 			os.Exit(126)

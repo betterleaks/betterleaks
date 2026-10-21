@@ -3,8 +3,6 @@ package sources
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -31,6 +29,8 @@ type ParallelGit struct {
 	MaxArchiveDepth int
 	LogOpts         string
 	Workers         int // 0 means auto (min(NumCPU, 4))
+	// TrustLocalGitConfig runs Git directly in RepoPath; see GitOptions.
+	TrustLocalGitConfig bool
 }
 
 func (s *ParallelGit) workers() int {
@@ -43,7 +43,14 @@ func (s *ParallelGit) workers() int {
 // Fragments implements Source by partitioning commits across
 // multiple parallel git log workers.
 func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	commits, err := listCommits(ctx, s.RepoPath, s.LogOpts)
+	repo, err := openGitRepo(ctx, s.RepoPath, GitOptions{TrustLocalGitConfig: s.TrustLocalGitConfig}, false)
+	if err != nil {
+		return err
+	}
+	// Each worker's Fragments returns only after its blob readers close.
+	defer repo.Close()
+
+	commits, err := listCommits(ctx, repo, s.LogOpts)
 	if err != nil {
 		return fmt.Errorf("list commits: %w", err)
 	}
@@ -59,7 +66,7 @@ func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error 
 
 	// For very small repos, just run a single worker (no overhead)
 	if workers <= 1 {
-		return s.runSingleWorker(ctx, yield)
+		return s.runSingleWorker(ctx, repo, yield)
 	}
 
 	chunkSize := (count + workers - 1) / workers
@@ -74,7 +81,7 @@ func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error 
 		end := min(start+chunkSize, count)
 		chunk := commits[start:end]
 		g.Go(func() error {
-			return s.runWorkerCommits(gctx, yield, chunk)
+			return s.runWorkerCommits(gctx, repo, yield, chunk)
 		})
 	}
 
@@ -83,8 +90,8 @@ func (s *ParallelGit) Fragments(ctx context.Context, yield FragmentsFunc) error 
 
 // runSingleWorker runs a full git log (no partitioning) for small repos or
 // single-worker mode.
-func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) error {
-	gitCmd, err := newGitLogCmd(ctx, s.RepoPath, s.LogOpts)
+func (s *ParallelGit) runSingleWorker(ctx context.Context, repo *gitRepo, yield FragmentsFunc) error {
+	gitCmd, err := newGitLogCmd(ctx, repo, s.LogOpts)
 	if err != nil {
 		return err
 	}
@@ -103,8 +110,8 @@ func (s *ParallelGit) runSingleWorker(ctx context.Context, yield FragmentsFunc) 
 
 // runWorkerCommits runs a git log process for a specific set of commit SHAs,
 // piped via stdin with --no-walk.
-func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield FragmentsFunc, commits []string) error {
-	gitCmd, err := newGitLogCommitsCmd(ctx, s.RepoPath, commits)
+func (s *ParallelGit) runWorkerCommits(ctx context.Context, repo *gitRepo, yield FragmentsFunc, commits []string) error {
+	gitCmd, err := newGitLogCommitsCmd(ctx, repo, commits, s.LogOpts)
 	if err != nil {
 		return err
 	}
@@ -122,9 +129,8 @@ func (s *ParallelGit) runWorkerCommits(ctx context.Context, yield FragmentsFunc,
 }
 
 // newGitLogCmd constructs a full git log -p command (no partitioning).
-func newGitLogCmd(ctx context.Context, source string, logOpts string) (*GitCmd, error) {
-	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
+func newGitLogCmd(ctx context.Context, repo *gitRepo, logOpts string) (*GitCmd, error) {
+	args := []string{"log", "-p", "-U0", "--diff-merges=first-parent"}
 
 	if logOpts != "" {
 		userArgs, err := splitGitLogOpts(logOpts)
@@ -136,18 +142,27 @@ func newGitLogCmd(ctx context.Context, source string, logOpts string) (*GitCmd, 
 		args = append(args, "--full-history", "--all", "--diff-filter=tuxdb")
 	}
 
-	return startGitLogCmd(ctx, sourceClean, args)
+	return startGitLogCmd(ctx, repo, args)
 }
 
 // newGitLogCommitsCmd constructs a git log -p command that processes a specific
 // set of commits via --no-walk --stdin. This avoids non-deterministic ordering
 // issues with --skip/--max-count on repos with timestamp ties.
-func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (*GitCmd, error) {
-	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+func newGitLogCommitsCmd(ctx context.Context, repo *gitRepo, commits []string, logOpts string) (*GitCmd, error) {
+	args := []string{"log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+	userArgs, err := splitGitLogOpts(logOpts)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --log-opts: %w", err)
+	}
+	for i, arg := range userArgs {
+		if arg == "--" {
+			// rev-list filters commits; workers must also filter their patches.
+			args = append(args, userArgs[i:]...)
+			break
+		}
+	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = gitConfigIsolationEnv()
+	cmd := repo.command(ctx, args...)
 	logging.Debug().Msgf("executing: %s (%d commits via stdin)", cmd.String(), len(commits))
 
 	stdin, err := cmd.StdinPipe()
@@ -187,15 +202,14 @@ func newGitLogCommitsCmd(ctx context.Context, source string, commits []string) (
 		cmd:         cmd,
 		diffFilesCh: gitdiffFiles,
 		errCh:       errCh,
-		repoPath:    sourceClean,
+		repo:        repo,
 	}, nil
 }
 
 // startGitLogCmd is the shared tail for starting a git log process, wiring up
 // stdout/stderr pipes, and returning a GitCmd.
-func startGitLogCmd(ctx context.Context, repoPath string, args []string) (*GitCmd, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = gitConfigIsolationEnv()
+func startGitLogCmd(ctx context.Context, repo *gitRepo, args []string) (*GitCmd, error) {
+	cmd := repo.command(ctx, args...)
 	logging.Debug().Msgf("executing: %s", cmd.String())
 
 	stdout, err := cmd.StdoutPipe()
@@ -222,7 +236,7 @@ func startGitLogCmd(ctx context.Context, repoPath string, args []string) (*GitCm
 		cmd:         cmd,
 		diffFilesCh: gitdiffFiles,
 		errCh:       errCh,
-		repoPath:    repoPath,
+		repo:        repo,
 	}, nil
 }
 
@@ -230,9 +244,8 @@ func startGitLogCmd(ctx context.Context, repoPath string, args []string) (*GitCm
 // The order is deterministic for a given repo state (reverse chronological
 // from a single rev-list invocation), which is critical for correct
 // partitioning across workers.
-func listCommits(ctx context.Context, source string, logOpts string) ([]string, error) {
-	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "rev-list"}
+func listCommits(ctx context.Context, repo *gitRepo, logOpts string) ([]string, error) {
+	args := []string{"rev-list"}
 
 	if logOpts != "" {
 		userArgs, err := splitGitLogOpts(logOpts)
@@ -244,9 +257,7 @@ func listCommits(ctx context.Context, source string, logOpts string) ([]string, 
 		args = append(args, "--all")
 	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = gitConfigIsolationEnv()
-	out, err := cmd.Output()
+	out, err := repo.command(ctx, args...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("git rev-list: %w", err)
 	}
@@ -259,9 +270,8 @@ func listCommits(ctx context.Context, source string, logOpts string) ([]string, 
 }
 
 // commitCount returns the number of commits matching the given log options.
-func commitCount(ctx context.Context, source string, logOpts string) (int, error) {
-	sourceClean := filepath.Clean(source)
-	args := []string{"-C", sourceClean, "rev-list", "--count"}
+func commitCount(ctx context.Context, repo *gitRepo, logOpts string) (int, error) {
+	args := []string{"rev-list", "--count"}
 
 	if logOpts != "" {
 		userArgs, err := splitGitLogOpts(logOpts)
@@ -273,9 +283,7 @@ func commitCount(ctx context.Context, source string, logOpts string) (int, error
 		args = append(args, "--all")
 	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = gitConfigIsolationEnv()
-	out, err := cmd.Output()
+	out, err := repo.command(ctx, args...).Output()
 	if err != nil {
 		return 0, fmt.Errorf("git rev-list --count: %w", err)
 	}

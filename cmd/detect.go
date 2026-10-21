@@ -19,7 +19,6 @@
 package cmd
 
 import (
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -39,6 +38,7 @@ func init() {
 	detectCmd.Flags().StringP("source", "s", ".", "path to source")
 	detectCmd.Flags().String("log-opts", "", "git log options")
 	detectCmd.Flags().String("platform", "", "the target platform used to generate links (github, gitlab)")
+	detectCmd.Flags().Bool("trust-local-git-config", false, "trust the repository's local Git configuration and hooks, which can execute programs; use only for trusted repositories")
 }
 
 var detectCmd = &cobra.Command{
@@ -95,9 +95,11 @@ func runDetect(cmd *cobra.Command, args []string) {
 			logging.Fatal().Err(attrErr).Msg("invalid --set-attr value")
 		}
 
+		stdin, closeInput := cancellableStdin(cmd.Context())
+		defer closeInput()
 		findings, err = detector.DetectSource(
 			cmd.Context(),
-			newStdinSource(os.Stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth),
+			newStdinSource(stdin, attrs, detector.SkipFunc(), detector.MaxArchiveDepth),
 		)
 
 		if err != nil {
@@ -112,14 +114,14 @@ func runDetect(cmd *cobra.Command, args []string) {
 		)
 
 		logOpts := mustGetStringFlag(cmd, "log-opts")
-		if gitCmd, err = sources.NewGitLogCmdContext(cmd.Context(), sourcePath, logOpts); err != nil {
-			logging.Fatal().Err(err).Msg("could not create Git cmd")
-		}
-
+		gitOpts := sources.GitOptions{TrustLocalGitConfig: mustGetBoolFlag(cmd, "trust-local-git-config")}
 		if scmPlatform, err = scm.PlatformFromString(mustGetStringFlag(cmd, "platform")); err != nil {
 			logging.Fatal().Err(err).Send()
 		}
 		resolvedPlatform, remoteURL := sources.ResolveRemote(cmd.Context(), scmPlatform, sourcePath)
+		if gitCmd, err = gitOpts.NewLogCmd(cmd.Context(), sourcePath, logOpts); err != nil {
+			logging.Fatal().Err(err).Msg("could not create Git cmd")
+		}
 
 		findings, err = detector.DetectSource(
 			cmd.Context(), &sources.Git{

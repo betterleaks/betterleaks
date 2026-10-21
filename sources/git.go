@@ -2,7 +2,6 @@ package sources
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,10 +10,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -30,7 +29,67 @@ type GitCmd struct {
 	cmd         *exec.Cmd
 	diffFilesCh <-chan *gitdiff.File
 	errCh       <-chan error
-	repoPath    string
+	repo        *gitRepo
+	ownsRepo    bool
+
+	mu      sync.Mutex
+	waiting bool           // Wait has started; no new blob readers
+	blobs   sync.WaitGroup // open blob readers, which still use repo
+}
+
+// GitOptions controls how Betterleaks runs Git against a local repository.
+//
+// By default Git runs against a private Git directory that shares the
+// repository's objects. Only validated format and working-tree settings and
+// sparse-checkout patterns are carried over; executable configuration, hooks,
+// and .git/info/attributes are not loaded by scanning commands. History scans
+// copy only .mailmap from the working tree, so its .gitattributes do not apply.
+type GitOptions struct {
+	// TrustLocalGitConfig runs Git directly in the repository. Repository
+	// configuration and hooks can then execute programs with Betterleaks'
+	// privileges, so only set it for repositories whose .git directory you trust.
+	TrustLocalGitConfig bool
+}
+
+// NewLogCmd starts a history scan of the repository at source. Consume the
+// command's output, then call Wait to release its resources.
+func (o GitOptions) NewLogCmd(ctx context.Context, source, logOpts string) (*GitCmd, error) {
+	repo, err := openGitRepo(ctx, source, o, false)
+	if err != nil {
+		return nil, err
+	}
+	cmd, err := newGitLogCmd(ctx, repo, logOpts)
+	if err != nil {
+		repo.Close()
+		return nil, err
+	}
+	cmd.ownsRepo = true
+	return cmd, nil
+}
+
+// NewDiffCmd starts a scan of the unstaged changes in the working tree at
+// source or, if staged is set, of its staged changes. Consume the command's
+// output, then call Wait to release its resources.
+func (o GitOptions) NewDiffCmd(ctx context.Context, source string, staged bool) (*GitCmd, error) {
+	repo, err := openGitRepo(ctx, source, o, true)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"diff", "-U0", "--no-ext-diff"}
+	if staged {
+		args = append(args, "--staged")
+	}
+	if !o.TrustLocalGitConfig {
+		// Checking a submodule for changes runs Git with its configuration.
+		args = append(args, "--ignore-submodules=all")
+	}
+	cmd, err := startGitLogCmd(ctx, repo, append(args, "."))
+	if err != nil {
+		repo.Close()
+		return nil, err
+	}
+	cmd.ownsRepo = true
+	return cmd, nil
 }
 
 // gitConfigIsolationEnv contains the standard Git configuration isolation environment variables.
@@ -66,7 +125,8 @@ func gitConfigIsolationEnv() []string {
 // a blob from a repo
 type blobReader struct {
 	io.ReadCloser
-	cmd *exec.Cmd
+	cmd  *exec.Cmd
+	done func()
 }
 
 // Close closes the underlying reader and then waits for the command to complete,
@@ -78,6 +138,7 @@ func (br *blobReader) Close() error {
 	closeErr := br.ReadCloser.Close()
 	// Wait to prevent zombie processes.
 	waitErr := br.cmd.Wait()
+	br.done()
 	// Return the first error encountered
 	if drainErr != nil {
 		return drainErr
@@ -98,54 +159,10 @@ func NewGitLogCmd(source string, logOpts string) (*GitCmd, error) {
 }
 
 // NewGitLogCmdContext is the same as NewGitLogCmd but supports passing in a
-// context to use for timeouts
+// context to use for timeouts. The repository's local Git configuration is not
+// trusted; see GitOptions.
 func NewGitLogCmdContext(ctx context.Context, source string, logOpts string) (*GitCmd, error) {
-	sourceClean := filepath.Clean(source)
-	var cmd *exec.Cmd
-	if logOpts != "" {
-		args := []string{"-C", sourceClean, "log", "-p", "-U0", "--diff-merges=first-parent"}
-
-		userArgs, err := splitGitLogOpts(logOpts)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --log-opts: %w", err)
-		}
-
-		args = append(args, userArgs...)
-		cmd = exec.CommandContext(ctx, "git", args...)
-	} else {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "log", "-p", "-U0",
-			"--diff-merges=first-parent", "--full-history", "--all", "--diff-filter=tuxdb")
-	}
-	cmd.Env = gitConfigIsolationEnv()
-
-	logging.Debug().Msgf("executing: %s", cmd.String())
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	errCh := make(chan error)
-	go listenForStdErr(stderr, errCh)
-
-	gitdiffFiles, err := gitdiff.Parse(stdout)
-	if err != nil {
-		return nil, err
-	}
-
-	return &GitCmd{
-		cmd:         cmd,
-		diffFilesCh: gitdiffFiles,
-		errCh:       errCh,
-		repoPath:    sourceClean,
-	}, nil
+	return GitOptions{}.NewLogCmd(ctx, source, logOpts)
 }
 
 // splitGitLogOpts parses user-provided --log-opts with a small shell-inspired
@@ -216,44 +233,10 @@ func NewGitDiffCmd(source string, staged bool) (*GitCmd, error) {
 }
 
 // NewGitDiffCmdContext is the same as NewGitDiffCmd but supports passing in a
-// context to use for timeouts
+// context to use for timeouts. The repository's local Git configuration is not
+// trusted; see GitOptions.
 func NewGitDiffCmdContext(ctx context.Context, source string, staged bool) (*GitCmd, error) {
-	sourceClean := filepath.Clean(source)
-	var cmd *exec.Cmd
-	cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff", ".")
-	if staged {
-		cmd = exec.CommandContext(ctx, "git", "-C", sourceClean, "diff", "-U0", "--no-ext-diff",
-			"--staged", ".")
-	}
-	cmd.Env = gitConfigIsolationEnv()
-	logging.Debug().Msgf("executing: %s", cmd.String())
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	errCh := make(chan error)
-	go listenForStdErr(stderr, errCh)
-
-	gitdiffFiles, err := gitdiff.Parse(stdout)
-	if err != nil {
-		return nil, err
-	}
-
-	return &GitCmd{
-		cmd:         cmd,
-		diffFilesCh: gitdiffFiles,
-		errCh:       errCh,
-		repoPath:    sourceClean,
-	}, nil
+	return GitOptions{}.NewDiffCmd(ctx, source, staged)
 }
 
 // DiffFilesCh returns a channel with *gitdiff.File.
@@ -269,9 +252,18 @@ func (c *GitCmd) ErrCh() <-chan error {
 // Wait waits for the command to exit and waits for any copying to
 // stdin or copying from stdout or stderr to complete.
 //
-// Wait also closes underlying stdout and stderr.
+// Wait also closes underlying stdout and stderr. Once blob readers created by
+// the command are closed, it removes any private Git directory.
 func (c *GitCmd) Wait() error {
-	return c.cmd.Wait()
+	err := c.cmd.Wait()
+	c.mu.Lock()
+	c.waiting = true
+	c.mu.Unlock()
+	c.blobs.Wait()
+	if c.ownsRepo {
+		c.repo.Close()
+	}
+	return err
 }
 
 // String displays the command used for GitCmd
@@ -292,20 +284,28 @@ func (c *GitCmd) NewBlobReader(commit, path string) (io.ReadCloser, error) {
 // NewBlobReaderContext is the same as NewBlobReader but supports passing in a
 // context to use for timeouts
 func (c *GitCmd) NewBlobReaderContext(ctx context.Context, commit, path string) (io.ReadCloser, error) {
-	gitArgs := []string{"-C", c.repoPath, "cat-file", "blob", commit + ":" + path}
-	cmd := exec.CommandContext(ctx, "git", gitArgs...)
-	cmd.Env = gitConfigIsolationEnv()
+	cmd := c.repo.command(ctx, "cat-file", "blob", commit+":"+path)
 	cmd.Stderr = io.Discard
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
+	c.mu.Lock()
+	if c.waiting {
+		c.mu.Unlock()
+		_ = stdout.Close()
+		return nil, errors.New("git command has finished")
+	}
+	c.blobs.Add(1)
+	c.mu.Unlock()
 	if err := cmd.Start(); err != nil {
+		c.blobs.Done()
 		return nil, fmt.Errorf("failed to start git command: %w", err)
 	}
 	return &blobReader{
 		ReadCloser: stdout,
 		cmd:        cmd,
+		done:       c.blobs.Done,
 	}, nil
 }
 
@@ -369,18 +369,42 @@ type Git struct {
 }
 
 // Fragments yields fragments from a git repo
-func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
-	defer func() {
-		if err := s.Cmd.Wait(); err != nil {
-			logging.Debug().Err(err).Str("cmd", s.Cmd.String()).Msg("command aborted")
-		}
-	}()
-
+func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	var (
 		diffFilesCh = s.Cmd.DiffFilesCh()
 		errCh       = s.Cmd.ErrCh()
 		wg          sync.WaitGroup
+		gitFailed   bool // Git's stderr has been reported
 	)
+	defer func() {
+		if diffFilesCh != nil || errCh != nil {
+			// Early returns must stop Git and drain the parser before waiting.
+			// Otherwise Git or its parser can remain blocked on unread output.
+			_ = s.Cmd.cmd.Process.Kill()
+			for diffFilesCh != nil || errCh != nil {
+				select {
+				case _, open := <-diffFilesCh:
+					if !open {
+						diffFilesCh = nil
+					}
+				case _, open := <-errCh:
+					if !open {
+						errCh = nil
+					}
+				}
+			}
+		}
+		// Callbacks must finish before the detector closes its results channel
+		// or Wait removes the repository used by archive readers.
+		wg.Wait()
+		waitErr := s.Cmd.Wait()
+		if waitErr != nil && err == nil && ctx.Err() == nil && !gitFailed {
+			// Git stopped without saying why, for example because it was
+			// killed. Report it like Git's own errors.
+			err = yield(Fragment{}, fmt.Errorf("git failed: %w", waitErr))
+		}
+		err = errors.Join(err, ctx.Err())
+	}()
 
 	// loop to range over both DiffFiles (stdout) and ErrCh (stderr)
 	for diffFilesCh != nil || errCh != nil {
@@ -438,7 +462,11 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			}
 
 			wg.Add(1)
+			var started atomic.Bool
 			s.Sema.Go(func() error {
+				if !started.CompareAndSwap(false, true) {
+					return nil
+				}
 				defer wg.Done()
 
 				if yieldAsArchive {
@@ -492,23 +520,28 @@ func (s *Git) Fragments(ctx context.Context, yield FragmentsFunc) error {
 
 				return nil
 			})
-		case err, open := <-errCh:
+			// semgroup.Go does not start the callback when acquiring a slot
+			// is canceled. Retire that task, or let an already running task
+			// finish and release its own slot in the local wait group.
+			if ctx.Err() != nil && started.CompareAndSwap(false, true) {
+				wg.Done()
+			}
+		case gitErr, open := <-errCh:
 			if !open {
 				errCh = nil
 				break
 			}
 
-			return yield(Fragment{}, err)
+			// Report the error, then keep scanning what Git wrote before it
+			// failed. Returning it would also cancel other ParallelGit workers.
+			gitFailed = true
+			if err := yield(Fragment{}, gitErr); err != nil {
+				return err
+			}
 		}
 	}
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		wg.Wait()
-		return nil
-	}
+	return nil
 }
 
 // ResolveRemote resolves the SCM platform and remote URL for the given source.
@@ -520,7 +553,7 @@ func ResolveRemote(ctx context.Context, platform scm.Platform, source string) (s
 
 	remoteUrl, err := getRemoteUrl(ctx, source)
 	if err != nil {
-		if strings.Contains(err.Error(), "No remote configured") {
+		if errors.Is(err, errNoGitRemote) {
 			logging.Debug().Msg("skipping finding links: repository has no configured remote.")
 			platform = scm.NoPlatform
 		} else {
@@ -550,22 +583,10 @@ var sshUrlpat = regexp.MustCompile(`^git@([a-zA-Z0-9.-]+):(?:\d{1,5}/)?([\w/.-]+
 
 func getRemoteUrl(ctx context.Context, source string) (*url.URL, error) {
 	// This will return the first remote — typically, "origin".
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--quiet", "--get-url")
-	cmd.Env = gitConfigIsolationEnv()
-	if source != "." {
-		cmd.Dir = source
-	}
-
-	stdout, err := cmd.Output()
+	remoteUrl, err := gitRemoteURL(ctx, source)
 	if err != nil {
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) {
-			return nil, fmt.Errorf("command failed (%d): %w, stderr: %s", exitError.ExitCode(), err, string(bytes.TrimSpace(exitError.Stderr)))
-		}
 		return nil, err
 	}
-
-	remoteUrl := string(bytes.TrimSpace(stdout))
 	if matches := sshUrlpat.FindStringSubmatch(remoteUrl); matches != nil {
 		remoteUrl = fmt.Sprintf("https://%s/%s", matches[1], matches[2])
 	}
