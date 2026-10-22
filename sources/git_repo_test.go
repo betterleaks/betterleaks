@@ -397,6 +397,37 @@ func TestGitIsolationSymlinkedSource(t *testing.T) {
 			}
 		})
 	}
+	t.Run("absolute-subdirectory-alias-reports-error", func(t *testing.T) {
+		pathspec := filepath.Join(link, "secret.txt")
+		native := exec.CommandContext(t.Context(), "git", "-C", link, "log", "-p", "--all", "--", pathspec)
+		native.Env = gitConfigIsolationEnv()
+		out, err := native.CombinedOutput()
+		require.Error(t, err)
+		require.Contains(t, string(out), "outside repository")
+		// This unsupported native path form must fail the scan, rather than
+		// reporting success with no findings, in both execution modes.
+		for _, parallel := range []bool{false, true} {
+			sema := semgroup.NewGroup(t.Context(), 4)
+			opts := "--all -- '" + filepath.ToSlash(pathspec) + "'"
+			var src Source
+			if parallel {
+				src = &ParallelGit{RepoPath: link, LogOpts: opts, Workers: 2, Sema: sema}
+			} else {
+				cmd, err := (GitOptions{}).NewLogCmd(t.Context(), link, opts)
+				require.NoError(t, err)
+				src = &Git{Cmd: cmd, Sema: sema}
+			}
+			var reported []error
+			err := src.Fragments(t.Context(), func(_ Fragment, err error) error {
+				if err != nil {
+					reported = append(reported, err)
+				}
+				return nil
+			})
+			require.NoError(t, sema.Wait())
+			require.Error(t, errors.Join(append(reported, err)...), "parallel=%t", parallel)
+		}
+	})
 }
 
 func TestGitIsolationConfiguredWorktree(t *testing.T) {
@@ -433,7 +464,7 @@ func TestGitIsolationConfiguredWorktree(t *testing.T) {
 				for _, name := range []string{"secret.txt", "sub/nested.txt"} {
 					require.NoError(t, os.WriteFile(filepath.Join(worktree, name), []byte("WORKTREE_SECRET\n"), 0o644))
 				}
-				for _, sub := range []string{"", "sub"} {
+				for _, sub := range []string{"", "sub", ".."} {
 					for _, mode := range gitScanModes {
 						t.Run(filepath.Join(sub, mode), func(t *testing.T) {
 							path := filepath.Join(worktree, sub)
@@ -487,6 +518,96 @@ func TestGitIsolationWorktreeRootPrecedence(t *testing.T) {
 				require.NotEmpty(t, want)
 				require.Equal(t, want, scanGit(t, path, mode, "", GitOptions{}), mode)
 			}
+		})
+	}
+}
+
+func TestGitIsolationExternalWorktree(t *testing.T) {
+	for _, kind := range []string{"common-config", "config.worktree", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newGitFixture(t)
+			f.write("secret.txt", "HISTORY_SECRET\n")
+			f.commit("base")
+			f.write("secret.txt", "STAGED_SECRET\n")
+			f.git("add", "secret.txt")
+			outside := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("EXTERNAL_CANARY\n"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(outside, ".mailmap"), []byte("Outside User <outside@example.com> <test@example.com>\n"), 0o644))
+			configured := outside
+			if kind == "symlink" {
+				if runtime.GOOS == "windows" {
+					t.Skip("symlink creation can require privileges on Windows")
+				}
+				configured = filepath.Join(f.path, "linked-outside")
+				require.NoError(t, os.Symlink(outside, configured))
+			}
+			if kind == "config.worktree" {
+				f.git("config", "extensions.worktreeConfig", "true")
+				f.git("config", "--worktree", "core.worktree", filepath.ToSlash(configured))
+			} else {
+				f.git("config", "core.worktree", filepath.ToSlash(configured))
+			}
+			// Positive control: Git's ordinary behavior reads this unrelated file.
+			trusted := scanGit(t, f.path, "worktree", "", GitOptions{TrustLocalGitConfig: true})
+			require.Contains(t, strings.Join(trusted, "\n"), "EXTERNAL_CANARY")
+			r, err := openGitRepo(t.Context(), f.path, GitOptions{}, true)
+			if r != nil {
+				r.Close()
+			}
+			require.ErrorContains(t, err, "outside the discovered checkout")
+
+			// History still works, but must not copy the external mailmap.
+			r, err = openGitRepo(t.Context(), f.path, GitOptions{}, false)
+			require.NoError(t, err)
+			defer r.Close()
+			require.NoFileExists(t, filepath.Join(r.workTree, ".mailmap"))
+			require.Contains(t, strings.Join(scanGit(t, f.path, "history", "", GitOptions{}), "\n"), "HISTORY_SECRET")
+
+			// Selecting a different worktree explicitly is a caller decision.
+			t.Setenv("GIT_WORK_TREE", outside)
+			require.Equal(t, trusted, scanGit(t, f.path, "worktree", "", GitOptions{}))
+		})
+	}
+}
+
+func TestGitIsolationHistoryWithoutCheckout(t *testing.T) {
+	for _, kind := range []string{"common-config", "config.worktree", "linked-config.worktree", "saved-git-directory", "GIT_WORK_TREE"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newGitFixture(t)
+			for i := range 3 {
+				f.write("secret.txt", fmt.Sprintf("HISTORY_SECRET_%d\n", i))
+				f.write("sub/secret.txt", fmt.Sprintf("SUB_HISTORY_SECRET_%d\n", i))
+				f.commit(fmt.Sprintf("commit %d", i))
+			}
+			want := scanGit(t, f.path, "history", "--all", GitOptions{TrustLocalGitConfig: true})
+			wantPath := scanGit(t, f.path, "history", "--all -- sub/secret.txt", GitOptions{TrustLocalGitConfig: true})
+			missing := filepath.Join(f.path, "missing")
+			path := f.path
+			if kind == "linked-config.worktree" {
+				path = filepath.Join(t.TempDir(), "linked")
+				f.git("worktree", "add", "-q", "-b", "linked", path)
+			}
+			if strings.HasSuffix(kind, "config.worktree") {
+				f.git("config", "extensions.worktreeConfig", "true")
+				f.gitIn(path, "", "config", "--worktree", "core.worktree", filepath.ToSlash(missing))
+			} else if kind == "GIT_WORK_TREE" {
+				t.Setenv("GIT_WORK_TREE", missing)
+			} else {
+				f.git("config", "core.worktree", filepath.ToSlash(missing))
+			}
+			if kind == "saved-git-directory" {
+				path = filepath.Join(t.TempDir(), "saved.git")
+				require.NoError(t, os.Rename(filepath.Join(f.path, ".git"), path))
+			}
+			for _, mode := range []string{"history", "parallel"} {
+				require.Equal(t, want, scanGit(t, path, mode, "--all", GitOptions{}), mode)
+				require.Equal(t, wantPath, scanGit(t, path, mode, "--all -- sub/secret.txt", GitOptions{}), mode)
+				if kind != "saved-git-directory" {
+					require.Equal(t, wantPath, scanGit(t, filepath.Join(path, "sub"), mode, "--all -- secret.txt", GitOptions{}), mode)
+				}
+			}
+			_, err := openGitRepo(t.Context(), path, GitOptions{}, true)
+			require.Error(t, err, "diff scans require an existing checkout")
 		})
 	}
 }

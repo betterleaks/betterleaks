@@ -74,7 +74,7 @@ func openGitRepo(ctx context.Context, source string, opts GitOptions, withWorkTr
 			}
 		}
 	}
-	if err := layout.setWorkTree(cfg, worktreeConfig); err != nil {
+	if err := layout.setWorkTree(cfg, worktreeConfig, withWorkTree); err != nil {
 		return nil, err
 	}
 	if withWorkTree && layout.workTree == "" {
@@ -539,8 +539,12 @@ type gitLayout struct {
 
 // setWorkTree resolves the small, non-executable subset of configuration that
 // determines the working-tree root. Keep it out of the generated config: the
-// private command receives an explicit, resolved --work-tree instead.
-func (l *gitLayout) setWorkTree(cfg gitConfig, worktreeConfig bool) error {
+// private command receives an explicit, resolved --work-tree instead. Repository
+// configuration may select a directory within the discovered checkout; a caller
+// must explicitly select external working trees through GIT_WORK_TREE.
+func (l *gitLayout) setWorkTree(cfg gitConfig, worktreeConfig, required bool) error {
+	checkout := l.workTree
+	configured := false
 	if dir := os.Getenv("GIT_WORK_TREE"); dir != "" {
 		l.workTree = gitPath(l.source, dir)
 	} else if worktreeConfig || samePath(l.gitDir, l.commonDir) {
@@ -554,7 +558,8 @@ func (l *gitLayout) setWorkTree(cfg gitConfig, worktreeConfig bool) error {
 				return fmt.Errorf("core.bare: %w", err)
 			}
 		}
-		dir, configured := cfg.last("core.worktree")
+		dir, ok := cfg.last("core.worktree")
+		configured = ok
 		if bare && configured {
 			return errors.New("core.bare=true cannot be combined with core.worktree")
 		}
@@ -567,10 +572,27 @@ func (l *gitLayout) setWorkTree(cfg gitConfig, worktreeConfig bool) error {
 	if l.workTree != "" {
 		path, err := filepath.EvalSymlinks(l.workTree)
 		if err != nil {
+			if !required && errors.Is(err, fs.ErrNotExist) {
+				// History needs only objects. Retain the discovered checkout's
+				// prefix for path filters, or remain bare for a saved Git dir.
+				l.workTree = checkout
+				return nil
+			}
 			return fmt.Errorf("resolve Git working tree: %w", err)
 		}
 		if info, err := os.Stat(path); err != nil || !info.IsDir() {
 			return fmt.Errorf("not a working-tree directory: %s", path)
+		}
+		if configured {
+			rel, err := filepath.Rel(checkout, path)
+			if checkout == "" || err != nil || !filepath.IsLocal(rel) {
+				if required {
+					return fmt.Errorf("repository-configured working tree %s is outside the discovered checkout; set GIT_WORK_TREE explicitly to select it", path)
+				}
+				// Do not read an external .mailmap during history scans either.
+				l.workTree = checkout
+				return nil
+			}
 		}
 		l.workTree = path
 	}
@@ -616,10 +638,6 @@ func findGitLayout(source string) (gitLayout, error) {
 			}
 		}
 	}
-	if dir := os.Getenv("GIT_WORK_TREE"); dir != "" {
-		l.workTree = gitPath(abs, dir)
-	}
-
 	l.commonDir = l.gitDir
 	if data, err := readGitFile(filepath.Join(l.gitDir, "commondir")); err == nil {
 		l.commonDir = gitPath(l.gitDir, strings.TrimSpace(string(data)))

@@ -104,6 +104,15 @@ Repository discovery follows symlinks in the requested directory. The working
 tree is resolved from `core.worktree` (including enabled `config.worktree`
 overrides), with `GIT_WORK_TREE` taking precedence. Relative `core.worktree`
 paths are resolved against the original Git directory before isolation.
+Repository-configured working trees must stay within the discovered checkout,
+including after resolving symlinks. Staged and working-tree scans fail if this
+check fails or the directory is missing. To select an external working tree,
+set `GIT_WORK_TREE` explicitly in the caller's environment.
+
+History scans can read saved Git directories without their checkouts. If the
+configured working tree is missing or outside the discovered checkout, history
+scans use the discovered checkout's path scope, if any, and do not read the
+configured directory's `.mailmap`.
 
 Staged and working-tree scans use a private copy of the index, including split
 indexes and sparse-checkout patterns. Permitted settings from `config.worktree`
