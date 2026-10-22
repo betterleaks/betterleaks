@@ -3,16 +3,21 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
+	"github.com/betterleaks/betterleaks/v2/pipeline"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
+
+const maxCommitListBytes = 256 << 20
 
 type GitCmd struct {
 	ScanFlags       `embed:""`
@@ -26,6 +31,7 @@ type GitCmd struct {
 	Author          string   `group:"source" help:"Go regular expression matching author name and email."`
 	Committer       string   `group:"source" help:"Go regular expression matching committer name and email."`
 	Revision        string   `group:"source" help:"Revision or range (A..B) from fetched or local history; does not fetch refs. Omit to scan HEAD and all non-note refs."`
+	CommitListFile  string   `group:"source" name:"commit-list-file" placeholder:"PATH" help:"Scan only the listed full commit IDs, one per line, without walking their history. Use - to read stdin. Input is limited to 256 MiB; empty input selects no commits."`
 	MaxCommits      int      `group:"source" name:"max-commits" help:"Limit selected commits in the history walk; zero is unlimited."`
 	GitMaxBlobMiB   int      `group:"source" name:"git-max-blob-mib" default:"64" help:"Skip blobs larger than this many MiB, with a warning for each."`
 	AllowExternal   bool     `group:"source" name:"allow-external-objects" help:"Read Git storage outside the repository (a .git file, commondir, or object alternate pointing elsewhere)."`
@@ -90,7 +96,13 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "git", source)
 	findings.startScan(runtime)
-	summary, err := runner.Scan(runtime.Context, src, findings.Add)
+	if options.CommitListFile != "" {
+		src.Commits, err = options.readCommits(runtime)
+	}
+	var summary pipeline.ScanSummary
+	if err == nil {
+		summary, err = runner.Scan(runtime.Context, src, findings.Add)
+	}
 	if errors.Is(err, gogit.ErrExternalStore) {
 		runtime.Logger().Error("failed to scan Git repository; pass --allow-external-objects to read storage outside it", "error", err)
 	} else if err != nil {
@@ -133,6 +145,11 @@ func (cmd GitCmd) gitSource() (*gogit.Source, error) {
 	if err != nil {
 		return nil, err
 	}
+	var commits []string
+	if cmd.CommitListFile != "" {
+		// Validate options without consuming input before execution.
+		commits = []string{}
+	}
 	repo := cmd.Repo
 	if repo == "" {
 		repo = "."
@@ -156,10 +173,55 @@ func (cmd GitCmd) gitSource() (*gogit.Source, error) {
 	return &gogit.Source{
 		RepoPath: repo, URL: url, Token: token,
 		CloneRefs: cmd.CloneRefs, CloneAllRefs: cmd.CloneAllRefs,
-		Revision: cmd.Revision, Since: since, Until: until, Author: cmd.Author, Committer: cmd.Committer, MaxCount: cmd.MaxCommits,
+		Revision: cmd.Revision, Commits: commits, MaxCount: cmd.MaxCommits,
+		Since: since, Until: until, Author: cmd.Author, Committer: cmd.Committer,
 		MaxBlobBytes: int64(cmd.GitMaxBlobMiB) << 20, Include: cmd.Include, Exclude: cmd.Exclude,
 		AllowExternalObjects: cmd.AllowExternal, Platform: platform, MaxArchiveDepth: cmd.MaxArchiveDepth,
 	}, nil
+}
+
+func (cmd GitCmd) readCommits(runtime *commandRuntime) ([]string, error) {
+	input := runtime.stdin
+	if cmd.CommitListFile != "-" {
+		file, err := os.Open(cmd.CommitListFile)
+		if err != nil {
+			return nil, fmt.Errorf("open commit list: %w", err)
+		}
+		defer file.Close()
+		input = file
+	}
+	input, closeInput := cancellableStdin(runtime.Context, input)
+	defer closeInput()
+	return readCommitList(input, maxCommitListBytes)
+}
+
+func readCommitList(input io.Reader, maxBytes int64) ([]string, error) {
+	data, err := io.ReadAll(io.LimitReader(input, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read commit list: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("commit list exceeds %d MiB", maxBytes>>20)
+	}
+	// Empty input selects no commits instead of scanning all history.
+	commits := []string{}
+	seen := make(map[gitobj.Hash]struct{})
+	for line := range strings.Lines(string(data)) {
+		id := strings.TrimSpace(line)
+		if id == "" {
+			continue
+		}
+		if !gitobj.IsHash(id) {
+			return nil, fmt.Errorf("invalid commit ID %q; use a full object ID", id)
+		}
+		hash := gitobj.NewHash(id)
+		if _, ok := seen[hash]; ok {
+			continue
+		}
+		seen[hash] = struct{}{}
+		commits = append(commits, id)
+	}
+	return commits, nil
 }
 
 // An existing path wins even when its spelling resembles a URL.
