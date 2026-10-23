@@ -36,6 +36,7 @@ func analysisTargetFixtures() []targetFixture {
 		{ClickUpPersonalAPIToken, "https://api.clickup.com/api/v2/user", "Authorization", "fixture-secret-us20", `{"user":{"id":12345,"username":"alex","email":"alex@example.com"}}`, &report.AnalysisIdentity{ID: "12345", Username: "alex", Email: "alex@example.com"}, nil},
 		{FigmaPersonalAccessToken, "https://api.figma.com/v1/me", "X-Figma-Token", "fixture-secret-us20", `{"id":"figma-user","handle":"alex","email":"alex@example.com"}`, &report.AnalysisIdentity{ID: "figma-user", Username: "alex", Email: "alex@example.com"}, nil},
 		{FigmaPersonalAccessHeaderToken, "https://api.figma.com/v1/me", "X-Figma-Token", "fixture-secret-us20", `{"id":"figma-user","handle":"alex","email":"alex@example.com"}`, &report.AnalysisIdentity{ID: "figma-user", Username: "alex", Email: "alex@example.com"}, nil},
+		{LabelboxAPIKey, "https://api.labelbox.com/graphql", "Authorization", "Bearer fixture-secret-us20", `{"data":{"user":{"id":"lbx-user","email":"alex@example.com","organization":{"id":"lbx-org","name":"Acme"}}}}`, &report.AnalysisIdentity{ID: "lbx-user", Email: "alex@example.com", Account: &report.AnalysisAccount{ID: "lbx-org", Name: "Acme"}}, nil},
 		{LinearAPIToken, "https://api.linear.app/graphql", "Authorization", "fixture-secret-us20", `{"data":{"viewer":{"id":"linear-user","name":"Alex","email":"alex@example.com"}}}`, &report.AnalysisIdentity{ID: "linear-user", Name: "Alex", Email: "alex@example.com"}, nil},
 		{Replicate, "https://api.replicate.com/v1/account", "Authorization", "Bearer fixture-secret-us20", `{"type":"organization","username":"acme","name":"Acme"}`, &report.AnalysisIdentity{Account: &report.AnalysisAccount{ID: "acme", Name: "Acme"}}, nil},
 		{MailChimp, "https://us20.api.mailchimp.com/3.0/", "Authorization", "Basic " + base64.StdEncoding.EncodeToString([]byte("x:fixture-secret-us20")), `{"account_id":"mc-account","account_name":"Acme","username":"alex","email":"alex@example.com","role":"owner"}`, &report.AnalysisIdentity{Username: "alex", Email: "alex@example.com", Account: &report.AnalysisAccount{ID: "mc-account", Name: "Acme"}}, nil},
@@ -85,11 +86,15 @@ func runTargetFixture(t *testing.T, rule *config.Rule, fixture targetFixture, st
 		if fixture.authHeader != "" {
 			assert.Equal(t, fixture.authValue, req.Header.Get(fixture.authHeader))
 		}
-		if rule.ID == "linear-api-key" {
+		graphQLQueries := map[string]string{
+			"labelbox-api-key": `{"query":"query { user { id email organization { id name } } }"}`,
+			"linear-api-key":   `{"query":"query { viewer { id name email } }"}`,
+		}
+		if query, ok := graphQLQueries[rule.ID]; ok {
 			assert.Equal(t, http.MethodPost, req.Method)
 			raw, err := io.ReadAll(req.Body)
 			require.NoError(t, err)
-			assert.JSONEq(t, `{"query":"query { viewer { id name email } }"}`, string(raw))
+			assert.JSONEq(t, query, string(raw))
 		} else {
 			assert.Equal(t, http.MethodGet, req.Method)
 		}
@@ -190,6 +195,17 @@ func TestAnalysisTargetsOptionalAndPartialResponses(t *testing.T) {
 				assert.Empty(t, analysis.Identity.Email)
 				assert.Nil(t, analysis.Identity.Account)
 			}
+		case "labelbox-api-key":
+			result, _ := runTargetFixture(t, rule, fixture, 200, `{"data":{"user":null}}`, false)
+			assert.Equal(t, report.ValidationStatusInvalid, result.Status)
+			assert.Empty(t, result.Analysis)
+			for _, body := range []string{`{"data":{"user":{"id":"lbx-user"}},"errors":[{"message":"denied"}]}`, `{"data":{"user":null},"errors":[{"message":"Internal server error"}]}`} {
+				result, _ = runTargetFixture(t, rule, fixture, 200, body, false)
+				assert.Equal(t, report.ValidationStatusUnknown, result.Status)
+				assert.Empty(t, result.Analysis)
+			}
+			_, analysis := runTargetFixture(t, rule, fixture, 200, `{"data":{"user":{"id":"lbx-user","organization":null}}}`, true)
+			assert.Equal(t, &report.AnalysisIdentity{ID: "lbx-user"}, analysis.Identity)
 		case "linear-api-key":
 			result, _ := runTargetFixture(t, rule, fixture, 200, `{"data":{"viewer":{"id":"alex"}},"errors":[{"message":"denied"}]}`, false)
 			assert.Equal(t, report.ValidationStatusUnknown, result.Status)
@@ -238,5 +254,32 @@ func TestAnalysisTargetsOptionalAndPartialResponses(t *testing.T) {
 				assert.Equal(t, report.ValidationStatusUnknown, result.Status)
 			}
 		}
+	}
+}
+
+func TestRecursionAPIKeyValidation(t *testing.T) {
+	fixture := targetFixture{
+		rule:       RecursionAPIKey,
+		url:        "https://api.recursion.labelbox.com/managed-agents/v1/models",
+		authHeader: "Authorization",
+		authValue:  "Bearer fixture-secret-us20",
+	}
+	for _, test := range []struct {
+		name   string
+		status int
+		body   string
+		want   report.ValidationStatus
+	}{
+		{"organization key", 200, `{"data":[]}`, report.ValidationStatusValid},
+		{"tenant key without organization", 400, `{"code":"invalid_request","message":"Send x-organization-id with a tenant-scoped API key."}`, report.ValidationStatusValid},
+		{"other bad request", 400, `{"code":"invalid_request"}`, report.ValidationStatusUnknown},
+		{"unauthorized", 401, `{"code":"unauthorized","message":"This endpoint requires a Recursion API key."}`, report.ValidationStatusInvalid},
+		{"rate limited", 429, `{}`, report.ValidationStatusUnknown},
+		{"unavailable", 503, `{}`, report.ValidationStatusUnknown},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, _ := runTargetFixture(t, fixture.rule(), fixture, test.status, test.body, false)
+			assert.Equal(t, test.want, result.Status)
+		})
 	}
 }

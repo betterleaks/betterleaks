@@ -7539,6 +7539,74 @@ entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# labelbox-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "labelbox-api-key"
+description = "Detected a Labelbox API key, which can read and modify projects, datasets, and annotations in a Labelbox organization."
+regex = '''\b(lbx_[\w-]{42}[AEIMQUYcgkosw048])(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["lbx_"]
+validate = '''
+let r = http.post("https://api.labelbox.com/graphql", {"Authorization": "Bearer " + finding["secret"], "Content-Type": "application/json"}, "{\"query\":\"query { user { id email organization { id name } } }\"}");
+let user = type(r.json) == "map" && type(r.json?.data) == "map" ? r.json?.data?.user : nil;
+r.status == 200 && type(user) == "map" && (user?.id ?? "") != "" && len(r.json?.errors ?? []) == 0 ? {
+  "result": "valid",
+  "analysis": {
+    "identity": {
+      "id": string(user?.id ?? ""),
+      "email": string(user?.email ?? ""),
+      "account": type(user?.organization) == "map" ? {
+        "id": string(user?.organization?.id ?? ""),
+        "name": string(user?.organization?.name ?? "")
+      } : {}
+    }
+  }
+} : (r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && user == nil && len(r.json?.errors ?? []) == 0) || r.status == 401 ? {
+  "result": "invalid", "reason": "Invalid, revoked, or expired API key"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": input["identity"] ?? {},
+  "metadata": input["metadata"] ?? {},
+  "capabilities": [],
+  "reason": "Identity resolved; effective permissions were not returned"
+}
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# labelbox-recursion-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "labelbox-recursion-api-key"
+description = "Detected a Labelbox Recursion API key, which acts as its owner to run and manage agents, sessions, and credentials."
+regex = '''\b(rma_[\w-]{42}[AEIMQUYcgkosw048])(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["rma_"]
+validate = '''
+let r = http.get("https://api.recursion.labelbox.com/managed-agents/v1/models", {
+    "Authorization": "Bearer " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status == 400 && (r.body contains "x-organization-id") ? {
+    "result": "valid",
+    "reason": "Tenant-scoped API key"
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Invalid, revoked, or expired API key"
+  } : validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # langchain-langsmith-personal-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
