@@ -11250,22 +11250,281 @@ skipReport = true
 [[rules]]
 id = "tailscale-api-key.1"
 description = "Tailscale API access token."
-regex = '''\b(tskey-api-[A-Za-z0-9_-]{20,36})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''\b(tskey-api-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{28,40})\b'''
 confidence = "high"
-keywords = ["tskey-api-"]
+keywords = ["tskey-api-k"]
+tags = [
+    "provider:tailscale",
+]
 validate = '''
-let r = http.post("https://api.tailscale.com/api/v2/secret-scanning/verify", {
-    "Content-Type": "application/x-www-form-urlencoded",
-    "Accept": "application/json"
-  }, "key=" + finding["secret"]); r.status == 204 ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Invalid API token"
-  } : validate.unknown(r)
+let parts = split(finding["secret"], "-");
+let key_id = parts[len(parts) - 2];
+let r = http.get("https://api.tailscale.com/api/v2/tailnet/-/keys/" + key_id, {
+  "Authorization": "Bearer " + finding["secret"],
+  "Accept": "application/json"
+});
+r.status == 200 && type(r.json) == "map" && (r.json?.id ?? "") == key_id ? {
+  "result": "valid",
+  "analysis": {
+    "user_id": string(r.json?.userId ?? ""),
+    "scopes": r.json?.scopes ?? [],
+    "metadata": {
+      "key_id": key_id,
+      "key_type": r.json?.keyType ?? "",
+      "description": r.json?.description ?? "",
+      "created": r.json?.created ?? "",
+      "expires": r.json?.expires ?? ""
+    }
+  }
+} : r.status == 403 ? {
+  "result": "valid",
+  "reason": "Authenticated but key metadata is forbidden",
+  "analysis": {"metadata": {"key_id": key_id}}
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Invalid or expired Tailscale API token"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let writable = ["all", "acl", "devices", "dns", "routes", "policy_file", "devices:core", "devices:posture_attributes", "devices:routes", "devices_invites", "api_access_tokens", "auth_keys", "oauth_keys", "federated_keys", "webhooks", "log_streaming", "logs:network", "account_settings", "feature_settings"];
+let readable = ["all:read", "acl:read", "devices:read", "dns:read", "routes:read", "logs:read", "policy_file:read", "devices:core:read", "devices:posture_attributes:read", "devices:routes:read", "devices_invites:read", "api_access_tokens:read", "auth_keys:read", "oauth_keys:read", "federated_keys:read", "webhooks:read", "log_streaming:read", "logs:configuration:read", "logs:network:read", "account_settings:read", "feature_settings:read"];
+{
+  "reason": len(scopes) == 0 ? "Tailscale did not return scope metadata" :
+    !intersects(scopes, writable) && !intersects(scopes, readable) ? "Tailscale returned no recognized scopes" : "",
+  "identity": {"id": input["user_id"] ?? ""},
+  "metadata": {
+    "key_id": input["metadata"]?.key_id ?? "",
+    "key_type": input["metadata"]?.key_type ?? "",
+    "description": input["metadata"]?.description ?? "",
+    "created": input["metadata"]?.created ?? "",
+    "expires": input["metadata"]?.expires ?? "",
+    "client_id": input["metadata"]?.client_id ?? "",
+    "token_type": input["metadata"]?.token_type ?? "",
+    "token_ttl_seconds": input["metadata"]?.token_ttl_seconds ?? 0,
+    "scopes": scopes
+  },
+  "capabilities": analysis.capabilities({
+    "read": intersects(scopes, readable) || intersects(scopes, writable),
+    "write": intersects(scopes, writable),
+    "create_credentials": intersects(scopes, ["all", "auth_keys", "devices", "webhooks"]),
+    "manage_users": "all" in scopes,
+    "admin": "all" in scopes
+  })
+}
 '''
 filter = '''
-entropy(finding["secret"]) < 3.0
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tailscale-auth-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tailscale-auth-key"
+description = "Tailscale device enrollment key."
+regex = '''\b(tskey-auth-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{28,40})\b'''
+confidence = "high"
+keywords = ["tskey-auth-k"]
+tags = [
+    "provider:tailscale",
+]
+validate = '''
+let parts = split(finding["secret"], "-");
+let r = http.post("https://api.tailscale.com/api/v2/secret-scanning/verify", {
+  "Content-Type": "application/x-www-form-urlencoded",
+  "Accept": "application/json"
+}, "key=" + finding["secret"]);
+r.status == 204 ? {
+  "result": "valid",
+  "analysis": {"metadata": {"key_id": parts[len(parts) - 2]}}
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Invalid or expired Tailscale key"
+} : validate.unknown(r)
+'''
+analyze = '''
+{
+  "metadata": validation.analysis["metadata"] ?? {},
+  "capabilities": [],
+  "reason": "Key verified; owner and effective permissions were not returned"
+}
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tailscale-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tailscale-key"
+description = "Tailscale legacy untyped credential."
+regex = '''\b(tskey-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{20,40})\b'''
+confidence = "high"
+keywords = ["tskey-k"]
+tags = [
+    "provider:tailscale",
+]
+validate = '''
+let parts = split(finding["secret"], "-");
+let r = http.post("https://api.tailscale.com/api/v2/secret-scanning/verify", {
+  "Content-Type": "application/x-www-form-urlencoded",
+  "Accept": "application/json"
+}, "key=" + finding["secret"]);
+r.status == 204 ? {
+  "result": "valid",
+  "analysis": {"metadata": {"key_id": parts[len(parts) - 2]}}
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Invalid or expired Tailscale key"
+} : validate.unknown(r)
+'''
+analyze = '''
+{
+  "metadata": validation.analysis["metadata"] ?? {},
+  "capabilities": [],
+  "reason": "Key verified; owner and effective permissions were not returned"
+}
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tailscale-oauth-client-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tailscale-oauth-client-secret"
+description = "Tailscale OAuth credential for minting scoped API tokens."
+regex = '''\b(tskey-client-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{28,40})\b'''
+confidence = "high"
+keywords = ["tskey-client-k"]
+tags = [
+    "provider:tailscale","category:oauth",
+]
+validate = '''
+let parts = split(finding["secret"], "-");
+let client_id = parts[len(parts) - 2];
+let r = http.post("https://api.tailscale.com/api/v2/oauth/token", {
+  "Content-Type": "application/x-www-form-urlencoded",
+  "Accept": "application/json"
+}, "grant_type=client_credentials&client_id=" + client_id + "&client_secret=" + finding["secret"]);
+r.status == 200 && type(r.json) == "map" && type(r.json?.access_token) == "string" && (r.json?.access_token ?? "") != "" ? {
+  "result": "valid",
+  "analysis": {
+    "scopes": strings.splitTrim(r.json?.scope ?? "", " "),
+    "metadata": {
+      "client_id": client_id,
+      "token_type": r.json?.token_type ?? "",
+      "token_ttl_seconds": r.json?.expires_in ?? 0
+    }
+  }
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Invalid Tailscale OAuth client secret"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let writable = ["all", "acl", "devices", "dns", "routes", "policy_file", "devices:core", "devices:posture_attributes", "devices:routes", "devices_invites", "api_access_tokens", "auth_keys", "oauth_keys", "federated_keys", "webhooks", "log_streaming", "logs:network", "account_settings", "feature_settings"];
+let readable = ["all:read", "acl:read", "devices:read", "dns:read", "routes:read", "logs:read", "policy_file:read", "devices:core:read", "devices:posture_attributes:read", "devices:routes:read", "devices_invites:read", "api_access_tokens:read", "auth_keys:read", "oauth_keys:read", "federated_keys:read", "webhooks:read", "log_streaming:read", "logs:configuration:read", "logs:network:read", "account_settings:read", "feature_settings:read"];
+{
+  "reason": len(scopes) == 0 ? "Tailscale did not return scope metadata" :
+    !intersects(scopes, writable) && !intersects(scopes, readable) ? "Tailscale returned no recognized scopes" : "",
+  "identity": {"id": input["user_id"] ?? ""},
+  "metadata": {
+    "key_id": input["metadata"]?.key_id ?? "",
+    "key_type": input["metadata"]?.key_type ?? "",
+    "description": input["metadata"]?.description ?? "",
+    "created": input["metadata"]?.created ?? "",
+    "expires": input["metadata"]?.expires ?? "",
+    "client_id": input["metadata"]?.client_id ?? "",
+    "token_type": input["metadata"]?.token_type ?? "",
+    "token_ttl_seconds": input["metadata"]?.token_ttl_seconds ?? 0,
+    "scopes": scopes
+  },
+  "capabilities": analysis.capabilities({
+    "read": intersects(scopes, readable) || intersects(scopes, writable),
+    "write": intersects(scopes, writable),
+    "create_credentials": intersects(scopes, ["all", "auth_keys", "devices", "webhooks"]),
+    "manage_users": "all" in scopes,
+    "admin": "all" in scopes
+  })
+}
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tailscale-scim-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tailscale-scim-key"
+description = "Tailscale user provisioning credential."
+regex = '''\b(tskey-scim-[A-Za-z0-9]{8,24}-[A-Za-z0-9]{28,40})\b'''
+confidence = "high"
+keywords = ["tskey-scim-"]
+tags = [
+    "provider:tailscale",
+]
+validate = '''
+let parts = split(finding["secret"], "-");
+let r = http.post("https://api.tailscale.com/api/v2/secret-scanning/verify", {
+  "Content-Type": "application/x-www-form-urlencoded",
+  "Accept": "application/json"
+}, "key=" + finding["secret"]);
+r.status == 204 ? {
+  "result": "valid",
+  "analysis": {"metadata": {"key_id": parts[len(parts) - 2]}}
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Invalid or expired Tailscale key"
+} : validate.unknown(r)
+'''
+analyze = '''
+{
+  "metadata": validation.analysis["metadata"] ?? {},
+  "capabilities": [],
+  "reason": "Key verified; owner and effective permissions were not returned"
+}
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tailscale-webhook-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tailscale-webhook-secret"
+description = "Tailscale webhook signing secret."
+regex = '''\b(tskey-webhook-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{28,40})\b'''
+confidence = "high"
+keywords = ["tskey-webhook-k"]
+tags = [
+    "provider:tailscale",
+]
+validate = '''
+let parts = split(finding["secret"], "-");
+let r = http.post("https://api.tailscale.com/api/v2/secret-scanning/verify", {
+  "Content-Type": "application/x-www-form-urlencoded",
+  "Accept": "application/json"
+}, "key=" + finding["secret"]);
+r.status == 204 ? {
+  "result": "valid",
+  "analysis": {"metadata": {"key_id": parts[len(parts) - 2]}}
+} : r.status == 401 ? {
+  "result": "invalid", "reason": "Invalid or expired Tailscale key"
+} : validate.unknown(r)
+'''
+analyze = '''
+{
+  "metadata": validation.analysis["metadata"] ?? {},
+  "capabilities": [],
+  "reason": "Key verified; owner and effective permissions were not returned"
+}
+'''
+filter = '''
+entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
