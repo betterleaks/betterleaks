@@ -82,6 +82,7 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 	defer putReader(reader)
 
 	nextLine := 1
+	nextColumnOffset := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -103,8 +104,9 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 		}
 
 		fragment := Fragment{
-			Raw:       string(chunk),
-			StartLine: nextLine,
+			Raw:               string(chunk),
+			StartLine:         nextLine,
+			StartColumnOffset: nextColumnOffset,
 		}
 		if err := yield(fragment, nil); err != nil {
 			return err
@@ -114,6 +116,11 @@ func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yiel
 			return ctx.Err()
 		}
 		nextLine += strings.Count(fragment.Raw, "\n")
+		if lastNewline := strings.LastIndexByte(fragment.Raw, '\n'); lastNewline >= 0 {
+			nextColumnOffset = len(fragment.Raw) - lastNewline - 1
+		} else {
+			nextColumnOffset += len(fragment.Raw)
+		}
 		if boundaryErr != nil {
 			return yield(Fragment{StartLine: nextLine}, fmt.Errorf("could not read until safe boundary: %w", boundaryErr))
 		}

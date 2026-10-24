@@ -871,6 +871,12 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 
 		loc := location(state.lineOffsets, fragment.Raw, matchIndex)
+		if loc.startLine == 1 {
+			loc.startColumn += fragment.StartColumnOffset
+		}
+		if loc.endLine == 1 {
+			loc.endColumn += fragment.StartColumnOffset
+		}
 
 		tags := append([]string{}, r.rule.Tags...)
 
@@ -1065,7 +1071,7 @@ nextPrimary:
 		for i, component := range r.components {
 			before := len(componentFindings)
 			for _, found := range allComponentFindings[i] {
-				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, primaryFinding, found, component.window) {
+				if withinProximity(fragment.Raw, state.lineOffsets, fragment.StartLine, fragment.StartColumnOffset, primaryFinding, found, component.window) {
 					hash := s.valueFingerprint(found.Match.Value)
 					if _, ignored := s.ignoredFingerprints[hash]; ignored {
 						continue
@@ -1095,22 +1101,22 @@ nextPrimary:
 	return finalFindings, nil
 }
 
-func withinProximity(raw string, lineOffsets []int, fragmentStartLine int, primary, component report.Finding, window contextwindow.Spec) bool {
+func withinProximity(raw string, lineOffsets []int, fragmentStartLine, fragmentColumnOffset int, primary, component report.Finding, window contextwindow.Spec) bool {
 	if window.IsZero() {
 		return true
 	}
 
 	switch window.Mode {
 	case contextwindow.ModeCols:
-		primaryStart, ok := findingStartOffset(lineOffsets, fragmentStartLine, primary)
+		primaryStart, ok := findingStartOffset(lineOffsets, fragmentStartLine, fragmentColumnOffset, primary)
 		if !ok {
 			return false
 		}
-		primaryEnd, ok := findingEndOffset(lineOffsets, fragmentStartLine, primary)
+		primaryEnd, ok := findingEndOffset(lineOffsets, fragmentStartLine, fragmentColumnOffset, primary)
 		if !ok {
 			return false
 		}
-		componentStart, ok := findingStartOffset(lineOffsets, fragmentStartLine, component)
+		componentStart, ok := findingStartOffset(lineOffsets, fragmentStartLine, fragmentColumnOffset, component)
 		if !ok {
 			return false
 		}
@@ -1135,20 +1141,28 @@ func withinProximity(raw string, lineOffsets []int, fragmentStartLine int, prima
 	}
 }
 
-func findingStartOffset(lineOffsets []int, fragmentStartLine int, finding report.Finding) (int, bool) {
+func findingStartOffset(lineOffsets []int, fragmentStartLine, fragmentColumnOffset int, finding report.Finding) (int, bool) {
 	line := finding.Location.StartLine - fragmentStartLine
 	if line < 0 || line >= len(lineOffsets) || finding.Location.StartColumn < 1 {
 		return 0, false
 	}
-	return lineOffsets[line] + finding.Location.StartColumn - 1, true
+	column := finding.Location.StartColumn - 1
+	if line == 0 {
+		column -= fragmentColumnOffset
+	}
+	return lineOffsets[line] + column, column >= 0
 }
 
-func findingEndOffset(lineOffsets []int, fragmentStartLine int, finding report.Finding) (int, bool) {
+func findingEndOffset(lineOffsets []int, fragmentStartLine, fragmentColumnOffset int, finding report.Finding) (int, bool) {
 	line := finding.Location.EndLine - fragmentStartLine
 	if line < 0 || line >= len(lineOffsets) || finding.Location.EndColumn < 0 {
 		return 0, false
 	}
-	return lineOffsets[line] + finding.Location.EndColumn, true
+	column := finding.Location.EndColumn
+	if line == 0 {
+		column -= fragmentColumnOffset
+	}
+	return lineOffsets[line] + column, column >= 0
 }
 
 // Path findings have metadata but no content match. They still obey local

@@ -167,3 +167,28 @@ func TestReaderPreservesCallbackFailureAndCancellationAtEOF(t *testing.T) {
 	})
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+func TestReaderFragmentColumnOffsets(t *testing.T) {
+	for name, raw := range map[string]string{
+		"no newlines": strings.Repeat("é", 200_000),
+		"aligned":     strings.Repeat(strings.Repeat("x", defaultBufferSize-2)+"\n\n", 3),
+		"CRLF":        strings.Repeat(strings.Repeat("é", 63_000)+"\r\n", 3) + "end",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got strings.Builder
+			chunks := 0
+			source := &Reader{Content: strings.NewReader(raw)}
+			require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
+				require.NoError(t, err)
+				prefix := raw[:got.Len()]
+				assert.Equal(t, strings.Count(prefix, "\n")+1, fragment.StartLine)
+				assert.Equal(t, len(prefix)-strings.LastIndexByte(prefix, '\n')-1, fragment.StartColumnOffset)
+				got.WriteString(fragment.Raw)
+				chunks++
+				return nil
+			}))
+			require.Greater(t, chunks, 2)
+			assert.Equal(t, raw, got.String())
+		})
+	}
+}
