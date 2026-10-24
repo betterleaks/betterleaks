@@ -352,6 +352,7 @@ func main() {
 		rules.NewRelicBrowserAPIKey(),
 		rules.NewRelicInsertKey(),
 		rules.Notion(),
+		rules.NotionLegacyAPIToken(),
 		rules.NPM(),
 		rules.NugetAPIKey(),
 		rules.NugetConfigPassword(),
