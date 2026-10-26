@@ -74,6 +74,41 @@ func TestReaderFragmentsTracksLinesAcrossChunks(t *testing.T) {
 	assert.Equal(t, Fragment{Raw: "two", StartLine: 3}, fragments[1])
 }
 
+func TestReaderBoundaryFallbackPreservesStream(t *testing.T) {
+	const size = 100
+	for _, input := range []string{
+		strings.Repeat("line\n", 5001) + strings.Repeat("x", 200) + "\nlast",
+		strings.Repeat("x", size+maxPeekSize+200),
+		"line\n" + strings.Repeat("x", size+maxPeekSize+200),
+	} {
+		for _, terminalError := range []error{io.EOF, errors.New("read failed")} {
+			content := strings.NewReader(input)
+			stream := readerFunc(func(p []byte) (int, error) {
+				n, err := content.Read(p)
+				if err == io.EOF {
+					return n, terminalError
+				}
+				return n, err
+			})
+			var got strings.Builder
+			nextLine := 1
+			err := readerFragments(t.Context(), stream, make([]byte, size), func(f Fragment, err error) error {
+				require.Equal(t, nextLine, f.StartLine)
+				require.LessOrEqual(t, len(f.Raw), size+maxPeekSize)
+				nextLine += strings.Count(f.Raw, "\n")
+				got.WriteString(f.Raw)
+				return err
+			})
+			require.Equal(t, input, got.String())
+			if terminalError == io.EOF {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, terminalError)
+			}
+		}
+	}
+}
+
 type readerFunc func([]byte) (int, error)
 
 func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
