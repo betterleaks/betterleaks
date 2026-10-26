@@ -9,22 +9,32 @@ import (
 	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
+// One line break allows pretty-printed records while keeping the scanner's
+// keyword search windows small. No structural punctuation may be skipped.
+const jsonRecordSpace = `[ \t]*(?:\r?\n[ \t]*)?`
+const jsonRecordValue = jsonRecordSpace + `"?value"?` + jsonRecordSpace + `:` + jsonRecordSpace
+
+// Allow up to two opening containers before a literal, without crossing a
+// sibling's comma or a closing container. This only finds the first value.
+const structuredValuePrefix = `(?:` + jsonRecordSpace + `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"[\w.-]{1,64}"` + jsonRecordSpace + `:|<[\w.:-]{1,64}>)){0,2}` + jsonRecordSpace + `(?:<!\[CDATA\[)?`
+
 func GenericCredential() *config.Rule {
-	// define rule
+	const identifiers = `access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token`
+	const token = `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`
+	// Consume a key/value record's label before looking for its value. These
+	// label characters already fail the generic filter, so this cannot hide a
+	// plausible secret assigned directly to "key".
+	recordLabel := jsonRecordSpace + `"[a-z_.-]{0,50}(?:` + identifiers + `)[a-z_.-]{0,20}"` + jsonRecordSpace + `(?:,` + jsonRecordValue + `|value[ \t]*=|>)`
+	operator := `(?:(?:=(?:` + recordLabel + `)?|>|:{1,3}=|\|\||:(?:` + recordLabel + `)?|=>|\?=)` + structuredValuePrefix + `|,(?:` + jsonRecordValue + `)?)`
+	// Keep the identifier on one line. Whitespace may precede the operator,
+	// but a comment must not absorb the next line's field or assignment.
+	identifier := `(?:` + identifiers + `)[ \t'"\w.-]{0,20}[\s'"]{0,20}`
 	r := config.Rule{
 		ID:          "generic-api-key",
 		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
-		Regex: utils.GenerateSemiGenericRegex([]string{
-			"access",
-			"auth",
-			`(?-i:[Aa]pi|API)`,
-			"credential",
-			"creds",
-			"key",
-			"secret",
-			"token",
-		}, `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`, true),
+		Regex: `(?i)` + identifier + operator +
+			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;<]|\]\]>|\\[nr]|$)`,
 		Keywords: []string{
 			"access",
 			"api",
@@ -39,6 +49,14 @@ func GenericCredential() *config.Rule {
 		FilterExpr: `// Reject implausible values before preparing context and confidence.
 entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
+// Closing XML tags must not lend their name to the next element's value.
+|| matchesAny(finding["fragment_raw"][max(finding["match_start_idx"] - 128, 0):finding["match_start_idx"]], [
+  ` + "`</[\\w.:-]*$`" + `
+])
+|| matchesAny(finding["match"], [
+  // KeyInfo can contain public certificate material rather than a credential.
+  ` + "`(?i)<(?:[\\w.-]+:)?X509Certificate[ \\t]*>`" + `
+])
 || (
 // Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][

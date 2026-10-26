@@ -189,6 +189,24 @@ credential environment variables.
 
 ---
 
+## Structured credential patterns
+
+The generic rules recognize adjacent fields such as
+`{"name": "SERVICE_API_KEY", "value": "..."}` and
+`{"name": "DB_PASSWORD", "value": "..."}`. The label may also use `key`;
+bare property names work too. At most one line break may separate the fields.
+The rules also allow up to two opening JSON containers (with quoted child keys)
+or XML elements between a credential label and a literal. The API-key rule
+recognizes XML attribute records and CDATA. XML password text needs opening and
+closing tags. Identifiers stay on one line, so a credential word in a comment
+cannot absorb the next assignment. Existing value filters still apply.
+
+These are text patterns, so the enclosing document need not be complete. They
+usually find only the first value under a shared parent label. Reversed fields,
+intervening metadata, and later siblings are not reliably detected. An element
+name does not supply context for an attribute on another line. Padding does not
+skip closing containers or arbitrary comma-separated fields.
+
 ## Finding output
 
 Scan commands print findings in the human-readable format by default. Use

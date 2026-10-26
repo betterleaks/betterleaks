@@ -6,14 +6,21 @@ import (
 )
 
 func GenericPassword() *config.Rule {
-	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])`
+	quotedPassword := `"((?:\\.|[^"\\\r\n]){5,250})"`
+	// Newline/container padding is only for quoted literals. Applying it to
+	// unquoted values would turn YAML child fields into passwords.
+	passwordLiteral := structuredValuePrefix + `(?:` + quotedPassword + `|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60)|[ \t]{0,5}([^:=\s'"\x60,;][^\s'"\x60,;]{4,249})`
+	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:` + passwordLiteral + `)|,` + jsonRecordValue + quotedPassword + `)(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])`
+	// Require an opening tag as well as a closing tag, so URLs ending in
+	// "password>" cannot lend context to HTML link text.
+	xmlPasswordRegex := `<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>` + structuredValuePrefix + `([^<\r\n]{5,250}?)(?:\]\]>)?` + jsonRecordSpace + `</[\w.:-]{1,64}[ \t]*>`
 	authArgumentRegex := `\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)`
 
 	r := config.Rule{
 		ID:          "generic-password",
 		Confidence:  "low",
 		Description: "Detected a potential hardcoded password literal, which may expose account credentials.",
-		Regex:       `(?i)(?:` + passwordAssignmentRegex + `|` + authArgumentRegex + `)`,
+		Regex:       `(?i)(?:` + passwordAssignmentRegex + `|` + authArgumentRegex + `|` + xmlPasswordRegex + `)`,
 		Keywords: []string{
 			"passw", "psw", "_pw", "-pw", ".pw",
 			"login(", "login (",
@@ -74,6 +81,8 @@ let isCodeFile = matchesAny(attributes["path"], [
 ]);
 let isUnquotedAssignment = matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*[^\\x22\\x27\\x60 \\t\\r\\n]`" + `
+]) && !matchesAny(finding["match"], [
+  ` + "`" + `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)` + structuredValuePrefix + `[\x22\x27\x60]` + "`" + `
 ]);
 let isUnquotedCodeValue = isCodeFile && isUnquotedAssignment;
 let isUnquotedExpression = isUnquotedAssignment && matchesAny(finding["secret"], [
@@ -141,6 +150,8 @@ let level = (
 let _ = setConfidence(level);
 
 matchesAny(finding["secret"], [
+  // Regex capture groups are examples of patterns, not password literals.
+  ` + "`^\\((?:\\?:)?(?:\\.[*+]|\\[[^]\\r\\n]+\\][*+])\\??\\)$`" + `,
   ` + "`^\\*+$`" + `,
   ` + "`^\\.+$`" + `,
   ` + "`(?i)^x{4,}$`" + `,
@@ -158,6 +169,7 @@ matchesAny(finding["secret"], [
   ` + "`^<[^>\\s]+$`" + `,
   ` + "`^\\{[^}]+}$`" + `,
   ` + "`(?i)^(?:your[_-]?password|placeholder|forbidden_value)$`" + `,
+  ` + "`(?i)^replace[ _.-]+(?:with|me)(?:[ _.-]|$)`" + `,
   ` + "`^\\([A-Za-z_][A-Za-z0-9_.]*(?:[ \\t]+[A-Za-z_][A-Za-z0-9_.]*)*\\)$`" + `,
   ` + "`^\\$\\(`" + `,
   ` + "`(?:\\$\\{|#\\{|\\{\\{|%\\{)`" + `,
