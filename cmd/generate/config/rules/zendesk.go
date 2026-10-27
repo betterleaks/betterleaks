@@ -12,7 +12,7 @@ func ZendeskSecretKey() *config.Rule {
 		ID:          "zendesk-secret-key",
 		Confidence:  "high",
 		Description: "Detected a Zendesk Secret Key, risking unauthorized access to customer support services and sensitive ticketing data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"zendesk"}, utils.AlphaNumeric("40"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"zendesk"}, utils.AlphaNumeric("40"), true),
 		Keywords: []string{
 			"zendesk",
 		},

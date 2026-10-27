@@ -35,7 +35,7 @@ func ClickUpPersonalAPIToken() *config.Rule {
 		ID:           "clickup-personal-api-token",
 		Confidence:   "high",
 		Description:  "Detected a ClickUp personal API token, which may allow unauthorized access to ClickUp workspaces and user data.",
-		Regex:        utils.GenerateSemiGenericRegex([]string{"clickup"}, `pk_`+utils.Numeric("8,9")+`_`+utils.AlphaNumeric("32"), true),
+		Regex:        utils.GenerateProviderRegex([]string{"clickup"}, `pk_`+utils.Numeric("8,9")+`_`+utils.AlphaNumeric("32"), true),
 		Keywords:     []string{"clickup"},
 		ValidateExpr: clickupValidateExpr,
 		AnalyzeExpr:  clickupAnalyzeExpr,

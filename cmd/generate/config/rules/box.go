@@ -31,7 +31,7 @@ func BoxAPIAccessToken() *config.Rule {
 		ID:           "box-api-access-token",
 		Confidence:   "medium",
 		Description:  "Detected a Box API access token, which may expose Box files and account data.",
-		Regex:        utils.GenerateSemiGenericRegex([]string{"box"}, utils.AlphaNumeric("32"), true),
+		Regex:        utils.GenerateProviderRegex([]string{"box"}, utils.AlphaNumeric("32"), true),
 		Keywords:     []string{"box_", "box-", "boxt", "boxk", "boxa"},
 		ValidateExpr: boxValidateExpr,
 		AnalyzeExpr:  boxAnalyzeExpr,

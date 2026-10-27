@@ -11,7 +11,7 @@ func Mistral() *config.Rule {
 		ID:          "mistral-api-key",
 		Confidence:  "medium",
 		Description: "Detected a Mistral AI API Key, which may expose AI language model services to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"mistral"}, `[A-Z0-9]{32}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"mistral"}, `[A-Z0-9]{32}`, true),
 		Keywords:    []string{"mistral"},
 		ValidateExpr: `let r = http.get("https://api.mistral.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"],

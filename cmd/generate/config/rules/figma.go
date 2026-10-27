@@ -53,7 +53,7 @@ func FigmaPersonalAccessHeaderToken() *config.Rule {
 		Description:  "Uncovered a Figma Personal Access Token in a header, which may compromise design assets and team collaboration.",
 		ID:           "figma-personal-access-header-token",
 		Confidence:   "high",
-		Regex:        utils.GenerateSemiGenericRegex([]string{"x-figma-token", "xfigmatoken", "x_figma_token"}, `[0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}`, true),
+		Regex:        utils.GenerateProviderRegex([]string{"x-figma-token", "xfigmatoken", "x_figma_token"}, `[0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}`, true),
 		Keywords:     []string{"X-Figma-Token", "xfigmatoken", "x_figma_token"},
 		ValidateExpr: figmaValidateExpr,
 		AnalyzeExpr:  figmaAnalyzeExpr,

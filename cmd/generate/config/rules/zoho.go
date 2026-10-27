@@ -15,7 +15,7 @@ func ZohoOAuthToken() *config.Rule {
 		ID:          "zoho-oauth-token.1",
 		Confidence:  "high",
 		Description: "Zoho OAuth access or refresh token, which may allow access to Zoho APIs or minting of new access tokens.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"zoho"}, `1000\.`+utils.Hex("32")+`\.`+utils.Hex("32"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"zoho"}, `1000\.`+utils.Hex("32")+`\.`+utils.Hex("32"), true),
 		Keywords:    []string{"zoho"},
 		ValidateExpr: `let r = http.get("https://www.zohoapis.com/crm/v8/users?type=CurrentUser", {
     "Authorization": "Zoho-oauthtoken " + finding["secret"],
@@ -48,7 +48,7 @@ func ZohoClientID() *config.Rule {
 		ID:          "zoho-client-id.1",
 		Confidence:  "medium",
 		Description: "Zoho OAuth client ID, used as a component of the zoho-client-secret.1 composite rule.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"zoho"}, `1000\.`+utils.AlphaNumeric("30"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"zoho"}, `1000\.`+utils.AlphaNumeric("30"), true),
 		Keywords:    []string{"zoho"},
 		SkipReport:  true,
 		FilterExpr:  utils.MinEntropy(3.0),
@@ -78,7 +78,7 @@ func ZohoClientSecret() *config.Rule {
 		ID:          "zoho-client-secret.1",
 		Confidence:  "high",
 		Description: "Zoho OAuth client secret, which may allow OAuth client authentication when paired with the associated client ID.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"zoho"}, utils.Hex("42"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"zoho"}, utils.Hex("42"), true),
 		Keywords:    []string{"zoho"},
 		Components: []config.Component{
 			{RuleID: "zoho-client-id.1", Within: "5L"},
@@ -118,7 +118,7 @@ func ZohoZAPIKey() *config.Rule {
 		ID:          "zoho-zapi-key.1",
 		Confidence:  "high",
 		Description: "Zoho ZAPI key, which may authorize CRM functions, extensions, webhooks, or other Zoho APIs.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{"zoho"},
 			`(?:1001\.`+utils.Hex("32")+`\.`+utils.Hex("32")+`(?:-d)?|1003\.`+utils.Hex("32,64")+`)`,
 			true,

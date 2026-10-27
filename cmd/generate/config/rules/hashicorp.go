@@ -37,7 +37,7 @@ func HashicorpField() *config.Rule {
 		ID:          "hashicorp-tf-password",
 		Confidence:  "medium",
 		Description: "Identified a HashiCorp Terraform password field, risking unauthorized infrastructure configuration and security breaches.",
-		Regex:       utils.GenerateSemiGenericRegex(keywords, fmt.Sprintf(`"%s"`, utils.AlphaNumericExtended("8,20")), true),
+		Regex:       utils.GenerateProviderRegex(keywords, fmt.Sprintf(`"%s"`, utils.AlphaNumericExtended("8,20")), true),
 		Path:        `(?i)\.(?:tf|hcl)$`,
 		Keywords:    keywords,
 		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,

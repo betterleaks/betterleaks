@@ -30,7 +30,7 @@ func HunterAPIKey() *config.Rule {
 		ID:           "hunter-api-key.1",
 		Confidence:   "medium",
 		Description:  "Hunter API key, which may allow access to account and email intelligence data.",
-		Regex:        utils.GenerateSemiGenericRegex([]string{"hunter"}, utils.Hex("40"), false),
+		Regex:        utils.GenerateProviderRegex([]string{"hunter"}, utils.Hex("40"), false),
 		Keywords:     []string{"hunter"},
 		ValidateExpr: hunterValidateExpr,
 		AnalyzeExpr:  hunterAnalyzeExpr,

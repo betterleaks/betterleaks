@@ -12,7 +12,7 @@ func Beamer() *config.Rule {
 		Description: "Detected a Beamer API token, potentially compromising content management and exposing sensitive notifications and updates.",
 		ID:          "beamer-api-token",
 		Confidence:  "medium",
-		Regex: utils.GenerateSemiGenericRegex([]string{"beamer"},
+		Regex: utils.GenerateProviderRegex([]string{"beamer"},
 			`b_[a-z0-9=_\-]{44}`, true),
 		Keywords: []string{"beamer"},
 	}

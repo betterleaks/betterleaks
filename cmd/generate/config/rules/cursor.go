@@ -11,7 +11,7 @@ func CursorAPIKey() *config.Rule {
 		ID:          "cursor-api-key",
 		Confidence:  "medium",
 		Description: "Detected a Cursor Integrations API Key, which may expose AI-assisted development services to unauthorized access.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"cursor"}, `key_[0-9a-f]{64}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{"cursor"}, `key_[0-9a-f]{64}`, true),
 		Keywords:    []string{"cursor"},
 		ValidateExpr: `let r = http.get("https://api.cursor.com/v0/me", {
     "Accept": "application/json",

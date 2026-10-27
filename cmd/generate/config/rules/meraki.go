@@ -12,7 +12,7 @@ func Meraki() *config.Rule {
 		ID:          "cisco-meraki-api-key",
 		Confidence:  "high",
 		Description: "Cisco Meraki is a cloud-managed IT solution that provides networking, security, and device management through an easy-to-use interface.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{`(?-i:[Mm]eraki|MERAKI)`}, `[0-9a-f]{40}`, false),
+		Regex:       utils.GenerateProviderRegex([]string{`(?-i:[Mm]eraki|MERAKI)`}, `[0-9a-f]{40}`, false),
 		Keywords:    []string{"meraki"},
 		ValidateExpr: `let r = http.get("https://api.meraki.com/api/v1/organizations", {
     "X-Cisco-Meraki-API-Key": finding["secret"],

@@ -16,7 +16,7 @@ func CratesIOAPIKey() *config.Rule {
 		ID:          "crates-io-api-key",
 		Confidence:  "high",
 		Description: "crates.io API key.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{`crates(?:[_.-]?io)?`}, `cio[A-Za-z0-9]{32}`, true),
+		Regex:       utils.GenerateProviderRegex([]string{`crates(?:[_.-]?io)?`}, `cio[A-Za-z0-9]{32}`, true),
 		Keywords:    []string{"crates"},
 		// crates.io rejects Go's default User-Agent with an empty 403. Scoped tokens lacking an endpoint scope get 403.
 		ValidateExpr: `let r = http.get("https://crates.io/api/v1/crates?following=1&per_page=1", {

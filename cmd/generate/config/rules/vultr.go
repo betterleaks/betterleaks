@@ -11,7 +11,7 @@ func VultrAPIKey() *config.Rule {
 		ID:          "vultr-api-key.1",
 		Confidence:  "medium",
 		Description: "Vultr API key, which may allow management of cloud account resources.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"vultr"}, utils.Hex("36"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"vultr"}, utils.Hex("36"), true),
 		Keywords:    []string{"vultr"},
 		ValidateExpr: `let r = http.get("https://api.vultr.com/v2/account", {
     "Authorization": "Bearer " + finding["secret"],

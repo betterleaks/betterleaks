@@ -66,7 +66,7 @@ func VercelAPIToken() *config.Rule {
 		ID:           "vercel-api-token",
 		Confidence:   "high",
 		Description:  "Detected a Vercel API Token, which may expose deployment and serverless infrastructure to unauthorized access.",
-		Regex:        utils.GenerateSemiGenericRegex([]string{"vercel"}, `[A-Z0-9]{24}`, true),
+		Regex:        utils.GenerateProviderRegex([]string{"vercel"}, `[A-Z0-9]{24}`, true),
 		Keywords:     []string{"vercel"},
 		ValidateExpr: vercelTokenValidateExpr,
 		AnalyzeExpr:  vercelTokenAnalyzeExpr,

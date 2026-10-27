@@ -10,7 +10,7 @@ func KlaviyoAPIKey() *config.Rule {
 		ID:          "klaviyo-api-key",
 		Confidence:  "high",
 		Description: "Detected a Klaviyo API key, which may expose Klaviyo account and marketing data.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"klaviyo"}, `pk_`+utils.AlphaNumeric("34"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"klaviyo"}, `pk_`+utils.AlphaNumeric("34"), true),
 		Keywords:    []string{"klaviyo"},
 		ValidateExpr: `let r = http.get("https://a.klaviyo.com/api/accounts", {
     "Revision": "2023-02-22",

@@ -11,7 +11,7 @@ func WorkOSProductionAPIKey() *config.Rule {
 		ID:          "workos-production-api-key.1",
 		Confidence:  "high",
 		Description: "WorkOS production API key.",
-		Regex: utils.GenerateSemiGenericRegex(
+		Regex: utils.GenerateProviderRegex(
 			[]string{`workos(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
 			`sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2}`,
 			false,

@@ -12,7 +12,7 @@ func LinkedinClientID() *config.Rule {
 		ID:          "linkedin-client-id",
 		Confidence:  "medium",
 		Description: "Found a LinkedIn Client ID, risking unauthorized access to LinkedIn integrations and professional data exposure.",
-		Regex:       utils.GenerateSemiGenericRegex([]string{"linked[_-]?in"}, utils.AlphaNumeric("14"), true),
+		Regex:       utils.GenerateProviderRegex([]string{"linked[_-]?in"}, utils.AlphaNumeric("14"), true),
 		Keywords: []string{
 			"linkedin",
 			"linked_in",
@@ -32,7 +32,7 @@ func LinkedinClientSecret() *config.Rule {
 		ID:          "linkedin-client-secret",
 		Confidence:  "medium",
 		Description: "Discovered a LinkedIn Client secret, potentially compromising LinkedIn application integrations and user data.",
-		Regex: utils.GenerateSemiGenericRegex([]string{
+		Regex: utils.GenerateProviderRegex([]string{
 			"linked[_-]?in",
 		}, utils.AlphaNumeric("16"), true),
 		Keywords: []string{
