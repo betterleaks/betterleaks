@@ -13,7 +13,7 @@ func GenericPassword() *config.Rule {
 	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:` + passwordLiteral + `)|,` + jsonRecordValue + quotedPassword + `)(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])`
 	// Require an opening tag as well as a closing tag, so URLs ending in
 	// "password>" cannot lend context to HTML link text.
-	xmlPasswordRegex := `<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>` + structuredValuePrefix + `([^<\r\n]{5,250}?)(?:\]\]>)?` + jsonRecordSpace + `</[\w.:-]{1,64}[ \t]*>`
+	xmlPasswordRegex := `<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>` + structuredValuePrefix + `(?:<!\[CDATA\[([^\r\n]{5,250}?)\]\]>|([^<\r\n]{5,250}?))` + jsonRecordSpace + `</[\w.:-]{1,64}[ \t]*>`
 	authArgumentRegex := `\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)`
 
 	r := config.Rule{
@@ -185,6 +185,8 @@ matchesAny(finding["secret"], [
   ` + "`(?i)^md5[0-9a-f]{32}$`" + `,
   ` + "`^\\*[0-9A-F]{40}$`" + `
 ])
+// Do not let a CDATA capture backtrack across an earlier section's terminator.
+|| (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
 || isCryptographicAlgorithm
 || isContextualAlgorithmName

@@ -45,19 +45,26 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		{"indented operator on next line", "SERVICE_KEY\r\n            = \"" + token + "\"", "generic-api-key", token, 1},
 		{"indented map", "{\"API_KEYS\": {\n        \"news24\": \"" + token + "\"}}", "generic-api-key", token, 1},
 		{"two ancestors", `{"API_KEYS":{"production":{"site":"` + token + `"}}}`, "generic-api-key", token, 1},
+		{"authorizer child is not author metadata", `{"API_KEYS":{"authorizer":"` + token + `"}}`, "generic-api-key", token, 1},
 		{"first sibling only", `{"API_KEYS":{"first":"` + token + `","second":"a8F3kW6pR1zN9qD4vT7mB2xH5sJ0cYLu"}}`, "generic-api-key", token, 1},
 		{"array of maps", `{"API_KEYS":[{"site":"` + token + `"}]}`, "generic-api-key", token, 1},
 		{"prose before map", "{\"description\":\"Credential label is two ancestors above the value\",\n      \"API_KEYS\":{\"production\":{\"site\":\"" + token + "\"}}}", "generic-api-key", token, 1},
 		{"XML element", `<API_KEY>` + token + `</API_KEY>`, "generic-api-key", token, 1},
+		{"adjacent XML elements", `<API_KEY>` + token + `</API_KEY><API_KEY>` + token + `</API_KEY>`, "generic-api-key", token, 2},
 		{"XML two ancestors", "<API_KEYS>\n  <production>\n    <site>" + token + "</site></production></API_KEYS>", "generic-api-key", token, 1},
 		{"XML attribute record", `<add key="SERVICE_API_KEY" value="` + token + `"/>`, "generic-api-key", token, 1},
 		{"XML name record", `<add name="SERVICE_API_KEY" value="` + token + `"/>`, "generic-api-key", token, 1},
 		{"XML labelled text", `<entry key="SERVICE_API_KEY">` + token + `</entry>`, "generic-api-key", token, 1},
 		{"XML multiline key/value record", "<add key=\"SERVICE_API_KEY\"\n  value=\"" + token + "\"/>", "generic-api-key", token, 1},
 		{"XML CDATA", `<cfg:API_KEYS><cfg:primary><![CDATA[` + token + `]]></cfg:primary></cfg:API_KEYS>`, "generic-api-key", token, 1},
+		{"XML authorizer child is not author metadata", `<API_KEYS><authorizer>` + token + `</authorizer></API_KEYS>`, "generic-api-key", token, 1},
 		{"nested password", "{\"DB_PASSWORD\":{\n        \"production\":\"hunter2\"}}", "generic-password", "hunter2", 1},
 		{"XML password", `<PASSWORD><production>hunter2</production></PASSWORD>`, "generic-password", "hunter2", 1},
 		{"XML password CDATA", `<PASSWORD><![CDATA[hunter2]]></PASSWORD>`, "generic-password", "hunter2", 1},
+		{"XML password CDATA less-than", `<PASSWORD><![CDATA[p4ss<word!]]></PASSWORD>`, "generic-password", "p4ss<word!", 1},
+		{"XML password CDATA tag-like text", `<PASSWORD><![CDATA[p4ss</PASSWORD>word!]]></PASSWORD>`, "generic-password", "p4ss</PASSWORD>word!", 1},
+		{"XML password CDATA brackets", `<PASSWORD><![CDATA[p4ss]]]word!]]></PASSWORD>`, "generic-password", "p4ss]]]word!", 1},
+		{"XML password CDATA trailing brackets", `<PASSWORD><![CDATA[p4ss!]]]]]></PASSWORD>`, "generic-password", "p4ss!]]]", 1},
 		{"XML password closing whitespace", "<cfg:PASSWORD><![CDATA[hunter2]]>\n  </cfg:PASSWORD >", "generic-password", "hunter2", 1},
 		{"XML password spaces", `<PASSWORD>correct horse battery staple</PASSWORD>`, "generic-password", "correct horse battery staple", 1},
 		{"XML password after closing tag", `<old></old><cfg:DB_PASSWORD>hunter2</cfg:DB_PASSWORD>`, "generic-password", "hunter2", 1},
@@ -66,6 +73,7 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		{"unquoted password punctuation", `password=hunt]er<2`, "generic-password", "hunt]er<2", 1},
 		{"direct secret before value field", `{"key":"` + token + `KEY","value":"unrelated"}`, "generic-api-key", token + "KEY", 1},
 		{"ordinary password", `password="hunter2"`, "generic-password", "hunter2", 1},
+		{"CDATA terminator in ordinary password", `password="p4ss]]>word!"`, "generic-password", "p4ss]]>word!", 1},
 		{"replacement is not an instruction", `password="replacement123!"`, "generic-password", "replacement123!", 1},
 		{"replace-me prefix is not a word", `password="replace_meadow123!"`, "generic-password", "replace_meadow123!", 1},
 		{"replace inside a password", `password="never_replace_me_123!"`, "generic-password", "never_replace_me_123!", 1},
@@ -79,6 +87,12 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		{"XML prose placeholder", `use <postgresql_password> to generate a hash for <password_hash>`, "", "", 0},
 		{"XML opening tag after text", `<PASSWORD>ordinary text<next>`, "", "", 0},
 		{"XML incomplete closing tag", `<PASSWORD>hunter2</`, "", "", 0},
+		{"XML CDATA must stop at its terminator", `<PASSWORD><![CDATA[p4ss!]]><other><![CDATA[ignored]]></other></PASSWORD>`, "", "", 0},
+		{"XML CDATA cannot swallow markup", `<PASSWORD><![CDATA[p4ss!]]><other>trailing]]></PASSWORD>`, "", "", 0},
+		{"XML CDATA short password", `<PASSWORD><![CDATA[p<ss]]></PASSWORD>`, "", "", 0},
+		{"XML text cannot swallow markup", `<PASSWORD>p4ss<word!</PASSWORD>`, "", "", 0},
+		{"C++ template expression", `api_key = ` + token + `<SomeType>{};`, "", "", 0},
+		{"XML API key cannot end at an opening tag", `<API_KEY>` + token + `<SomeType>`, "", "", 0},
 		{"HTML password link", `<a href=/docs/generic_password>Generic Password</a>`, "", "", 0},
 		{"HTML passwd link", `<a href=/docs/passwd>Database credentials</a>`, "", "", 0},
 		{"XML regex capture", `<password>(.+?)</password>`, "", "", 0},
@@ -94,16 +108,25 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		{"XML unrelated attribute", "<API_KEYS\n  fingerprint=\"" + token + "\"/>", "", "", 0},
 		{"unrelated comma field", "key\n  - vendor,device-9062", "", "", 0},
 		{"unrelated field after blank line", "secret\n\n uid: " + token, "", "", 0},
+		{"operator after blank lines", "api\n\n\n\n= \"" + token + `"`, "", "", 0},
+		{"operator after CRLF blank line", "API_KEY\r\n  \r\n  = \"" + token + `"`, "", "", 0},
+		{"assignment after blank-line comment", "// configure key\n\n\nserviceKey := \"" + token + `"`, "generic-api-key", token, 1},
 		{"empty first value", `{"API_KEYS":{"first":"","second":"` + token + `"}}`, "", "", 0},
 		{"three ancestors", `{"API_KEYS":{"one":{"two":{"three":"` + token + `"}}}}`, "", "", 0},
 		{"XML three ancestors", `<API_KEYS><one><two><three>` + token + `</three></two></one></API_KEYS>`, "", "", 0},
 		{"nested public key", `{"PUBLIC_KEY":{"production":"` + token + `"}}`, "", "", 0},
+		{"public key child", `{"credentials":{"public_key":"` + token + `"}}`, "", "", 0},
+		{"access ID child", `{"credentials":{"access_id":"` + token + `"}}`, "", "", 0},
+		{"key ID child", `{"API_KEYS":{"key_id":"` + token + `"}}`, "", "", 0},
+		{"nested metadata stays excluded", `{"API_KEYS":{"primary_key":{"access_id":"` + token + `"}}}`, "", "", 0},
+		{"XML public key child", `<credentials><public_key>` + token + `</public_key></credentials>`, "", "", 0},
 		{"YAML child field", "PASSWORD:\n  vault: production/database/password", "", "", 0},
 		{"YAML angle placeholder", "PASSWORD: <personal_access_token>\n  TWINE_USERNAME: gitlab-ci-token", "", "", 0},
 		{"Ruby secret reference", `PASSWORD: { gitlab_secrets_manager: { name: "password", source: "group/some_group" } }`, "", "", 0},
 		{"reversed record unsupported", `{"value":"` + token + `","name":"SERVICE_API_KEY"}`, "", "", 0},
 		{"unrelated name", `{"name":"DEPLOYMENT_ID","value":"` + token + `"}`, "", "", 0},
 		{"public key", `{"name":"PUBLIC_KEY","value":"` + token + `"}`, "", "", 0},
+		{"public key record label", `{"key":"PUBLIC_KEY","value":"` + token + `"}`, "", "", 0},
 		{"metadata name", `{"name":"API_VERSION","value":"` + token + `"}`, "", "", 0},
 		{"placeholder", `{"name":"DB_PASSWORD","value":"${DB_PASSWORD}"}`, "", "", 0},
 		{"XML replace-with placeholder", `<password>REPLACE_WITH_TOKEN</password>`, "", "", 0},
@@ -132,6 +155,25 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 			}
 		})
 	}
+
+	t.Run("author metadata and authorization", func(t *testing.T) {
+		// Preserve author fields without excluding authorization-related names.
+		for _, field := range []string{"author", "AUTHOR", "author_id", "author_name", "author-email", "author.name", "authorId", "authorName", "authorEmail", "authorLogin", "authorityFileId", "AUTHORED_SHA"} {
+			require.Empty(t, s.ScanString(field+`="`+token+`"`), field)
+		}
+		for _, field := range []string{"authorizer", "AUTHORIZER", "authorizer_key", "authorization", "authorizationToken", "authorisation", "authoriser"} {
+			findings := s.ScanString(field + `="` + token + `"`)
+			require.Len(t, findings, 1, field)
+			require.Equal(t, token, findings[0].Match.Value)
+		}
+	})
+
+	t.Run("child token confidence", func(t *testing.T) {
+		findings := s.ScanString(`{"credentials":{"worker_token":"` + token + `"}}`)
+		require.Len(t, findings, 1)
+		require.Equal(t, token, findings[0].Match.Value)
+		require.Equal(t, "medium", findings[0].Confidence)
+	})
 
 	// A preceding credential word must neither consume nor suppress an
 	// independent assignment. Exercise syntax and keywords without providers.

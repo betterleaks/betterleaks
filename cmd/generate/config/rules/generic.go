@@ -16,7 +16,7 @@ const jsonRecordValue = jsonRecordSpace + `"?value"?` + jsonRecordSpace + `:` + 
 
 // Allow up to two opening containers before a literal, without crossing a
 // sibling's comma or a closing container. This only finds the first value.
-const structuredValuePrefix = `(?:` + jsonRecordSpace + `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"[\w.-]{1,64}"` + jsonRecordSpace + `:|<[\w.:-]{1,64}>)){0,2}` + jsonRecordSpace + `(?:<!\[CDATA\[)?`
+const structuredValuePrefix = `(?:` + jsonRecordSpace + `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"[\w.-]{1,64}"` + jsonRecordSpace + `:|<[\w.:-]{1,64}>)){0,2}` + jsonRecordSpace
 
 func GenericCredential() *config.Rule {
 	const identifiers = `access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token`
@@ -25,7 +25,7 @@ func GenericCredential() *config.Rule {
 	// label characters already fail the generic filter, so this cannot hide a
 	// plausible secret assigned directly to "key".
 	recordLabel := jsonRecordSpace + `"[a-z_.-]{0,50}(?:` + identifiers + `)[a-z_.-]{0,20}"` + jsonRecordSpace + `(?:,` + jsonRecordValue + `|value[ \t]*=|>)`
-	operator := `(?:(?:=(?:` + recordLabel + `)?|>|:{1,3}=|\|\||:(?:` + recordLabel + `)?|=>|\?=)` + structuredValuePrefix + `|,(?:` + jsonRecordValue + `)?)`
+	operator := `(?:(?:=(?:` + recordLabel + `)?|>|:{1,3}=|\|\||:(?:` + recordLabel + `)?|=>|\?=)` + structuredValuePrefix + `(?:<!\[CDATA\[)?|,(?:` + jsonRecordValue + `)?)`
 	// Keep the identifier on one line. Whitespace may precede the operator,
 	// but a comment must not absorb the next line's field or assignment.
 	identifier := `(?:` + identifiers + `)[ \t'"\w.-]{0,20}[\s'"]{0,20}`
@@ -33,8 +33,9 @@ func GenericCredential() *config.Rule {
 		ID:          "generic-api-key",
 		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+		// Consume the closing tag so its name cannot start a match over the next element.
 		Regex: `(?i)` + identifier + operator +
-			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;<]|\]\]>|\\[nr]|$)`,
+			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;]|</[\w.:-]{1,64}[ \t]*>|\]\]>|\\[nr]|$)`,
 		Keywords: []string{
 			"access",
 			"api",
@@ -54,6 +55,8 @@ entropy(finding["secret"]) <= 3.5
   ` + "`</[\\w.:-]*$`" + `
 ])
 || matchesAny(finding["match"], [
+  // Permit an indented operator on the next line, but do not bridge blank lines.
+  ` + "`^[\\w.'\" \\t-]*\\r?\\n[ \\t'\"]*\\r?\\n`" + `,
   // KeyInfo can contain public certificate material rather than a credential.
   ` + "`(?i)<(?:[\\w.-]+:)?X509Certificate[ \\t]*>`" + `
 ])
@@ -74,7 +77,7 @@ let genericMatchPrefix = findMatch(
   ` + "`[\\w.-]{0,50}$`" + `
 );
 
-// Recreate the generic rule's former regex which includes the [\w.-]{0,50} preamble.
+// Keep the full match so child metadata and confidence hints remain available.
 let genericMatchContext =
   genericMatchPrefix +
   finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
