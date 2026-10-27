@@ -3936,6 +3936,12 @@ entropy(finding["secret"]) <= 3.5
   // Credential containers can hold public identifiers or public key material.
   `(?i)(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:client[_.-]?id|guid|X509Certificate|Modulus|Exponent)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:client[_.-]?id|guid|X509Certificate|Modulus|Exponent)[ \t]*>)`
 ])
+// Tie public-key version examples to the prose immediately before this match.
+|| (containsAny(finding["match"], ["<"])
+  && matchesAny(finding["match"], [`(?i)^key(?: result)?\.[ \t]+For example:[ \t]*<code>`])
+  && matchesAny(finding["fragment_raw"][
+    max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):finding["match_start_idx"]
+  ], [`(?i)\b(?:version|etag)\b[^<>"'\r\n=]{0,100}\bpublic[ \t]+$`]))
 || (
 // Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
@@ -5612,6 +5618,10 @@ keywords = [
 filter = '''
 // Schema fields describe a password; they do not assign one.
 matchesAny(finding["match"], [`(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>)(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>)){0,2}[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern)[ \t]*>)`])
+// Timing fields require duration values; ordinary password literals still count.
+|| (containsAny(finding["match"], ["{", "<"])
+  && matchesAny(finding["secret"], [`^(?:[0-9]+(?:\.[0-9]+)?(?:ns|us|µs|μs|ms|s|m|h))+$`])
+  && matchesAny(finding["match"], [`(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>)(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>)){0,2}[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:elapsed|duration|average)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:elapsed|duration|average)[ \t]*>)`]))
 || (
 // Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
@@ -5628,6 +5638,14 @@ let nearbyContext =
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
+
+// Generated schema refs contain HTML descriptions of members, not assignments.
+let isSchemaDocumentation = startsWithAny(finding["secret"], ["<p>"])
+  && finding["secret"] endsWith "</p>"
+  && containsAny(finding["secret"], [" ", "\t"])
+  && matchesAny(raw[max(finding["match_start_idx"] - 8192, 0):finding["match_start_idx"]], [
+    `(?s)['"]refs['"]\s*=>\s*\[\s*(?:(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*=>\s*(?:(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?i:null))\s*,\s*)*['"][\w.:-]+\$[\w.:-]*$`
+  ]);
 
 // PHP signature maps assign parameter types after a function's return type.
 // The same literal in an ordinary credential assignment remains reportable.
@@ -5781,6 +5799,7 @@ matchesAny(finding["secret"], [
 // Do not let a CDATA capture backtrack across an earlier section's terminator.
 || (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
+|| isSchemaDocumentation
 || isSignatureType
 || isTranslationEntry
 || isCryptographicAlgorithm

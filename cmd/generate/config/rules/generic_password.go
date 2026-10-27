@@ -17,8 +17,13 @@ func GenericPassword() *config.Rule {
 	authArgumentRegex := `\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)`
 	metadataField := structuredFieldPattern(`type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern`)
 	// Start at the assignment, so JSON-like password text and CDATA remain literals.
-	metadataAssignment := `(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>)` + structuredValuePrefix + metadataField
+	metadataPrefix := `(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>)` + structuredValuePrefix
+	metadataAssignment := metadataPrefix + metadataField
+	timingAssignment := metadataPrefix + structuredFieldPattern(`elapsed|duration|average`)
 	const phpType = `\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?`
+	const phpString = `(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')`
+	// Stay within a refs map, up to a qualified Type$member documentation entry.
+	const schemaRefsPrefix = `(?s)['"]refs['"]\s*=>\s*\[\s*(?:` + phpString + `\s*=>\s*(?:` + phpString + `|(?i:null))\s*,\s*)*['"][\w.:-]+\$[\w.:-]*$`
 
 	r := config.Rule{
 		ID:          "generic-password",
@@ -41,6 +46,10 @@ func GenericPassword() *config.Rule {
 		},
 		FilterExpr: `// Schema fields describe a password; they do not assign one.
 matchesAny(finding["match"], [` + "`" + metadataAssignment + "`" + `])
+// Timing fields require duration values; ordinary password literals still count.
+|| (containsAny(finding["match"], ["{", "<"])
+  && matchesAny(finding["secret"], [` + "`^(?:[0-9]+(?:\\.[0-9]+)?(?:ns|us|µs|μs|ms|s|m|h))+$`" + `])
+  && matchesAny(finding["match"], [` + "`" + timingAssignment + "`" + `]))
 || (
 // Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
@@ -57,6 +66,14 @@ let nearbyContext =
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
+
+// Generated schema refs contain HTML descriptions of members, not assignments.
+let isSchemaDocumentation = startsWithAny(finding["secret"], ["<p>"])
+  && finding["secret"] endsWith "</p>"
+  && containsAny(finding["secret"], [" ", "\t"])
+  && matchesAny(raw[max(finding["match_start_idx"] - 8192, 0):finding["match_start_idx"]], [
+    ` + "`" + schemaRefsPrefix + "`" + `
+  ]);
 
 // PHP signature maps assign parameter types after a function's return type.
 // The same literal in an ordinary credential assignment remains reportable.
@@ -210,6 +227,7 @@ matchesAny(finding["secret"], [
 // Do not let a CDATA capture backtrack across an earlier section's terminator.
 || (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
+|| isSchemaDocumentation
 || isSignatureType
 || isTranslationEntry
 || isCryptographicAlgorithm

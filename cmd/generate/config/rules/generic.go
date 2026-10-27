@@ -66,6 +66,12 @@ entropy(finding["secret"]) <= 3.5
   // Credential containers can hold public identifiers or public key material.
   ` + "`(?i)" + structuredFieldPattern(`client[_.-]?id|guid|X509Certificate|Modulus|Exponent`) + "`" + `
 ])
+// Tie public-key version examples to the prose immediately before this match.
+|| (containsAny(finding["match"], ["<"])
+  && matchesAny(finding["match"], [` + "`(?i)^key(?: result)?\\.[ \\t]+For example:[ \\t]*<code>`" + `])
+  && matchesAny(finding["fragment_raw"][
+    max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):finding["match_start_idx"]
+  ], [` + "`" + `(?i)\b(?:version|etag)\b[^<>"'\r\n=]{0,100}\bpublic[ \t]+$` + "`" + `]))
 || (
 // Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
