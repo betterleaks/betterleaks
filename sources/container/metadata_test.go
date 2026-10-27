@@ -3,6 +3,8 @@ package container
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -14,6 +16,51 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDecodedMetadataRecords(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{`{"z":"first\nline","a/b~":[true,null,1.23e+4,{"":"\u0074oken"}]}`, "/z=first\nline\n/a~1b~0/0=true\n/a~1b~0/1=\n/a~1b~0/2=1.23e+4\n/a~1b~0/3/=token\n"},
+		{`{"key":"first\u002dsecret","key":"second\u002dsecret"}`, "/key=first-secret\n/key=second-secret\n"},
+		{`{"object":{},"array":[],"text":""}`, "/text=\n"},
+		{`"\u0074oken"`, "=token\n"},
+	} {
+		var out strings.Builder
+		require.NoError(t, decodedMetadata(t.Context(), []byte(tc.raw), &out))
+		require.Equal(t, tc.want, out.String())
+	}
+}
+
+//nolint:exhaustruct // Fixture only needs source options and the fragment callback.
+func TestMetadataStopsDecodedProducer(t *testing.T) {
+	raw := []byte(`[` + strings.Repeat(`"\u0074oken",`, 50_000) + `null]`)
+	for _, cancelScan := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel=%t", cancelScan), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			stop := errors.New("stop after first decoded fragment")
+			decoded := 0
+			r := &session{s: &Source{}, yield: func(f sources.Fragment, err error) error {
+				require.NoError(t, err)
+				if f.Attr(AttrRepresentation) != "decoded" {
+					return nil
+				}
+				decoded++
+				if cancelScan {
+					cancel()
+					return nil
+				}
+				return stop
+			}}
+			err := r.metadata(ctx, raw, "@config", ResourceConfig, nil)
+			if cancelScan {
+				require.ErrorIs(t, err, context.Canceled)
+			} else {
+				require.ErrorIs(t, err, stop)
+			}
+			require.Equal(t, 1, decoded)
+		})
+	}
+}
 
 type metadataSource []byte
 

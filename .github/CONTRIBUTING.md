@@ -54,7 +54,7 @@ More test files and more assertions are not goals in themselves.
 
 ## Adding new Betterleaks rules
 
-If you want to add a new rule to the [default configuration](config/betterleaks.toml) then follow these steps.
+If you want to add a new rule to the [default configuration](../config/betterleaks.toml) then follow these steps.
 
 1. Create a `cmd/generate/config/rules/{provider}.go` file.
    This file is used to generate a new rule.

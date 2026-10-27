@@ -56,9 +56,9 @@ func run() error {
 
 	// For caller-supplied paths or URLs, sources.Auto(ctx, target) returns
 	// an enum without constructing a source. Use sources.Files for local paths,
-	// sources.Git{URL: target} for remote history, or sources.URL{URL: target}
+	// gogit.Source{URL: target} for remote history, or sources.URL{URL: target}
 	// for one HTTP response. Detection and remote sources may use the network.
-	// For local staged changes, use sources.Git{RepoPath: ".", Mode: sources.GitStaged}.
+	// For caller-supplied patches, use sources.GitDiff{Content: patchReader}.
 	writer, err := report.NewJSONLWriter(os.Stdout)
 	if err != nil {
 		return err

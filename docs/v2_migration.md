@@ -76,7 +76,8 @@ expression. Scans never revoke credentials.
 Use this command in pre-commit hooks:
 
 ```sh
-betterleaks git --staged --redact
+set -o pipefail
+git diff --cached --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ | betterleaks stdin --git-diff --redact
 ```
 
 ### Commands and flags
@@ -87,13 +88,13 @@ betterleaks git --staged --redact
 | `detect --source PATH` | `git PATH` |
 | `detect --no-git --source PATH` | `fs PATH` |
 | `detect --pipe` | `stdin` |
-| `protect --source PATH`, `git --pre-commit PATH` | `git --unstaged PATH` |
-| `protect --staged --source PATH` | `git --staged PATH` |
+| `protect --source PATH`, `git --pre-commit PATH` | Pipe `git diff` into `betterleaks stdin --git-diff` |
+| `protect --staged --source PATH` | Pipe `git diff --cached` into `betterleaks stdin --git-diff` |
 | `--validation` | `--validate` / `-v`; use `--analyze` / `-a` to also analyze identity and permissions. |
 | `--validation-status` | `--status` |
 | `--validation-workers`, `--validation-timeout`, `--validation-debug` | `--provider-workers`, `--provider-timeout`, `--provider-debug` |
 | `--validation-max-requests`, `--validation-rps`, `--validation-rps-rule`, `--validation-env-vars` | Corresponding `--provider-*` flags. |
-| `--git-workers` | Removed; sources choose their own I/O concurrency. Explicit `--log-opts` uses one history stream to preserve Git option semantics. `--jobs` / `-j` controls detection. |
+| `--git-workers` | Removed; the Git source chooses its own read concurrency. `--jobs` / `-j` controls detection. |
 | `--enable-rule` | `--isolate-rule` |
 | `--ignore-gitleaks-allow` | `--no-allow-signatures` |
 | `--gitleaks-ignore-path` / `-i` | `--ignore-file PATH`, naming the file itself. See the ignore-format change below. |
@@ -112,9 +113,37 @@ requests, not the entire scan. Use `--silent` / `-s` to suppress terminal findin
 and the banner while still writing an explicitly requested report. The old
 `-s` source-path shorthand is not retained.
 
-Git diff modes scan **added lines**: `--staged` reads the index relative to HEAD;
-`--unstaged` reads tracked working-tree changes relative to the index. They are
-mutually exclusive. Neither scans untracked files; use `fs` for those.
+Git history is read in-process; Betterleaks no longer runs `git`.
+`--log-opts`, `--staged`, `--unstaged`, `--pre-receive`, and
+`--pre-receive-error-message` are removed:
+
+- For a commit range, use `--revision=A..B` (for example `origin/main..HEAD`).
+- For staged or unstaged changes, pre-receive hooks, or any other Git selection,
+  pipe a patch into `stdin --git-diff`. See [Git scanning](scanning.md#git).
+
+Remote Git scans now fetch only branches, tags, and notes by default. This applies
+to `git` HTTP(S) URLs and Git history fetched by `github`, `gitlab`, and `huggingface`.
+Earlier versions mirrored every advertised ref, including pull requests and
+other host review refs. Findings reachable only through those refs no longer
+appear in default remote scans. To retain that scope, add `--clone-all-refs`
+to `git`, `github`, `gitlab`, or `huggingface`.
+`--revision` selects available history and does not fetch excluded refs. To add
+a single PR from a fork, use `--clone-ref=refs/pull/123/head`; see
+[Scanning a pull request](scanning.md#scanning-a-pull-request).
+`--clone-ref` belongs to the explicit `git` command. All URL clones are bare,
+with full selected history and no checkout. Commit filters and
+`--include`/`--exclude` affect scanning after the fetch.
+
+The default scans history only. `--include` adds resources and `--exclude`
+removes them: `--include=commit-messages,notes` adds messages and notes,
+`--include=unreachable-objects` adds abandoned or uncommitted blobs, and
+`--include=commit-messages --exclude=history` scans only messages.
+`--include=reflogs` still scans reflog entries and the commits they remember.
+
+Merge commits are no longer diffed by default. Earlier versions scanned each
+merge's patch against its first parent, which repeats changes its branch's
+commits already added. Add `--include=merges` to scan conflict resolutions and
+edits made in merge commits.
 
 You can now omit the command for a path or supported remote URL:
 
@@ -352,11 +381,17 @@ array; `report.WriteJSONL` writes finding envelopes. Neither adds CLI scan metad
 
 ## Go SDK changes
 
-Update all imports to `/v2` and use Go 1.25 or newer:
+Update all imports to `/v2` and use Go 1.26 or newer. The Git source uses stable
+go-git v5; the module's Go version requirement remains unchanged:
 
 ```sh
 go get github.com/betterleaks/betterleaks/v2@v2.0.0-rc.1
 ```
+
+The Git source's public options are unchanged by the v5 port. If an integration
+compares Git errors against go-git v6 sentinels, update those imports to v5
+(for example, `plumbing.ErrReferenceNotFound` or `git.ErrRepositoryNotExists`).
+Sentinels from different major-version packages do not match with `errors.Is`.
 
 ### Replace Detector with Scanner and explicit sources
 
@@ -421,11 +456,14 @@ func run() error {
 Source prefilters are explicit: compile `cfg.PrefilterExpr` and set the source's
 `Prefilter`. The scanner does not apply it for you. Archive depth, file-size
 limits, and symlink handling belong to sources; detection options belong to
-`scan.New`. Use `sources.Git{RepoPath: ".", Mode: sources.GitStaged}` for staged
-changes instead of constructing Git commands or sharing a detector semaphore.
+`scan.New`. Use `gogit.Source{RepoPath: "."}` for repository history.
+For staged changes, supply a caller-produced patch stream to
+`sources.GitDiff{Content: reader}`; Betterleaks does not execute Git.
 
 GitHub, GitLab, and Hugging Face resource selection uses `Include`/`Exclude`;
 the derived resource map is private. Configure a fresh source for each scan.
+`scm.CloneOptions.Mirror` is replaced by `AllRefs` and `Refs`; the zero value
+fetches branches, tags, and notes. Provider sources expose `CloneAllRefs`.
 `File` manages its own read buffer; callers no longer supply `File.Buffer`.
 
 Callbacks are serialized within a scan; returning an error stops it. Finding

@@ -24,6 +24,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
@@ -44,7 +45,7 @@ const (
 )
 
 // Source enumerates repositories via the GitHub API and delegates scanning
-// to the sources.Git source for each cloned repo.
+// to the gogit.Source source for each cloned repo.
 // Configure a fresh Source for each scan; instances must not be shared concurrently.
 type Source struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
@@ -59,10 +60,12 @@ type Source struct {
 	Include []string
 	Exclude []string
 
-	// Scan config (passed through to sources.Git per repo)
+	// Scan config (passed through to gogit.Source per repo)
 	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
-	LogOpts         string
+	// CloneAllRefs fetches every advertised ref when cloning, including review
+	// refs such as refs/pull. By default only branches, tags and notes are fetched.
+	CloneAllRefs bool
 
 	// GitHub API
 	BaseURL       string // GitHub Enterprise base URL; empty = github.com
@@ -615,14 +618,15 @@ func (s *Source) newClient(ctx context.Context) *github.Client {
 }
 
 // scanRepoGit clones and scans a repo's git history.
+//
+//nolint:exhaustruct // Unspecified Git source options retain their documented defaults.
 func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, yield sources.FragmentsFunc) error {
-	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		src := &sources.Git{
+	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
+		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,
 			Platform: scm.GitHubPlatform, RemoteURL: repo.GetHTMLURL(),
 			MaxArchiveDepth: s.MaxArchiveDepth,
-			LogOpts:         s.LogOpts,
 		}
 		return src.Fragments(ctx, yield)
 	})

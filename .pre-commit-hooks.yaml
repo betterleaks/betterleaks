@@ -1,10 +1,11 @@
 - id: betterleaks
   name: Detect hardcoded secrets
   description: Detect hardcoded secrets using Betterleaks
-  entry: betterleaks git --staged --redact
+  entry: bash -o pipefail -c 'git diff --cached --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ | betterleaks stdin --git-diff --redact'
   language: golang
   pass_filenames: false
 
+# This pinned release retains its legacy staged command until the next image release.
 - id: betterleaks-docker
   name: Detect hardcoded secrets
   description: Detect hardcoded secrets using Betterleaks
@@ -15,6 +16,6 @@
 - id: betterleaks-system
   name: Detect hardcoded secrets
   description: Detect hardcoded secrets using Betterleaks
-  entry: betterleaks git --staged --redact
+  entry: bash -o pipefail -c 'git diff --cached --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ | betterleaks stdin --git-diff --redact'
   language: system
   pass_filenames: false

@@ -85,6 +85,13 @@ betterleaks fs /path/to/target -a
 # Scan a git repo
 betterleaks git /path/to/repo
 
+# Also scan merge commit patches (against the first parent)
+betterleaks git /path/to/repo --include=merges
+
+# Scan a remote PR's commits relative to its base branch
+betterleaks git https://github.com/owner/repo \
+  --clone-ref=refs/pull/123/head --revision=main..refs/pull/123/head
+
 # Automatically detect a remote repository and scan its history
 betterleaks https://github.com/betterleaks/betterleaks
 # The default command can also be named explicitly
@@ -96,7 +103,7 @@ betterleaks url https://example.com/config.txt
 betterleaks github https://github.com/betterleaks
 # Scan GitHub user
 betterleaks github https://github.com/cooluser123456789 --include issues,prs,actions,releases,gists
-# Scan specific resource, like a PR... but exclude the description (only scan comments)
+# Scan a PR's title, description, and comments
 betterleaks github https://github.com/betterleaks/betterleaks/pull/113
 
 # Scan GitLab group or project
@@ -132,14 +139,16 @@ printf '%s\n' "$GITHUB_TOKEN" | betterleaks analyze --rule github-pat
 printf '%s\n' "$GITHUB_TOKEN" | betterleaks validate --rule github-pat --simple
 ```
 
+Git URL scans fetch full branch and tag history, plus notes, into a temporary
+bare repository. Use `--clone-ref` to add specific review refs or patterns, or
+`--clone-all-refs` to fetch all advertised refs. See the [Git scanning guide](docs/scanning.md#git)
+for resource selection, commit filters, and staged-change scans.
+
 Use `--hmac-key` or `BETTERLEAKS_FINGERPRINT_HMAC_KEY` for keyed match fingerprints;
 see [fingerprint privacy and key setup](docs/scanning.md#ignore-exact-secret-values).
 
 `-j` / `--jobs` controls detection concurrency only, defaulting to `4 * GOMAXPROCS`.
-Sources manage their own
-bounded reads and downloads; Git uses one history stream when `--log-opts` is
-provided. See [parallel jobs](docs/scanning.md#parallel-jobs)
-and the [scanning guide](docs/scanning.md) for details and more examples.
+Sources manage their own bounded reads and downloads.
 
 Rules may also define an optional `revoke` Expr for explicit credential revocation.
 Use `betterleaks config show ids --revocation` to find configured support and

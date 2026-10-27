@@ -207,3 +207,24 @@ func TestPrintComponentFindingsOmitsAnalysis(t *testing.T) {
 	assert.NotContains(t, output.String(), "analysis")
 	assert.NotContains(t, output.String(), "read, write")
 }
+
+func TestGitLocalOnlyPresentation(t *testing.T) {
+	var f Finding
+	f.RuleID = "test"
+	f.Match.Value, f.Match.Full, f.Match.Line = "token", "token", "token"
+	f.Attributes = map[string]string{"resource": "git.blob", "git.blob_sha": strings.Repeat("a", 40)}
+	var out bytes.Buffer
+	var options PrettyOptions
+	options.NoColor = true
+	require.NoError(t, WritePretty(&out, f, options))
+	require.Contains(t, out.String(), "local only")
+	require.Empty(t, f.Attr("url"))
+	data, err := json.Marshal(f)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "local only")
+	f.Attributes["url"] = "https://github.com/owner/repo/commit/abc"
+	out.Reset()
+	require.NoError(t, WritePretty(&out, f, options))
+	require.NotContains(t, out.String(), "local only")
+	require.Contains(t, out.String(), f.Attr("url"))
+}

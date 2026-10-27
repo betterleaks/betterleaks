@@ -9,33 +9,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/betterleaks/betterleaks/v2/pipeline"
 	"github.com/betterleaks/betterleaks/v2/scan"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
-
-// multipleErrors wraps multiple scan errors into a single error that supports
-// errors.Unwrap so callers can inspect individual errors.
-type multipleErrors struct {
-	msg  string
-	errs []error
-}
-
-func (e *multipleErrors) Error() string   { return e.msg }
-func (e *multipleErrors) Unwrap() []error { return e.errs }
 
 type GitCmd struct {
 	ScanFlags       `embed:""`
 	MaxArchiveDepth int      `group:"scanning" name:"max-archive-depth" default:"8" help:"Allow scanning into nested archives up to this depth."`
-	Token           string   `group:"source" help:"Token for an HTTP(S) clone (or the known host's GITHUB_TOKEN, GITLAB_TOKEN, HUGGINGFACE_TOKEN/HF_TOKEN)."`
-	Platform        string   `group:"source" help:"Target platform used to generate links: github or gitlab."`
-	Staged          bool     `group:"source" help:"Scan added lines in staged changes."`
-	Unstaged        bool     `group:"source" help:"Scan added lines in unstaged changes to tracked files."`
-	PreReceive      bool     `group:"source" name:"pre-receive" help:"Run as a Git pre-receive hook, scanning pushed commits read from stdin."`
-	PreReceiveError string   `group:"source" name:"pre-receive-error-message" help:"Message printed to stderr when the pre-receive hook finds leaks; environment variables in $$VAR and $${VAR} form are expanded."`
-	LogOpts         string   `group:"source" name:"log-opts" help:"Git log options (uses one history stream to preserve option semantics)."`
-	Include         []string `group:"source" help:"Additional Git resources to scan: commit-messages, tag-messages, reflogs."`
+	Token           string   `group:"source" help:"Token for an HTTPS clone (or the known host's GITHUB_TOKEN, GITLAB_TOKEN, HUGGINGFACE_TOKEN/HF_TOKEN)."`
+	CloneRefs       []string `group:"source" name:"clone-ref" sep:"none" help:"Fetch an additional refs/... name or pattern with at most one '*' (repeatable; URL scans only)."`
+	CloneAllRefs    bool     `group:"source" name:"clone-all-refs" help:"Fetch all advertised refs, including review refs (URL scans only)."`
+	Platform        string   `group:"source" help:"Link platform: github, gitlab, azuredevops, gitea, bitbucket, unknown (auto), or none."`
+	Since           string   `group:"source" help:"Minimum committer date, RFC3339 or YYYY-MM-DD (UTC)."`
+	Until           string   `group:"source" help:"Maximum committer date, RFC3339 or YYYY-MM-DD (UTC)."`
+	Author          string   `group:"source" help:"Go regular expression matching author name and email."`
+	Committer       string   `group:"source" help:"Go regular expression matching committer name and email."`
+	Revision        string   `group:"source" help:"Revision or range (A..B) from fetched or local history; does not fetch refs. Omit to scan HEAD and all non-note refs."`
+	MaxCommits      int      `group:"source" name:"max-commits" help:"Limit selected commits in the history walk; zero is unlimited."`
+	GitMaxBlobMiB   int      `group:"source" name:"git-max-blob-mib" default:"64" help:"Skip blobs larger than this many MiB, with a warning for each."`
+	AllowExternal   bool     `group:"source" name:"allow-external-objects" help:"Read Git storage outside the repository (a .git file, commondir, or object alternate pointing elsewhere)."`
+	Exclude         []string `group:"source" help:"Remove Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflogs."`
+	Include         []string `group:"source" help:"Add Git resources: history, merges, objects, unreachable-objects, commit-messages, notes, tag-messages, reflogs (default: history, without merge patches)."`
 	Repo            string   `arg:"" optional:"" help:"Local repository or HTTP(S) repository URL to scan."`
 }
 
@@ -43,28 +38,11 @@ func (cmd GitCmd) Validate() error {
 	if err := cmd.ScanFlags.Validate(); err != nil {
 		return err
 	}
-	if cmd.Staged && cmd.Unstaged {
-		return errors.New("--staged and --unstaged are mutually exclusive")
+	src, err := cmd.gitSource()
+	if err != nil {
+		return err
 	}
-	if cmd.PreReceive && (cmd.Staged || cmd.Unstaged) {
-		return errors.New("--pre-receive cannot be combined with --staged or --unstaged")
-	}
-	if cmd.PreReceive && cmd.LogOpts != "" {
-		return errors.New("--pre-receive cannot be combined with --log-opts")
-	}
-	if cmd.PreReceive && remoteGitURL(cmd.Repo) {
-		return errors.New("--pre-receive requires a local Git repository")
-	}
-	if cmd.PreReceive && len(cmd.Include) > 0 {
-		return errors.New("--include cannot be combined with --pre-receive")
-	}
-	if remoteGitURL(cmd.Repo) && (cmd.Staged || cmd.Unstaged) {
-		return errors.New("--staged and --unstaged require a local Git repository")
-	}
-	if len(cmd.Include) > 0 && (cmd.Staged || cmd.Unstaged) {
-		return errors.New("--include requires a Git history scan; it cannot be combined with --staged or --unstaged")
-	}
-	return (&sources.Git{Include: cmd.Include}).Validate()
+	return src.Validate()
 }
 
 func (cmd *GitCmd) Run(cli *CLI, runtime *commandRuntime) error {
@@ -80,9 +58,6 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 	source := "."
 	if options.Repo != "" {
 		source = options.Repo
-		if source == "" {
-			source = "."
-		}
 	}
 
 	// setup config (aka, the thing that defines rules)
@@ -106,91 +81,85 @@ func runGit(runtime *commandRuntime, globals *GlobalFlags, options *GitCmd) {
 		return
 	}
 
-	var src sources.Source
-
-	if options.PreReceive {
-		updates, parseErr := sources.ParsePreReceiveInput(runtime.stdin)
-		if parseErr != nil {
-			runtime.fatal("could not read pre-receive input", "error", parseErr)
-			return
-		}
-		logArgs := sources.PreReceiveLogArgs(updates, sources.NewGitCommitResolver(runtime.Context, source))
-		if len(logArgs) == 0 {
-			// Nothing to scan (e.g. only ref deletions). Report cleanly.
-			runtime.Logger().Info("pre-receive: no new commits to scan")
-			findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "git", source)
-			findings.startScan(runtime)
-			findingSummaryAndExit(runtime, pipeline.ScanSummary{}, runner.ValidationEnabled(), findings, options.ExitCode, start, nil)
-			return
-		}
-		// Server-side hook scans have no remote to link findings to.
-		src = &sources.Git{
-			Logger:          runtime.Logger(),
-			RepoPath:        source,
-			Prefilter:       filters.shouldSkip,
-			Platform:        scm.NoPlatform,
-			MaxArchiveDepth: options.MaxArchiveDepth,
-			LogOpts:         strings.Join(logArgs, " "),
-		}
-	} else if options.Unstaged || options.Staged {
-		mode := sources.GitWorkingTree
-		if options.Staged {
-			mode = sources.GitStaged
-		}
-		// Local diffs have no committed revision to link to.
-		src = &sources.Git{
-			Logger:          runtime.Logger(),
-			RepoPath:        source,
-			Mode:            mode,
-			Prefilter:       filters.shouldSkip,
-			Platform:        scm.NoPlatform,
-			MaxArchiveDepth: options.MaxArchiveDepth,
-		}
-	} else {
-		scmPlatform, platformErr := scm.PlatformFromString(options.Platform)
-		if platformErr != nil {
-			runtime.fatal("invalid platform", "error", platformErr)
-		}
-		resolvedPlatform, remoteURL := scmPlatform, ""
-		if !remote {
-			resolvedPlatform, remoteURL = sources.ResolveRemote(runtime.Context, scmPlatform, source)
-		}
-
-		gitSource := &sources.Git{
-			Logger:          runtime.Logger(),
-			RepoPath:        source,
-			Prefilter:       filters.shouldSkip,
-			Platform:        resolvedPlatform,
-			RemoteURL:       remoteURL,
-			MaxArchiveDepth: options.MaxArchiveDepth,
-			LogOpts:         options.LogOpts,
-			Include:         options.Include,
-		}
-		if remote {
-			gitSource.RepoPath = ""
-			gitSource.URL = source
-			gitSource.Token = options.Token
-			if gitSource.Token == "" {
-				gitSource.Token = remoteGitToken(source)
-			}
-		}
-		src = gitSource
+	src, err := options.gitSource()
+	if err != nil {
+		runtime.fatal("invalid Git source", "error", err)
+		return
 	}
+	src.Logger, src.Prefilter = runtime.Logger(), filters.shouldSkip
 
 	findings := mustNewFindingCollector(runtime, &options.ScanFlags, globals.NoColor, start, cfg, "git", source)
 	findings.startScan(runtime)
 	summary, err := runner.Scan(runtime.Context, src, findings.Add)
-	if err != nil {
+	if errors.Is(err, gogit.ErrExternalStore) {
+		runtime.Logger().Error("failed to scan Git repository; pass --allow-external-objects to read storage outside it", "error", err)
+	} else if err != nil {
 		runtime.Logger().Error("failed to scan Git repository", "error", err)
 	}
 
-	// When running as a pre-receive hook, print the custom error message
-	// (with environment variables expanded) so the pushing client sees it.
-	if options.PreReceive && options.PreReceiveError != "" && findings.Count() != 0 {
-		fmt.Fprintln(runtime.stderr, os.ExpandEnv(options.PreReceiveError))
-	}
-
 	findingSummaryAndExit(runtime, summary, runner.ValidationEnabled(), findings, options.ExitCode, start, err)
+}
+
+// gitSource converts flags; gogit.Source.Validate checks the values.
+//
+//nolint:exhaustruct // Unset source options keep their documented defaults.
+func (cmd GitCmd) gitSource() (*gogit.Source, error) {
+	// A date-only --until includes that whole day.
+	parseDate := func(value string, endOfDay bool) (*time.Time, error) {
+		if value == "" {
+			return nil, nil
+		}
+		if date, err := time.Parse(time.RFC3339, value); err == nil {
+			return &date, nil
+		}
+		date, err := time.Parse(time.DateOnly, value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid history date %q; use RFC3339 or YYYY-MM-DD", value)
+		}
+		if endOfDay {
+			date = date.Add(24*time.Hour - time.Nanosecond)
+		}
+		return &date, nil
+	}
+	since, err := parseDate(cmd.Since, false)
+	if err != nil {
+		return nil, err
+	}
+	until, err := parseDate(cmd.Until, true)
+	if err != nil {
+		return nil, err
+	}
+	platform, err := scm.PlatformFromString(cmd.Platform)
+	if err != nil {
+		return nil, err
+	}
+	repo := cmd.Repo
+	if repo == "" {
+		repo = "."
+	}
+	url, token := "", cmd.Token
+	if remoteGitURL(repo) {
+		url, repo = repo, ""
+		if token == "" {
+			token = remoteGitToken(url)
+		}
+	} else if _, err := os.Stat(repo); err != nil {
+		// Report a missing target here, before the ignore-file lookup stats it.
+		if _, web := scm.ResolveRemoteURL(scm.UnknownPlatform, repo); web != "" {
+			return nil, fmt.Errorf("SSH and git:// URLs are not supported; use an HTTPS URL such as %s", web)
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("repository %q does not exist", repo)
+		}
+		return nil, err
+	}
+	return &gogit.Source{
+		RepoPath: repo, URL: url, Token: token,
+		CloneRefs: cmd.CloneRefs, CloneAllRefs: cmd.CloneAllRefs,
+		Revision: cmd.Revision, Since: since, Until: until, Author: cmd.Author, Committer: cmd.Committer, MaxCount: cmd.MaxCommits,
+		MaxBlobBytes: int64(cmd.GitMaxBlobMiB) << 20, Include: cmd.Include, Exclude: cmd.Exclude,
+		AllowExternalObjects: cmd.AllowExternal, Platform: platform, MaxArchiveDepth: cmd.MaxArchiveDepth,
+	}, nil
 }
 
 // An existing path wins even when its spelling resembles a URL.

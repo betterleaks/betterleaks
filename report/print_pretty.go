@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -745,7 +746,12 @@ func (p *prettyRenderer) meta(f Finding, noColor bool, redact uint) {
 			p.dotLeader("encoding", escapeInline(strings.Join(encodings, ", ")), maxKey)
 		}
 	}
+	// The snippet shows the matching lines; keep message metadata to its subject.
 	attributes := reportAttributes(f.Attributes)
+	if strings.HasPrefix(f.Attr("resource"), "git.") && f.Attr("url") == "" {
+		attributes = maps.Clone(attributes)
+		attributes["url"] = "local only"
+	}
 	if len(attributes) > 0 {
 		if f.Location.Path == "" && f.Confidence == "" && len(encodings) == 0 {
 			p.println("│")

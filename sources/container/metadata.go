@@ -1,6 +1,7 @@
 package container
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -20,17 +20,15 @@ import (
 // multiline credentials are visible without losing multipart field context.
 func (r *session) metadata(ctx context.Context, raw []byte, location, resource string, attrs map[string]string) error {
 	if len(raw) > maxMetadataSize {
-		return errors.New("metadata exceeds 16 MiB limit")
+		return fmt.Errorf("metadata exceeds %d MiB limit", maxMetadataSize>>20)
 	}
-	var value any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&value); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return errors.New("trailing data in container JSON metadata")
+	// Validate without constructing an object graph. A compact JSON array of
+	// small objects can otherwise consume many times its input size in heap.
+	if !json.Valid(raw) {
+		return errors.New("invalid container JSON metadata")
 	}
 	a := maps.Clone(attrs)
 	if a == nil {
@@ -45,47 +43,82 @@ func (r *session) metadata(ctx context.Context, raw []byte, location, resource s
 	if !bytes.ContainsRune(raw, '\\') {
 		return nil
 	}
-	text, err := decodedMetadata(ctx, value)
-	if err != nil {
-		return err
-	}
 	a = maps.Clone(a)
 	a[sources.AttrPath], a[AttrRepresentation] = location+"#decoded", "decoded"
-	s = sources.Reader{Content: strings.NewReader(text), Attributes: a, Prefilter: r.s.Prefilter}
-	return s.Fragments(ctx, r.yield)
+	// Pipe decoded records through the normal fragment reader, retaining neither
+	// a parsed tree nor a complete decoded copy. Closing the reader interrupts
+	// the producer if scanning stops early; wait for it before releasing raw.
+	reader, writer := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := bufio.NewWriterSize(writer, 32<<10)
+		err := decodedMetadata(ctx, raw, buffer)
+		if err == nil {
+			err = buffer.Flush()
+		}
+		writer.CloseWithError(err)
+	}()
+	defer func() {
+		reader.Close()
+		<-done
+	}()
+	s = sources.Reader{Content: reader, Attributes: a, Prefilter: r.s.Prefilter}
+	return s.Fragments(ctx, func(f sources.Fragment, err error) error {
+		if err != nil {
+			return err
+		}
+		return r.yield(f, nil)
+	})
 }
 
-// decodedMetadata bounds the representation, not just its JSON input. Keep
-// pointer segments separately: concatenating every ancestor at each level can
-// allocate quadratic memory even before the first leaf is emitted.
-func decodedMetadata(ctx context.Context, value any) (string, error) {
-	var text strings.Builder
+// decodedMetadata emits JSON-pointer=value records in document order, including
+// duplicate keys. Keep pointer segments separately to avoid quadratic memory
+// from concatenating every ancestor at each level. raw must be valid JSON.
+func decodedMetadata(ctx context.Context, raw []byte, out io.Writer) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	written := 0
 	write := func(value string) error {
-		if len(value) > maxMetadataSize-text.Len() {
-			return errors.New("decoded metadata exceeds 16 MiB limit")
+		if len(value) > maxMetadataSize-written {
+			return fmt.Errorf("decoded metadata exceeds %d MiB limit", maxMetadataSize>>20)
 		}
-		text.WriteString(value)
-		return nil
+		n, err := io.WriteString(out, value)
+		written += n
+		return err
 	}
-	var render func(any, []string) error
-	render = func(value any, pointer []string) error {
+	var render func([]string) error
+	render = func(pointer []string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		switch v := value.(type) {
-		case map[string]any:
-			for _, k := range slices.Sorted(maps.Keys(v)) {
+		value, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		switch value {
+		case json.Delim('{'):
+			for decoder.More() {
+				key, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				k := key.(string) // Object keys in validated JSON are strings.
 				segment := strings.ReplaceAll(strings.ReplaceAll(k, "~", "~0"), "/", "~1")
-				if err := render(v[k], append(pointer, segment)); err != nil {
+				if err := render(append(pointer, segment)); err != nil {
 					return err
 				}
 			}
-		case []any:
-			for i, item := range v {
-				if err := render(item, append(pointer, strconv.Itoa(i))); err != nil {
+			_, err := decoder.Token() // Closing brace.
+			return err
+		case json.Delim('['):
+			for i := 0; decoder.More(); i++ {
+				if err := render(append(pointer, strconv.Itoa(i))); err != nil {
 					return err
 				}
 			}
+			_, err := decoder.Token() // Closing bracket.
+			return err
 		default:
 			for _, segment := range pointer {
 				if err := write("/"); err != nil {
@@ -98,8 +131,8 @@ func decodedMetadata(ctx context.Context, value any) (string, error) {
 			if err := write("="); err != nil {
 				return err
 			}
-			if v != nil {
-				if err := write(fmt.Sprint(v)); err != nil {
+			if value != nil {
+				if err := write(fmt.Sprint(value)); err != nil {
 					return err
 				}
 			}
@@ -109,8 +142,5 @@ func decodedMetadata(ctx context.Context, value any) (string, error) {
 		}
 		return nil
 	}
-	if err := render(value, nil); err != nil {
-		return "", err
-	}
-	return text.String(), nil
+	return render(nil)
 }

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path"
 	"strings"
 
@@ -22,66 +21,12 @@ import (
 
 func (r *session) archive(ctx context.Context, file string) error {
 	r.debug(ctx, "opening container archive", "archive", file)
-	f, err := os.Open(file)
+	f, err := openRegularFile(ctx, nil, file)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	return r.unpack(ctx, f, file)
-}
-
-func (r *session) daemon(ctx context.Context, ref string) error {
-	r.debug(ctx, "exporting local container image", "runtime", r.s.Daemon, "image", ref)
-	// Use the selected CLI's configured connection and credential handling. Export
-	// exactly the requested local image; there is no registry fallback.
-	cmd := exec.CommandContext(ctx, r.s.Daemon, "image", "save", "--", ref)
-	stderr := &daemonDiagnostic{}
-	cmd.Stderr = stderr
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start %s image save: %w", r.s.Daemon, err)
-	}
-	err = r.unpack(ctx, stdout, "daemon:"+r.s.Daemon+":"+ref)
-	if err != nil {
-		_ = cmd.Process.Kill()
-	}
-	waitErr := cmd.Wait()
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	if waitErr != nil {
-		// Preserve the producer's explanation instead of replacing it with
-		// the secondary missing/truncated-archive error. The session sanitizes
-		// URLs in all yielded diagnostics before handing them to the scanner.
-		return errors.Join(fmt.Errorf("%s image save failed: %w: %s", r.s.Daemon, waitErr, stderr.String()), err)
-	}
-	return err
-}
-
-// The CLI can emit arbitrary amounts of stderr. Keep a bounded diagnostic while
-// accepting every write so its stderr pipe cannot block the export process.
-type daemonDiagnostic struct {
-	buffer    bytes.Buffer
-	truncated bool
-}
-
-func (d *daemonDiagnostic) Write(p []byte) (int, error) {
-	n := len(p)
-	keep := min(n, (16<<10)-d.buffer.Len())
-	_, _ = d.buffer.Write(p[:keep])
-	d.truncated = d.truncated || keep != n
-	return n, nil
-}
-
-func (d *daemonDiagnostic) String() string {
-	message := strings.TrimSpace(d.buffer.String())
-	if d.truncated {
-		message += " [truncated]"
-	}
-	return message
 }
 
 func (r *session) unpack(ctx context.Context, input io.Reader, target string) error {
@@ -95,16 +40,18 @@ func (r *session) unpack(ctx context.Context, input io.Reader, target string) er
 		return err
 	}
 	defer root.Close()
-	if err := r.unpackFiles(ctx, input, root, target); err != nil {
+	aliases := make(map[string]string)
+	if err := r.unpackFiles(ctx, input, root, target, aliases); err != nil {
 		return err
 	}
 	if _, err := root.Stat("index.json"); err == nil {
 		return r.layout(ctx, dir, target)
 	}
-	return r.dockerArchive(ctx, root, target)
+	return r.dockerArchive(ctx, root, target, aliases)
 }
 
-func (r *session) unpackFiles(ctx context.Context, input io.Reader, root *os.Root, target string) (err error) {
+//nolint:nonamedreturns // Deferred progress reporting needs the returned error.
+func (r *session) unpackFiles(ctx context.Context, input io.Reader, root *os.Root, target string, aliases map[string]string) (err error) {
 	progress := r.startProgress(ctx, "container archive extraction", "image", target)
 	defer func() { progress.finish(err) }()
 	stream, err := decompress(progress.reader(contextReader{ctx, input}))
@@ -125,6 +72,7 @@ func (r *session) unpackFiles(ctx context.Context, input io.Reader, root *os.Roo
 	// Also bound logical file sizes: sparse tar members can write more bytes
 	// than the decompressed tar stream contains.
 	var used int64
+	var aliasBytes int
 	entries := 0
 	for {
 		if err := ctx.Err(); err != nil {
@@ -145,10 +93,47 @@ func (r *session) unpackFiles(ctx context.Context, input io.Reader, root *os.Roo
 		if err != nil {
 			return err
 		}
+		for parent := p; parent != "."; parent = path.Dir(parent) {
+			if _, ok := aliases[parent]; ok {
+				return fmt.Errorf("outer archive entry %q conflicts with link %q", p, parent)
+			}
+		}
 		if h.Typeflag == tar.TypeDir {
 			if err := root.MkdirAll(p, 0700); err != nil {
 				return err
 			}
+			continue
+		}
+		if h.Typeflag == tar.TypeSymlink || h.Typeflag == tar.TypeLink {
+			// Podman includes legacy layer.tar aliases. Keep them as names, never
+			// filesystem links; other archive links are outside the supported format.
+			if path.Base(p) != "layer.tar" || h.Size != 0 || h.Linkname == "" || strings.HasPrefix(h.Linkname, "/") || strings.ContainsAny(h.Linkname, "\\:\x00") {
+				return fmt.Errorf("unsupported outer archive link %q", p)
+			}
+			target := h.Linkname
+			if h.Typeflag == tar.TypeSymlink {
+				target = path.Join(path.Dir(p), target)
+			}
+			target, err := archivePath(target)
+			if err != nil {
+				return err
+			}
+			if len(p)+len(target) > (64<<20)-aliasBytes {
+				return errors.New("outer archive link paths exceed 64 MiB")
+			}
+			aliasBytes += len(p) + len(target)
+			// Reserve only the parent directories. The alias itself stays purely
+			// in memory, so other readers cannot mistake it for an empty file.
+			if err := root.MkdirAll(path.Dir(p), 0700); err != nil {
+				return err
+			}
+			if _, err := root.Stat(p); !errors.Is(err, os.ErrNotExist) {
+				if err == nil {
+					return fmt.Errorf("outer archive link %q conflicts with an existing entry", p)
+				}
+				return err
+			}
+			aliases[p] = target
 			continue
 		}
 		if h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeRegA {
@@ -172,9 +157,33 @@ func (r *session) unpackFiles(ctx context.Context, input io.Reader, root *os.Roo
 			return err
 		}
 	}
-	// Consume compression trailers, rejecting truncated compressed archives.
-	if _, err := io.Copy(io.Discard, expanded); err != nil {
+	// Validate record padding and compression trailers. Engines may append an
+	// export-error JSON object after tar EOF even with HTTP 200; never discard it.
+	if _, err := io.Copy(zeroPaddingWriter{}, expanded); err != nil {
 		return err
+	}
+	for name := range aliases {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		p := name
+		for depth := 0; ; depth++ {
+			next, ok := aliases[p]
+			if !ok {
+				break
+			}
+			if depth >= 32 {
+				return fmt.Errorf("outer archive link %q is cyclic or exceeds 32 links", name)
+			}
+			p = next
+		}
+		info, err := root.Stat(p)
+		if err != nil {
+			return fmt.Errorf("outer archive link %q: %w", name, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("outer archive link %q must target a regular file", name)
+		}
 	}
 	return nil
 }
@@ -196,24 +205,17 @@ func localRead(ctx context.Context, root *os.Root, p string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := root.Open(p)
+	f, err := openRegularFile(ctx, root, p)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("metadata %q is not a regular file", p)
-	}
 	data, err := io.ReadAll(io.LimitReader(contextReader{ctx, f}, maxMetadataSize+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(data) > maxMetadataSize {
-		return nil, errors.New("metadata exceeds 16 MiB limit")
+		return nil, fmt.Errorf("metadata exceeds %d MiB limit", maxMetadataSize>>20)
 	}
 	return data, nil
 }
@@ -249,16 +251,7 @@ func (r *session) layout(ctx context.Context, dir, target string) error {
 		if _, err := verifyingReader(strings.NewReader(""), d.Digest); err != nil {
 			return nil, err
 		}
-		f, err := root.Open(path.Join("blobs", d.Digest.Algorithm, d.Digest.Hex))
-		if err != nil {
-			return nil, err
-		}
-		info, err := f.Stat()
-		if err != nil || !info.Mode().IsRegular() {
-			f.Close()
-			return nil, errors.New("OCI blob is not a regular file")
-		}
-		return f, nil
+		return openRegularFile(ctx, root, path.Join("blobs", d.Digest.Algorithm, d.Digest.Hex))
 	}
 	store.manifest = func(d v1.Descriptor) ([]byte, error) { return readBlob(ctx, store, d, maxMetadataSize) }
 	index, err := localRead(ctx, root, "index.json")
@@ -273,7 +266,7 @@ func sum(data []byte) v1.Hash {
 	return v1.Hash{Algorithm: "sha256", Hex: hex.EncodeToString(h[:])}
 }
 
-func (r *session) dockerArchive(ctx context.Context, root *os.Root, target string) error {
+func (r *session) dockerArchive(ctx context.Context, root *os.Root, target string, aliases map[string]string) error {
 	raw, err := localRead(ctx, root, "manifest.json")
 	if err != nil {
 		return fmt.Errorf("expected Docker save manifest.json or OCI index.json: %w", err)
@@ -339,7 +332,12 @@ func (r *session) dockerArchive(ctx context.Context, root *os.Root, target strin
 				if err != nil {
 					return err
 				}
-				layers[i] = layerInput{descriptor: v1.Descriptor{MediaType: types.OCIUncompressedLayer}, open: func() (io.ReadCloser, error) { return root.Open(p) }}
+				// unpackFiles validated this bounded graph and its regular targets.
+				for aliases[p] != "" {
+					p = aliases[p]
+				}
+				layers[i].descriptor.MediaType = types.OCIUncompressedLayer
+				layers[i].open = func() (io.ReadCloser, error) { return openRegularFile(ctx, root, p) }
 				if i < len(cfg.RootFS.DiffIDs) {
 					layers[i].diffID = cfg.RootFS.DiffIDs[i]
 				}

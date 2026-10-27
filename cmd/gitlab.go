@@ -16,9 +16,9 @@ type GitLabCmd struct {
 	Include          []string `group:"source" help:"Resource types to scan: repos, forks, mrs, mr-comments, issues, issue-comments, snippets, releases, release-assets, ci-jobs, ci-artifacts."`
 	Exclude          []string `group:"source" help:"Resource types to skip."`
 	ExcludeRepo      []string `group:"source" name:"exclude-repo" help:"Glob patterns to exclude projects by full path."`
+	CloneAllRefs     bool     `group:"source" name:"clone-all-refs" help:"Fetch all advertised Git refs when cloning projects, including merge request refs."`
 	IncludeSubgroups bool     `group:"source" name:"include-subgroups" default:"true" help:"When scanning a group, recurse into subgroups."`
 	AllGroups        bool     `group:"source" name:"all-groups" help:"Enumerate every group visible to the token."`
-	LogOpts          string   `group:"source" name:"log-opts" help:"Git log options passed to each project scan."`
 	Since            string   `group:"source" help:"Only scan API items created after this date (YYYY-MM-DD or RFC3339)."`
 	Until            string   `group:"source" help:"Only scan API items created before this date (YYYY-MM-DD or RFC3339)."`
 	TargetURL        string   `arg:"" name:"target-url" help:"GitLab project, group, or resource URL."`
@@ -79,7 +79,7 @@ func runGitLab(runtime *commandRuntime, globals *GlobalFlags, options *GitLabCmd
 		IncludeSubgroups: options.IncludeSubgroups,
 		Prefilter:        filters.shouldSkip,
 		MaxArchiveDepth:  options.MaxArchiveDepth,
-		LogOpts:          options.LogOpts,
+		CloneAllRefs:     options.CloneAllRefs,
 		DateRangeOpts: gitlab.DateRangeOptions{
 			Since: since,
 			Until: until,

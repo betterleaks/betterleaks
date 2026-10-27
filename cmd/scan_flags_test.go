@@ -507,13 +507,33 @@ func TestRemovedWorkerFlagsAreRejected(t *testing.T) {
 	tests := [][]string{
 		{"fs", "--source-workers=2"},
 		{"fs", "--detect-workers=2"},
-		{"git", "--git-workers=2"},
 		{"s3", "--workers=2", "s3://bucket"},
 	}
 	for _, args := range tests {
 		_, err := parseCLIForTest(t, args...)
 		require.Error(t, err, "parseCLIForTest(%q)", args)
 	}
+}
+
+// The Git source picks its own read concurrency and cache sizes.
+func TestGitTuningFlagsRemoved(t *testing.T) {
+	for _, flag := range []string{"--git-workers=16", "--git-cache-mib=32", "--git-disk-cache-mib=64"} {
+		_, err := parseCLIForTest(t, "git", flag)
+		require.Error(t, err, flag)
+	}
+}
+
+func TestGitMergeOptionValidation(t *testing.T) {
+	for _, args := range [][]string{
+		{"git", "--include=merges", "--exclude=merges"},
+		{"git", "--include=merges", "--exclude=history"},
+	} {
+		_, err := parseCLIForTest(t, args...)
+		require.Error(t, err, "%v", args)
+	}
+	cli, err := parseCLIForTest(t, "git", "--exclude=merges")
+	require.NoError(t, err)
+	require.Equal(t, []string{"merges"}, cli.Git.Exclude)
 }
 
 func TestExpandRuleFlagShorthands(t *testing.T) {

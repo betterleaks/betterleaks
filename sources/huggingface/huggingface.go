@@ -23,6 +23,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
@@ -38,7 +39,7 @@ const (
 )
 
 // Source enumerates Hugging Face model, dataset, and Space repositories
-// via the Hub API and delegates git history scanning to the sources.Git source.
+// via the Hub API and delegates git history scanning to the gogit.Source source.
 // Configure a fresh Source for each scan; instances must not be shared concurrently.
 type Source struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
@@ -53,7 +54,9 @@ type Source struct {
 
 	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
-	LogOpts         string
+	// CloneAllRefs fetches every advertised ref when cloning, including review
+	// refs such as refs/pr. By default only branches, tags and notes are fetched.
+	CloneAllRefs bool
 
 	MaxBucketObjectSize int64
 
@@ -594,15 +597,15 @@ func (s *Source) wrapYieldWithAttrs(attrs map[string]string, yield sources.Fragm
 	}
 }
 
+//nolint:exhaustruct // Unspecified Git source options retain their documented defaults.
 func (s *Source) scanRepoGit(ctx context.Context, repo huggingFaceRepo, yield sources.FragmentsFunc) error {
 	remote := repo.GitURL(s.baseURL)
-	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		src := &sources.Git{
+	return scm.CloneToTempDir(ctx, remote, s.Token, "betterleaks-huggingface-*", scm.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
+		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,
 			Platform: scm.UnknownPlatform, RemoteURL: repo.WebURL(s.baseURL),
 			MaxArchiveDepth: s.MaxArchiveDepth,
-			LogOpts:         s.LogOpts,
 		}
 		return src.Fragments(ctx, yield)
 	})

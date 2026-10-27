@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/cgi"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -28,6 +29,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
 	t.Parallel()
 
@@ -47,6 +49,7 @@ func TestGitHub_scanRepo_prefilterSkipsRepoByResourceAttrs(t *testing.T) {
 	require.Empty(t, fragments)
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_scanRepo_prefilterUsesMergedRepoAttrsOnFragments(t *testing.T) {
 	t.Parallel()
 
@@ -66,6 +69,7 @@ func TestGitHub_scanRepo_prefilterUsesMergedRepoAttrsOnFragments(t *testing.T) {
 	require.Empty(t, fragments)
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	t.Parallel()
 
@@ -89,6 +93,7 @@ func TestGitHub_scanRepo_yieldsFragmentsWithoutMatchingPrefilter(t *testing.T) {
 	require.NotEmpty(t, fragments[0].Attr(sources.AttrPath))
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_scanRepo_skipRepoGitDoesNotCloneOrScanHistory(t *testing.T) {
 	t.Parallel()
 
@@ -107,6 +112,7 @@ func TestGitHub_scanRepo_skipRepoGitDoesNotCloneOrScanHistory(t *testing.T) {
 	require.Empty(t, fragments)
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_scanURL_gistDoesNotPanicAndStampsAttrs(t *testing.T) {
 	t.Parallel()
 
@@ -157,6 +163,7 @@ func TestGitHub_scanURL_gistDoesNotPanicAndStampsAttrs(t *testing.T) {
 	require.Contains(t, fragments[0].Raw, "AKIALALEMEL33243OLIA")
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_emitIssueAndComments_stampsAttrs(t *testing.T) {
 	t.Parallel()
 
@@ -229,6 +236,7 @@ func TestGithubRateLimitStateExtractor_ParsesHeaders(t *testing.T) {
 	require.EqualValues(t, 1700000015, resetAt.Unix())
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_emitPRAndComments_stampsPRAndReviewThreadAttrs(t *testing.T) {
 	t.Parallel()
 
@@ -283,6 +291,7 @@ func TestGitHub_emitPRAndComments_stampsPRAndReviewThreadAttrs(t *testing.T) {
 	require.Equal(t, "202", fragments[2].Attr(AttrCommentID))
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_emitDiscussion_stampsDiscussionCommentAndReplyAttrs(t *testing.T) {
 	t.Parallel()
 
@@ -338,6 +347,7 @@ func TestGitHub_emitDiscussion_stampsDiscussionCommentAndReplyAttrs(t *testing.T
 	require.Equal(t, "302", fragments[2].Attr(AttrCommentID))
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_emitRelease_stampsReleaseAttrs(t *testing.T) {
 	t.Parallel()
 
@@ -367,6 +377,7 @@ func TestGitHub_emitRelease_stampsReleaseAttrs(t *testing.T) {
 	require.Contains(t, fragments[0].Raw, releaseName)
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_emitRelease_prefilterSkipsReleaseByTag(t *testing.T) {
 	t.Parallel()
 
@@ -391,6 +402,7 @@ func TestGitHub_emitRelease_prefilterSkipsReleaseByTag(t *testing.T) {
 	require.False(t, called)
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 	t.Parallel()
 
@@ -453,6 +465,8 @@ func TestGitHub_downloadAndScanZip_stampsActionsAttrs(t *testing.T) {
 // the credential does not leak into third-party storage access logs; callers
 // hitting api.github.com / a configured GHE host pass s.Token so private
 // resources still authenticate.
+//
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_downloadAndScan_bearerToken(t *testing.T) {
 	t.Parallel()
 
@@ -494,6 +508,7 @@ func TestGitHub_downloadAndScan_bearerToken(t *testing.T) {
 	}
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_scanActions_startsLogsBeforeWorkflowPaginationCompletes(t *testing.T) {
 	t.Parallel()
 
@@ -569,6 +584,7 @@ func TestGitHub_scanActions_startsLogsBeforeWorkflowPaginationCompletes(t *testi
 	}
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_scanActions_startsArtifactsBeforeWorkflowPaginationCompletes(t *testing.T) {
 	t.Parallel()
 
@@ -650,6 +666,7 @@ func TestGitHub_scanActions_startsArtifactsBeforeWorkflowPaginationCompletes(t *
 	require.NoError(t, <-errCh)
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHub_streamWorkflowRuns_usesCombinedCreatedRange(t *testing.T) {
 	t.Parallel()
 
@@ -726,6 +743,7 @@ func newTestGitHubRepo(repoPath string) *github.Repository {
 	}
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func createGitHubTestRepo(t *testing.T) string {
 	t.Helper()
 
@@ -742,7 +760,11 @@ func createGitHubTestRepo(t *testing.T) string {
 	runGit(t, repoDir, "add", "secret.txt")
 	runGit(t, repoDir, "commit", "-m", "seed test repo")
 
-	return repoDir
+	binary, err := exec.LookPath("git")
+	require.NoError(t, err)
+	server := httptest.NewServer(&cgi.Handler{Path: binary, Args: []string{"http-backend"}, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"}})
+	t.Cleanup(server.Close)
+	return server.URL + "/repo/.git"
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
@@ -778,6 +800,7 @@ func buildGitHubTestZip(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestFragmentsScansTargetsSequentially(t *testing.T) {
 	t.Parallel()
 
@@ -891,6 +914,8 @@ func TestFragmentsScansTargetsSequentially(t *testing.T) {
 // TestFragments_A3_enumErrWaitsForScans verifies that when enumeration fails,
 // Fragments cancels and waits for all in-flight scans to finish before returning,
 // so yield is never called after Fragments returns.
+//
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestFragments_A3_enumErrWaitsForScans(t *testing.T) {
 	t.Parallel()
 
@@ -1130,6 +1155,7 @@ func Test_ParseGitHubURL(t *testing.T) {
 	}
 }
 
+//nolint:exhaustruct // Fixtures specify only the options relevant to the scenario.
 func TestGitHubResolveResources(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

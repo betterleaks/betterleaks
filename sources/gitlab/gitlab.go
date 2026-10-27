@@ -25,6 +25,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
@@ -38,7 +39,7 @@ const (
 )
 
 // Source enumerates projects via the GitLab REST API and delegates scanning
-// to the sources.Git source for each cloned repo.
+// to the gogit.Source source for each cloned repo.
 // Configure a fresh Source for each scan; instances must not be shared concurrently.
 type Source struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
@@ -66,10 +67,12 @@ type Source struct {
 	AllGroups        bool
 	IncludeSubgroups bool
 
-	// Scan config (passed through to sources.Git per project)
+	// Scan config (passed through to gogit.Source per project)
 	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
-	LogOpts         string
+	// CloneAllRefs fetches every advertised ref when cloning, including review
+	// refs such as refs/merge-requests. By default only branches, tags and notes are fetched.
+	CloneAllRefs bool
 
 	// Date-range filtering for API-backed resources
 	DateRangeOpts DateRangeOptions
@@ -901,17 +904,18 @@ func (s *Source) scanProject(ctx context.Context, proj *gitlabProject, yield sou
 }
 
 // scanProjectGit clones the project and scans its git history.
+//
+//nolint:exhaustruct // Unspecified Git source options retain their documented defaults.
 func (s *Source) scanProjectGit(ctx context.Context, proj *gitlabProject, yield sources.FragmentsFunc) error {
 	if proj.HTTPURLToRepo == "" {
 		return nil
 	}
-	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		src := &sources.Git{
+	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
+		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,
 			Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
 			MaxArchiveDepth: s.MaxArchiveDepth,
-			LogOpts:         s.LogOpts,
 		}
 		return src.Fragments(ctx, yield)
 	})
