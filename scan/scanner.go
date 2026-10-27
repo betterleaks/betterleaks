@@ -900,6 +900,9 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 				EndColumn:   loc.endColumn,
 			},
 		}
+		if loc.startLine == 1 {
+			finding.Match.LineColumnOffset = fragment.StartColumnOffset
+		}
 		finding.SetAttributes(fragment.Attributes)
 		if r.rule.Confidence != "" {
 			finding.Confidence = r.rule.Confidence
