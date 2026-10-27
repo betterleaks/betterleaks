@@ -15,6 +15,10 @@ func GenericPassword() *config.Rule {
 	// "password>" cannot lend context to HTML link text.
 	xmlPasswordRegex := `<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>` + structuredValuePrefix + `(?:<!\[CDATA\[([^\r\n]{5,250}?)\]\]>|([^<\r\n]{5,250}?))` + jsonRecordSpace + `</[\w.:-]{1,64}[ \t\r\n]*>`
 	authArgumentRegex := `\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)`
+	metadataField := structuredFieldPattern(`type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern`)
+	// Start at the assignment, so JSON-like password text and CDATA remain literals.
+	metadataAssignment := `(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>)` + structuredValuePrefix + metadataField
+	const phpType = `\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?`
 
 	r := config.Rule{
 		ID:          "generic-password",
@@ -35,7 +39,10 @@ func GenericPassword() *config.Rule {
 				Within:   "7L,200C",
 			},
 		},
-		FilterExpr: `// Restrict nearby evidence to the password's line and the
+		FilterExpr: `// Schema fields describe a password; they do not assign one.
+matchesAny(finding["match"], [` + "`" + metadataAssignment + "`" + `])
+|| (
+// Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
 // from the evidence patterns below.
 let raw = finding["fragment_raw"];
@@ -50,6 +57,22 @@ let nearbyContext =
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
+
+// PHP signature maps assign parameter types after a function's return type.
+// The same literal in an ordinary credential assignment remains reportable.
+let isSignatureType = finding["secret"] == "string" && matchesAny(linePrefix, [
+  ` + "`" + `['"][\w\\:]+['"][ \t]*=>[ \t]*\[[ \t]*['"](?:` + phpType + `(?:\|` + phpType + `)*)?['"][ \t]*,[^\]\r\n]*$` + "`" + `
+]);
+// Only suppress dictionary entries in translation paths, not assignments or
+// explicit credential containers that happen to live in those directories.
+let isTranslationEntry = matchesAny(attributes["path"], [
+  ` + "`" + `(?i)(?:^|[\\/])(?:languages?|lang|locales?|i18n|translations?)[\\/].*\.php$` + "`" + `
+]) && matchesAny(finding["match"], [
+  ` + "`(?i)^(?:password|passwd|psw)['\"][ \\t]*=>`" + `
+]) && matchesAny(linePrefix, [` + "`^[ \\t]*['\"][\\w .-]{0,64}$`" + `])
+&& !matchesAny(nearbyContext, [
+  ` + "`(?i)\\b(?:credentials?|auth[_.-]?config|connection[_.-]?config)\\b[ \\t'\"]{0,3}(?:=>|=|:)[ \\t\\r\\n]*(?:\\[|\\{|array[ \\t]*\\()`" + `
+]);
 
 let hasAuthContext = matchesAny(nearbyContext, [
   // Authentication and connection calls.
@@ -187,6 +210,8 @@ matchesAny(finding["secret"], [
 // Do not let a CDATA capture backtrack across an earlier section's terminator.
 || (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
+|| isSignatureType
+|| isTranslationEntry
 || isCryptographicAlgorithm
 || isContextualAlgorithmName
 || isUnquotedCodeValue
@@ -195,7 +220,8 @@ matchesAny(finding["secret"], [
 || matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `,
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*\\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\\]]*\\\\?(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `
-])`,
+])
+)`,
 	}
 
 	tps := []string{

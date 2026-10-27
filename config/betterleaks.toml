@@ -3933,8 +3933,8 @@ entropy(finding["secret"]) <= 3.5
 || matchesAny(finding["match"], [
   // Permit an indented operator on the next line, but do not bridge blank lines.
   `^[\w.'" \t-]*\r?\n[ \t'"]*\r?\n`,
-  // KeyInfo can contain public certificate material rather than a credential.
-  `(?i)<(?:[\w.-]+:)?X509Certificate[ \t]*>`
+  // Credential containers can hold public identifiers or public key material.
+  `(?i)(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:client[_.-]?id|guid|X509Certificate|Modulus|Exponent)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:client[_.-]?id|guid|X509Certificate|Modulus|Exponent)[ \t]*>)`
 ])
 || (
 // Provider checks use a fixed window around the match, clamped to its line.
@@ -5412,7 +5412,7 @@ matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
   "zsh.",
   "zsh_",
   "6fe4476ee5a1832882e326b506d14126"
-]) || matchesAny(genericMatchContext, [`(?i)(?:^[^<\[{]*(?:access(?:ibility|or)|rapid|capital|turkey|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|key[_.-]?(?:board|code|frame|mesh|press(?:ed)?|ring|stone|word|up|down|left|right))|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author(?:$|[^i]|i(?:$|[^sz]))|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|key[_.-]?(?:alias|id|length|name|pair|selector|signature|size|storetype)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`]))
+]) || matchesAny(genericMatchContext, [`(?i)(?:^[^<\[{]*(?:access(?:ibility|or)|rapid|capital|turkey|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|key[_.-]?(?:board|code|frame|mesh|press(?:ed)?|ring|stone|word|up|down|left|right))|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author(?:$|[^i]|i(?:$|[^sz]))|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|key[ \t_.-]*(?:alias|id|length|name|pair|selector|signature|size|storetype)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`]))
 || matchesAny(finding["line"], [
   `--mount=type=secret,`,
   `import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]`
@@ -5610,6 +5610,9 @@ keywords = [
     "authenticate (",
 ]
 filter = '''
+// Schema fields describe a password; they do not assign one.
+matchesAny(finding["match"], [`(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>)(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>)){0,2}[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern)[ \t]*>)`])
+|| (
 // Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
 // from the evidence patterns below.
@@ -5625,6 +5628,22 @@ let nearbyContext =
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
+
+// PHP signature maps assign parameter types after a function's return type.
+// The same literal in an ordinary credential assignment remains reportable.
+let isSignatureType = finding["secret"] == "string" && matchesAny(linePrefix, [
+  `['"][\w\\:]+['"][ \t]*=>[ \t]*\[[ \t]*['"](?:\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?(?:\|\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?)*)?['"][ \t]*,[^\]\r\n]*$`
+]);
+// Only suppress dictionary entries in translation paths, not assignments or
+// explicit credential containers that happen to live in those directories.
+let isTranslationEntry = matchesAny(attributes["path"], [
+  `(?i)(?:^|[\\/])(?:languages?|lang|locales?|i18n|translations?)[\\/].*\.php$`
+]) && matchesAny(finding["match"], [
+  `(?i)^(?:password|passwd|psw)['"][ \t]*=>`
+]) && matchesAny(linePrefix, [`^[ \t]*['"][\w .-]{0,64}$`])
+&& !matchesAny(nearbyContext, [
+  `(?i)\b(?:credentials?|auth[_.-]?config|connection[_.-]?config)\b[ \t'"]{0,3}(?:=>|=|:)[ \t\r\n]*(?:\[|\{|array[ \t]*\()`
+]);
 
 let hasAuthContext = matchesAny(nearbyContext, [
   // Authentication and connection calls.
@@ -5762,6 +5781,8 @@ matchesAny(finding["secret"], [
 // Do not let a CDATA capture backtrack across an earlier section's terminator.
 || (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
+|| isSignatureType
+|| isTranslationEntry
 || isCryptographicAlgorithm
 || isContextualAlgorithmName
 || isUnquotedCodeValue
@@ -5771,6 +5792,7 @@ matchesAny(finding["secret"], [
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`,
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^]\r\n]+\]|\([^,\r\n)]*\)?)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\]]*\\?(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`
 ])
+)
 '''
 components = [
     { id = "generic-username", optional = true, within = "7L,200C" },

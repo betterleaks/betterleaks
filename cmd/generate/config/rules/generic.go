@@ -18,6 +18,12 @@ const jsonRecordValue = jsonRecordSpace + `"?value"?` + jsonRecordSpace + `:` + 
 // sibling's comma or a closing container. This only finds the first value.
 const structuredValuePrefix = `(?:` + jsonRecordSpace + `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"[\w.-]{1,64}"` + jsonRecordSpace + `:|<[\w.:-]{1,64}>)){0,2}` + jsonRecordSpace
 
+// Match a named child field, including its opening container. Bare words in a
+// literal must not be mistaken for metadata.
+func structuredFieldPattern(names string) string {
+	return `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"(?:` + names + `)"` + jsonRecordSpace + `:|<(?:[\w.-]+:)?(?:` + names + `)[ \t]*>)`
+}
+
 func GenericCredential() *config.Rule {
 	const identifiers = `access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token`
 	const token = `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`
@@ -57,8 +63,8 @@ entropy(finding["secret"]) <= 3.5
 || matchesAny(finding["match"], [
   // Permit an indented operator on the next line, but do not bridge blank lines.
   ` + "`^[\\w.'\" \\t-]*\\r?\\n[ \\t'\"]*\\r?\\n`" + `,
-  // KeyInfo can contain public certificate material rather than a credential.
-  ` + "`(?i)<(?:[\\w.-]+:)?X509Certificate[ \\t]*>`" + `
+  // Credential containers can hold public identifiers or public key material.
+  ` + "`(?i)" + structuredFieldPattern(`client[_.-]?id|guid|X509Certificate|Modulus|Exponent`) + "`" + `
 ])
 || (
 // Provider checks use a fixed window around the match, clamped to its line.
