@@ -35,7 +35,7 @@ func GenericCredential() *config.Rule {
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
 		// Consume the closing tag so its name cannot start a match over the next element.
 		Regex: `(?i)` + identifier + operator +
-			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;]|</[\w.:-]{1,64}[ \t]*>|\]\]>|\\[nr]|$)`,
+			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;]|</[\w.:-]{1,64}[ \t\r\n]*>|\]\]>|\\[nr]|$)`,
 		Keywords: []string{
 			"access",
 			"api",

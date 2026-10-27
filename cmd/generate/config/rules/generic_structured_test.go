@@ -50,7 +50,10 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		{"array of maps", `{"API_KEYS":[{"site":"` + token + `"}]}`, "generic-api-key", token, 1},
 		{"prose before map", "{\"description\":\"Credential label is two ancestors above the value\",\n      \"API_KEYS\":{\"production\":{\"site\":\"" + token + "\"}}}", "generic-api-key", token, 1},
 		{"XML element", `<API_KEY>` + token + `</API_KEY>`, "generic-api-key", token, 1},
+		{"XML API key closing tag LF", "<API_KEY>" + token + "</API_KEY\n>", "generic-api-key", token, 1},
+		{"XML API key closing tag CRLF", "<cfg:API_KEY>" + token + "</cfg:API_KEY \r\n\t>", "generic-api-key", token, 1},
 		{"adjacent XML elements", `<API_KEY>` + token + `</API_KEY><API_KEY>` + token + `</API_KEY>`, "generic-api-key", token, 2},
+		{"adjacent XML elements with multiline closing tag", "<API_KEY>" + token + "</API_KEY\n><API_KEY>" + token + "</API_KEY>", "generic-api-key", token, 2},
 		{"XML two ancestors", "<API_KEYS>\n  <production>\n    <site>" + token + "</site></production></API_KEYS>", "generic-api-key", token, 1},
 		{"XML attribute record", `<add key="SERVICE_API_KEY" value="` + token + `"/>`, "generic-api-key", token, 1},
 		{"XML name record", `<add name="SERVICE_API_KEY" value="` + token + `"/>`, "generic-api-key", token, 1},
@@ -66,6 +69,8 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		{"XML password CDATA brackets", `<PASSWORD><![CDATA[p4ss]]]word!]]></PASSWORD>`, "generic-password", "p4ss]]]word!", 1},
 		{"XML password CDATA trailing brackets", `<PASSWORD><![CDATA[p4ss!]]]]]></PASSWORD>`, "generic-password", "p4ss!]]]", 1},
 		{"XML password closing whitespace", "<cfg:PASSWORD><![CDATA[hunter2]]>\n  </cfg:PASSWORD >", "generic-password", "hunter2", 1},
+		{"XML password closing tag LF", "<PASSWORD>hunter2</PASSWORD\n>", "generic-password", "hunter2", 1},
+		{"XML password CDATA closing tag CRLF", "<PASSWORD><![CDATA[p4ss<word!]]></PASSWORD \r\n\t>", "generic-password", "p4ss<word!", 1},
 		{"XML password spaces", `<PASSWORD>correct horse battery staple</PASSWORD>`, "generic-password", "correct horse battery staple", 1},
 		{"XML password after closing tag", `<old></old><cfg:DB_PASSWORD>hunter2</cfg:DB_PASSWORD>`, "generic-password", "hunter2", 1},
 		{"password containing regex syntax", `<password>w(.*)rd123!</password>`, "generic-password", "w(.*)rd123!", 1},
@@ -156,6 +161,36 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		})
 	}
 
+	t.Run("keyword fragments in child names", func(t *testing.T) {
+		for _, name := range []string{"capital", "turkey", "rapid", "monkey", "accessor", "keyboard"} {
+			t.Run(name, func(t *testing.T) {
+				// These words do not identify credentials on their own.
+				require.Empty(t, s.ScanString(name+`="`+token+`"`))
+				require.Empty(t, s.ScanString(`{"`+name+`":{"production":"`+token+`"}}`))
+				// An explicit credential parent supplies that context.
+				for _, input := range []string{
+					`{"API_KEYS":{"` + name + `":"` + token + `"}}`,
+					`{"API_KEYS":[{"production":{"` + name + `":"` + token + `"}}]}`,
+					`<API_KEYS><` + name + `>` + token + `</` + name + `></API_KEYS>`,
+				} {
+					findings := s.ScanString(input)
+					require.Len(t, findings, 1, input)
+					require.Equal(t, token, findings[0].Match.Value)
+				}
+			})
+		}
+	})
+
+	t.Run("child metadata remains excluded", func(t *testing.T) {
+		for _, name := range []string{"public_key", "access_id", "key_id", "api_version", "author"} {
+			require.Empty(t, s.ScanString(`{"API_KEYS":{"turkey":{"`+name+`":"`+token+`"}}}`), name)
+			require.Empty(t, s.ScanString(`<API_KEYS><turkey><`+name+`>`+token+`</`+name+`></turkey></API_KEYS>`), name)
+		}
+		// A record's label must still be checked even when it follows "key".
+		require.Empty(t, s.ScanString(`{"key":"turkey","value":"`+token+`"}`))
+		require.Empty(t, s.ScanString(`<add key="turkey" value="`+token+`"/>`))
+	})
+
 	t.Run("author metadata and authorization", func(t *testing.T) {
 		// Preserve author fields without excluding authorization-related names.
 		for _, field := range []string{"author", "AUTHOR", "author_id", "author_name", "author-email", "author.name", "authorId", "authorName", "authorEmail", "authorLogin", "authorityFileId", "AUTHORED_SHA"} {
@@ -169,10 +204,15 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 	})
 
 	t.Run("child token confidence", func(t *testing.T) {
-		findings := s.ScanString(`{"credentials":{"worker_token":"` + token + `"}}`)
-		require.Len(t, findings, 1)
-		require.Equal(t, token, findings[0].Match.Value)
-		require.Equal(t, "medium", findings[0].Confidence)
+		for _, input := range []string{
+			`{"credentials":{"worker_token":"` + token + `"}}`,
+			`{"credentials":{"turkey":{"worker_token":"` + token + `"}}}`,
+		} {
+			findings := s.ScanString(input)
+			require.Len(t, findings, 1)
+			require.Equal(t, token, findings[0].Match.Value)
+			require.Equal(t, "medium", findings[0].Confidence)
+		}
 	})
 
 	// A preceding credential word must neither consume nor suppress an
@@ -199,6 +239,18 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		require.Len(t, findings, 1)
 		require.Equal(t, token, findings[0].Match.Value)
 		require.Equal(t, []string{"base64"}, findings[0].Encodings)
+	})
+
+	t.Run("decoded child names", func(t *testing.T) {
+		s, err := scan.New(cfg, scan.WithRegexEngine(engine), scan.WithMaxDecodeDepth(1))
+		require.NoError(t, err)
+		input := `{"API_KEYS":{"turkey":"` + token + `"}}`
+		findings := s.ScanString(base64.StdEncoding.EncodeToString([]byte(input)))
+		require.Len(t, findings, 1)
+		require.Equal(t, token, findings[0].Match.Value)
+		require.Equal(t, []string{"base64"}, findings[0].Encodings)
+		input = `{"credentials":{"public_key":"` + token + `"}}`
+		require.Empty(t, s.ScanString(base64.StdEncoding.EncodeToString([]byte(input))))
 	})
 
 	t.Run("nested password in code", func(t *testing.T) {
