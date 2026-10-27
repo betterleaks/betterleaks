@@ -931,7 +931,6 @@ func TestGenericPasswordConfidenceAndContext(t *testing.T) {
 	assert.Empty(t, genericPasswordFindings(`password = getPassword()`))
 	assert.Empty(t, genericPasswordFindings(`password = "[REDACTED]"`))
 	assert.Empty(t, genericPasswordFindings("database.host = db.internal\ndatabase_pw = undefined"))
-	assert.Empty(t, genericPasswordFindings("credentials: {\nusername: alice\npassword: replace_me\n}", "config/database.yml"))
 
 	for name, tc := range map[string]struct {
 		path string
@@ -1097,6 +1096,10 @@ end`
 		"commented credential": {
 			path: "config/credentials.rb",
 			raw:  `# credentials = { username: "alice", password: "hunter2" }`,
+		},
+		"replace-me value": {
+			path: "config/database.yml",
+			raw:  "credentials: {\nusername: alice\npassword: replace_me\n}",
 		},
 		"symbolic password name": {
 			path: "config/database.yml",

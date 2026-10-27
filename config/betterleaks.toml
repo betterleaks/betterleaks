@@ -5744,7 +5744,6 @@ matchesAny(finding["secret"], [
   `^<[^>\s]+$`,
   `^\{[^}]+}$`,
   `(?i)^(?:your[_-]?password|placeholder|forbidden_value)$`,
-  `(?i)^replace[ _.-]+(?:with|me)(?:[ _.-]|$)`,
   `^\([A-Za-z_][A-Za-z0-9_.]*(?:[ \t]+[A-Za-z_][A-Za-z0-9_.]*)*\)$`,
   `^\$\(`,
   `(?:\$\{|#\{|\{\{|%\{)`,
