@@ -80,7 +80,16 @@ entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
 || (
 ` + structuredMatchContext + `
-matchesAny(credentialMatch, [
+// Remove XML attributes from complete opening tags in the name-filter context.
+// Preserve element names and literal text.
+let nameContext = containsAny(credentialMatch, ["<"])
+  ? join(map(split(credentialMatch, "<"), {
+      let tag = findMatch(#, ` + "`^[\\w.:-]+" + xmlOpeningTagEnd + "`" + `);
+      tag == "" ? # : replace(#, tag, findMatch(tag, ` + "`^[\\w.:-]+`" + `) + ">", 1)
+    }), "<")
+  : credentialMatch;
+
+matchesAny(nameContext, [
   // Permit an indented operator on the next line, but do not bridge blank lines.
   ` + "`^[\\w.'\" \\t-]*\\r?\\n[ \\t'\"]*\\r?\\n`" + `,
   // Credential containers can hold public identifiers or public key material.
@@ -109,10 +118,10 @@ let genericMatchPrefix = findMatch(
   ` + "`[\\w.-]{0,50}$`" + `
 );
 
-// Keep credential-path names and confidence hints, excluding skipped siblings.
+// Keep credential-path names and confidence hints, excluding skipped metadata.
 let genericMatchContext =
   genericMatchPrefix +
-  credentialMatch;
+  nameContext;
 
 let level = matchesAny(genericMatchContext, [
   ` + "`(?i)\\b[a-z0-9]+[_.-]+token\\b`" + `

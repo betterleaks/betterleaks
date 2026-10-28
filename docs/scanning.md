@@ -206,6 +206,7 @@ Identifiers stay on one line, so a credential word in a comment
 cannot absorb the next assignment. Existing value filters still apply. For API
 keys, child names such as `turkey` do not invalidate the credential label, but
 metadata fields such as `public_key` and `access_id` remain excluded.
+For XML element matches, attributes do not participate in these name checks.
 
 Inside a credential object, an explicit `"value"` field may follow up to five
 scalar siblings (strings, numbers, booleans, or null). Each skipped field must

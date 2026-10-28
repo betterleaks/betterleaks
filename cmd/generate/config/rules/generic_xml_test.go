@@ -34,6 +34,12 @@ func testGenericXMLRecords(t *testing.T, engine regexp.Engine) {
 		{"XML opening tag LF", "<API_KEY\n>" + token + `</API_KEY>`, "generic-api-key", token, 1},
 		{"XML opening tag CRLF", "<API_KEY \r\n\t>" + token + `</API_KEY>`, "generic-api-key", token, 1},
 		{"XML child attribute", `<API_KEYS><production region="test">` + token + `</production></API_KEYS>`, "generic-api-key", token, 1},
+		{"XML parent author attribute", `<API_KEYS author="ops"><token>` + token + `</token></API_KEYS>`, "generic-api-key", token, 1},
+		{"XML child author attribute", `<API_KEYS><production author='ops'>` + token + `</production></API_KEYS>`, "generic-api-key", token, 1},
+		{"XML attribute value is not a credential name", `<API_KEY description="public_key author">` + token + `</API_KEY>`, "generic-api-key", token, 1},
+		{"XML JSON metadata in attribute", `<API_KEY metadata='{"client_id":"public"}'>` + token + `</API_KEY>`, "generic-api-key", token, 1},
+		{"XML attributes at every level", "<API_KEYS\n author='ops'><production public_key='metadata'><site description=\"author > public_key\">" + token + `</site></production></API_KEYS>`, "generic-api-key", token, 1},
+		{"XML attributes before JSON child", `<API_KEYS author="ops">{"production":"` + token + `"}</API_KEYS>`, "generic-api-key", token, 1},
 		{"XML quoted greater-than", `<API_KEY note="a > b">` + token + `</API_KEY>`, "generic-api-key", token, 1},
 		{"XML five attributes on separate lines", "<API_KEY\n a=\"1\"\n b='2'\n c=\"3\"\n d='4'\n e=\"5\"\n>" + token + `</API_KEY>`, "generic-api-key", token, 1},
 		{"XML after credential closing tag", "<auth></auth>\n<token>" + token + `</token>`, "generic-api-key", token, 1},
@@ -103,6 +109,11 @@ func testGenericXMLRecords(t *testing.T, engine regexp.Engine) {
 		{"XML unrelated attribute", "<API_KEYS\n  fingerprint=\"" + token + "\"/>", "", "", 0},
 		{"XML three ancestors", `<API_KEYS><one><two><three>` + token + `</three></two></one></API_KEYS>`, "", "", 0},
 		{"XML public key child", `<credentials><public_key>` + token + `</public_key></credentials>`, "", "", 0},
+		{"XML public parent with attributes", `<public_key author="ops"><production>` + token + `</production></public_key>`, "", "", 0},
+		{"XML public child with attributes", `<API_KEYS author="ops"><public_key format="text">` + token + `</public_key></API_KEYS>`, "", "", 0},
+		{"XML author child with attributes", `<API_KEYS author="ops"><author name="alice">` + token + `</author></API_KEYS>`, "", "", 0},
+		{"XML attributes before public JSON child", `<API_KEYS author="ops">{"public_key":"` + token + `"}</API_KEYS>`, "", "", 0},
+		{"XML public attribute record", `<add key="PUBLIC_KEY" value="` + token + `"/>`, "", "", 0},
 		{"XML replace-with value", `<password>REPLACE_WITH_TOKEN</password>`, "generic-password", "REPLACE_WITH_TOKEN", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,6 +126,17 @@ func testGenericXMLRecords(t *testing.T, engine regexp.Engine) {
 			}
 		})
 	}
+
+	t.Run("attribute text does not change confidence or output", func(t *testing.T) {
+		match := `<API_KEYS author="ops" note="SERVICE_TOKEN"><token>` + token + `</token>`
+		input := match + `</API_KEYS>`
+		findings := s.ScanString(input)
+		require.Len(t, findings, 1)
+		require.Equal(t, match, findings[0].Match.Full)
+		require.Equal(t, token, findings[0].Match.Value)
+		require.Equal(t, input, findings[0].Match.Line)
+		require.EqualValues(t, "low", findings[0].Confidence)
+	})
 
 	t.Run("keyword fragments in child names", func(t *testing.T) {
 		for _, name := range []string{"capital", "turkey", "rapid", "monkey", "accessor", "keyboard"} {
