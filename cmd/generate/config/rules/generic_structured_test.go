@@ -45,6 +45,28 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		{"indented operator on next line", "SERVICE_KEY\r\n            = \"" + token + "\"", "generic-api-key", token, 1},
 		{"indented map", "{\"API_KEYS\": {\n        \"news24\": \"" + token + "\"}}", "generic-api-key", token, 1},
 		{"two ancestors", `{"API_KEYS":{"production":{"site":"` + token + `"}}}`, "generic-api-key", token, 1},
+		{"value after scalar siblings", "{\n  \"credential\": {\n    \"score\": 42,\n    \"category\": \"fixture\",\n    \"value\": \"" + token + "\"\n  }\n}", "generic-api-key", token, 1},
+		{"value after five siblings", `{"credential":{"score":42,"category":"fixture","enabled":true,"expires":null,"ratio":-1.25e-3,"value":"` + token + `"}}`, "generic-api-key", token, 1},
+		{"five siblings with CRLF", "{\"credential\": {\r\n  \"score\": 42,\r\n  \"category\": \"fixture\",\r\n  \"enabled\": true,\r\n  \"expires\": null,\r\n  \"ratio\": -1.25e-3,\r\n  \"value\": \"" + token + "\"\r\n}}", "generic-api-key", token, 1},
+		{"explicit value takes precedence over metadata", `{"credential":{"checksum":"a8F3kW6pR1zN9qD4vT7mB2xH5sJ0cYLu","value":"` + token + `"}}`, "generic-api-key", token, 1},
+		{"value after long metadata string", `{"credential":{"category":"security incident classification","value":"` + token + `"}}`, "generic-api-key", token, 1},
+		{"metadata quotes and punctuation", `{"credential":{"description":"a comma, a brace } and an escaped quote \"","value":"` + token + `"}}`, "generic-api-key", token, 1},
+		{"metadata cannot skip unterminated string", `{"credential":{"category":"fixture,"value":"` + token + `"}}`, "", "", 0},
+		{"metadata identifier is not the secret", `{"credential":{"client_id":"public","key_id":42,"value":"` + token + `"}}`, "generic-api-key", token, 1},
+		{"value after nested siblings", `{"credentials":{"production":{"score":42,"category":"fixture","value":"` + token + `"}}}`, "generic-api-key", token, 1},
+		{"value in array record", `{"credentials":[{"score":42,"value":"` + token + `"}]}`, "generic-api-key", token, 1},
+		{"password value after metadata", `{"password":{"type":"string","score":42,"value":"hunter2"}}`, "generic-password", "hunter2", 1},
+		{"password value after five siblings", `{"password":{"score":42,"category":"fixture","enabled":false,"expires":null,"ratio":1e3,"value":"hunter2"}}`, "generic-password", "hunter2", 1},
+		{"value after six siblings unsupported", `{"credential":{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"value":"` + token + `"}}`, "", "", 0},
+		{"metadata cannot cross object", `{"credential":{"score":42},"value":"` + token + `"}`, "", "", 0},
+		{"metadata cannot cross array entry", `[{"credential":{"score":42}},{"value":"` + token + `"}]`, "", "", 0},
+		{"metadata object unsupported", `{"credential":{"details":{"score":42},"value":"` + token + `"}}`, "", "", 0},
+		{"metadata array unsupported", `{"credential":{"scores":[42],"value":"` + token + `"}}`, "", "", 0},
+		{"metadata requires value field", `{"credential":{"score":42,"category":"fixture","other":"` + token + `"}}`, "", "", 0},
+		{"metadata requires credential parent", `{"deployment":{"score":42,"category":"fixture","value":"` + token + `"}}`, "", "", 0},
+		{"metadata preserves public parent exclusion", `{"public_key":{"score":42,"value":"` + token + `"}}`, "", "", 0},
+		{"metadata preserves public child exclusion", `{"credential":{"public_key":{"score":42,"value":"` + token + `"}}}`, "", "", 0},
+		{"metadata preserves value filters", `{"credential":{"score":42,"value":"someplaceholder"}}`, "", "", 0},
 		{"authorizer child is not author metadata", `{"API_KEYS":{"authorizer":"` + token + `"}}`, "generic-api-key", token, 1},
 		{"first sibling only", `{"API_KEYS":{"first":"` + token + `","second":"a8F3kW6pR1zN9qD4vT7mB2xH5sJ0cYLu"}}`, "generic-api-key", token, 1},
 		{"array of maps", `{"API_KEYS":[{"site":"` + token + `"}]}`, "generic-api-key", token, 1},
@@ -78,6 +100,7 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		{"unquoted password punctuation", `password=hunt]er<2`, "generic-password", "hunt]er<2", 1},
 		{"direct secret before value field", `{"key":"` + token + `KEY","value":"unrelated"}`, "generic-api-key", token + "KEY", 1},
 		{"ordinary password", `password="hunter2"`, "generic-password", "hunter2", 1},
+		{"metadata syntax inside password stays literal", `password='prefix{"score":42,"value":"hunter2"}suffix'`, "generic-password", `prefix{"score":42,"value":"hunter2"}suffix`, 1},
 		{"CDATA terminator in ordinary password", `password="p4ss]]>word!"`, "generic-password", "p4ss]]>word!", 1},
 		{"replacement is not an instruction", `password="replacement123!"`, "generic-password", "replacement123!", 1},
 		{"replace-me prefix is not a word", `password="replace_meadow123!"`, "generic-password", "replace_meadow123!", 1},
@@ -236,6 +259,11 @@ func testGenericJSONRecords(t *testing.T, engine regexp.Engine) {
 		require.NoError(t, err)
 		input := `{"name":"SERVICE_API_KEY","value":"` + token + `"}`
 		findings := s.ScanString(base64.StdEncoding.EncodeToString([]byte(input)))
+		require.Len(t, findings, 1)
+		require.Equal(t, token, findings[0].Match.Value)
+		require.Equal(t, []string{"base64"}, findings[0].Encodings)
+		input = `{"credential":{"score":42,"category":"fixture","value":"` + token + `"}}`
+		findings = s.ScanString(base64.StdEncoding.EncodeToString([]byte(input)))
 		require.Len(t, findings, 1)
 		require.Equal(t, token, findings[0].Match.Value)
 		require.Equal(t, []string{"base64"}, findings[0].Encodings)

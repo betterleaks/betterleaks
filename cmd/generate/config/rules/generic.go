@@ -14,9 +14,24 @@ import (
 const jsonRecordSpace = `[ \t]*(?:\r?\n[ \t]*)?`
 const jsonRecordValue = jsonRecordSpace + `"?value"?` + jsonRecordSpace + `:` + jsonRecordSpace
 
-// Allow up to two opening containers before a literal, without crossing a
-// sibling's comma or a closing container. This only finds the first value.
-const structuredValuePrefix = `(?:` + jsonRecordSpace + `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"[\w.-]{1,64}"` + jsonRecordSpace + `:|<[\w.:-]{1,64}>)){0,2}` + jsonRecordSpace
+// Only flat, single-line scalar fields may precede an explicit "value" field.
+// Quoted strings consume their own escapes, commas, and braces.
+const jsonScalar = `(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)`
+const jsonValueSiblings = `(?:"[\w.-]+"[ \t]*:[ \t]*` + jsonScalar + `[ \t]*,` + jsonRecordSpace + `){1,5}?`
+const jsonValueObject = `\{` + jsonRecordSpace + jsonValueSiblings + `"value"` + jsonRecordSpace + `:`
+
+// Follow up to two opening containers. Prefer an explicit "value" after up to
+// five scalar siblings; otherwise retain the first-child behavior.
+const structuredContainer = jsonRecordSpace + `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"[\w.-]{1,64}"` + jsonRecordSpace + `:|<[\w.:-]{1,64}>)`
+const structuredValuePrefix = `(?:(?:` + structuredContainer + `)?` + jsonRecordSpace + `(?:\[` + jsonRecordSpace + `)?` + jsonValueObject + `|(?:` + structuredContainer + `){0,2})` + jsonRecordSpace
+
+// Sibling metadata does not describe the secret. Keep parent and child names
+// in filter context, but remove fields skipped on the way to "value".
+const structuredMatchContext = `let siblingMetadata = containsAny(finding["match"], ["{"])
+  ? findMatch(finding["match"], ` + "`(?i)" + jsonValueObject + "`" + `) : "";
+let credentialMatch = siblingMetadata == "" ? finding["match"]
+  : replace(finding["match"], siblingMetadata, "{\"value\":", 1);
+`
 
 // Match a named child field, including its opening container. Bare words in a
 // literal must not be mistaken for metadata.
@@ -56,11 +71,13 @@ func GenericCredential() *config.Rule {
 		FilterExpr: `// Reject implausible values before preparing context and confidence.
 entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
+|| (
+` + structuredMatchContext + `
 // Closing XML tags must not lend their name to the next element's value.
-|| matchesAny(finding["fragment_raw"][max(finding["match_start_idx"] - 128, 0):finding["match_start_idx"]], [
+matchesAny(finding["fragment_raw"][max(finding["match_start_idx"] - 128, 0):finding["match_start_idx"]], [
   ` + "`</[\\w.:-]*$`" + `
 ])
-|| matchesAny(finding["match"], [
+|| matchesAny(credentialMatch, [
   // Permit an indented operator on the next line, but do not bridge blank lines.
   ` + "`^[\\w.'\" \\t-]*\\r?\\n[ \\t'\"]*\\r?\\n`" + `,
   // Credential containers can hold public identifiers or public key material.
@@ -89,10 +106,10 @@ let genericMatchPrefix = findMatch(
   ` + "`[\\w.-]{0,50}$`" + `
 );
 
-// Keep the full match so child metadata and confidence hints remain available.
+// Keep credential-path names and confidence hints, excluding skipped siblings.
 let genericMatchContext =
   genericMatchPrefix +
-  finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+  credentialMatch;
 
 let level = matchesAny(genericMatchContext, [
   ` + "`(?i)\\b[a-z0-9]+[_.-]+token\\b`" + `
@@ -101,6 +118,7 @@ let _ = setConfidence(level);
 
 // big ol expression to filter out FPs
 ` + genericAPIKeyFilter + `
+)
 )`,
 	}
 

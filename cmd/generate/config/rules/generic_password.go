@@ -41,12 +41,12 @@ func GenericPassword() *config.Rule {
 				Within:   "7L,200C",
 			},
 		},
-		FilterExpr: `// Schema fields describe a password; they do not assign one.
-matchesAny(finding["match"], [` + "`" + metadataAssignment + "`" + `])
+		FilterExpr: structuredMatchContext + `// Schema fields describe a password; they do not assign one.
+matchesAny(credentialMatch, [` + "`" + metadataAssignment + "`" + `])
 // Timing fields require duration values; ordinary password literals still count.
 || (containsAny(finding["match"], ["{", "<"])
   && matchesAny(finding["secret"], [` + "`^(?:[0-9]+(?:\\.[0-9]+)?(?:ns|us|µs|μs|ms|s|m|h))+$`" + `])
-  && matchesAny(finding["match"], [` + "`" + timingAssignment + "`" + `]))
+  && matchesAny(credentialMatch, [` + "`" + timingAssignment + "`" + `]))
 || (
 // Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded

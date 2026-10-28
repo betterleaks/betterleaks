@@ -203,11 +203,16 @@ cannot absorb the next assignment. Existing value filters still apply. For API
 keys, child names such as `turkey` do not invalidate the credential label, but
 metadata fields such as `public_key` and `access_id` remain excluded.
 
+Inside a credential object, an explicit `"value"` field may follow up to five
+scalar siblings (strings, numbers, booleans, or null). Each skipped field must
+fit on one line; nested objects and arrays are not skipped. Sibling metadata
+does not participate in credential-name filtering.
+
 These are text patterns, so the enclosing document need not be complete. They
-usually find only the first value under a shared parent label. Reversed fields,
-intervening metadata, and later siblings are not reliably detected. An element
+otherwise find only the first value under a shared parent label. Reversed fields
+and other later siblings are not reliably detected. An element
 name does not supply context for an attribute on another line. Padding does not
-skip closing containers or arbitrary comma-separated fields.
+skip closing containers.
 
 ## Finding output
 
