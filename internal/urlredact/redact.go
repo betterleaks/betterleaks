@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Public removes credentials and non-path components from a URL attribute.
@@ -29,12 +30,14 @@ func PublicString(raw string) string {
 	return Public(u)
 }
 
-var urls = regexp.MustCompile(`(?i)\b(?:https?|s3|hf)://[^\s<>]+`)
+var urlsOnce = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\b(?:https?|s3|hf)://[^\s<>]+`)
+})
 
 // Redact removes userinfo, queries, and fragments from URLs in diagnostic text.
 // It also handles malformed URLs in parser errors and subprocess output.
 func Redact(text string) string {
-	return urls.ReplaceAllStringFunc(text, func(raw string) string {
+	return urlsOnce().ReplaceAllStringFunc(text, func(raw string) string {
 		// Quotes and punctuation often surround URLs in subprocess errors.
 		trimmed := strings.TrimRight(raw, "\"'),.;:")
 		suffix := raw[len(trimmed):]

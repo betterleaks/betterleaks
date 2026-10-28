@@ -4,11 +4,14 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 )
 
-var sshRemote = regexp.MustCompile(`^(?:[^/@:\s]+@)?([a-zA-Z0-9.-]+):(?:\d{1,5}/)?([\w/.-]+?)(?:\.git)?$`)
+var sshRemoteOnce = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:[^/@:\s]+@)?([a-zA-Z0-9.-]+):(?:\d{1,5}/)?([\w/.-]+?)(?:\.git)?$`)
+})
 
 // ResolveRemoteURL converts a Git fetch URL to a public web URL and infers its
 // platform unless explicitly selected. It performs no I/O. Local paths and
@@ -20,7 +23,7 @@ func ResolveRemoteURL(platform Platform, remote string) (Platform, string) {
 	}
 	remote = strings.TrimSpace(remote)
 	if !strings.Contains(remote, "://") {
-		if m := sshRemote.FindStringSubmatch(remote); m != nil && len(m[1]) > 1 {
+		if m := sshRemoteOnce().FindStringSubmatch(remote); m != nil && len(m[1]) > 1 {
 			remote = "https://" + m[1] + "/" + m[2]
 		}
 	}
