@@ -41,6 +41,8 @@ func TestStructuredRuleWindowsPreserveFindings(t *testing.T) {
 			clear(original.anchorRuleIndexes)
 			for _, input := range []string{
 				"{\"credential\": {\n\"score\":42,\n\"category\":\"fixture\",\n\"enabled\":true,\n\"expires\":null,\n\"ratio\":-1.25e-3,\n\"value\":\"" + token + "\"}}",
+				"<auth></auth>\n<cfg:API_KEYS>\n<production>\n<site>" + token + "</site\n></production></cfg:API_KEYS>",
+				"<PASSWORD><![CDATA[p4ss<word!]]></PASSWORD \r\n\t>",
 				// The generic parent match must still yield to the provider rule.
 				"{\"tokens\": {\n  \"github\": \"ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5\"\n}}",
 			} {

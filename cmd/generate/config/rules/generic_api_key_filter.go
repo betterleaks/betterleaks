@@ -10,9 +10,9 @@ import (
 const genericAuthorMatchFilter = `author(?:$|[^i]|i(?:$|[^sz]))`
 
 // Words such as "turkey" only disqualify a credential label, not its children.
-// Stop before the first JSON child container; keep metadata checks below
+// Stop before the first JSON/XML child container; keep metadata checks below
 // on the full match so fields such as public_key and access_id stay excluded.
-const genericAPIKeyIdentifierFilter = `^[^\[{]*(?:access(?:ibility|or)|rapid|capital|turkey|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|key[_.-]?(?:board|code|frame|mesh|press(?:ed)?|ring|stone|word|up|down|left|right))`
+const genericAPIKeyIdentifierFilter = `^<?[^<\[{]*(?:access(?:ibility|or)|rapid|capital|turkey|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|key[_.-]?(?:board|code|frame|mesh|press(?:ed)?|ring|stone|word|up|down|left|right))`
 
 const genericAPIKeyMatchFilter = `(?i)(?:` + genericAPIKeyIdentifierFilter + `|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|[a-z0-9-]*?api[a-z0-9-]*?:jar:|` + genericAuthorMatchFilter + `|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|key[ \t_.-]*(?:alias|id|length|name|pair|selector|signature|size|storetype)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`
 
