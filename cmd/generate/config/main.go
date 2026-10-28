@@ -427,6 +427,7 @@ func main() {
 		rules.RootlyAPIKey(),
 		rules.RubyGemsAPIToken(),
 		rules.RunPodAPIKey(),
+		rules.RunwayMLAPIKey(),
 		rules.SalesforceInstanceURL(),
 		rules.SalesforceAccessToken(),
 		rules.SamsaraAPIToken(),
