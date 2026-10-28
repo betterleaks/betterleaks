@@ -21,9 +21,6 @@ func GenericPassword() *config.Rule {
 	metadataAssignment := metadataPrefix + metadataField
 	timingAssignment := metadataPrefix + structuredFieldPattern(`elapsed|duration|average`)
 	const phpType = `\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?`
-	const phpString = `(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')`
-	// Stay within a refs map, up to a qualified Type$member documentation entry.
-	const schemaRefsPrefix = `(?s)['"]refs['"]\s*=>\s*\[\s*(?:` + phpString + `\s*=>\s*(?:` + phpString + `|(?i:null))\s*,\s*)*['"][\w.:-]+\$[\w.:-]*$`
 
 	r := config.Rule{
 		ID:          "generic-password",
@@ -66,14 +63,6 @@ let nearbyContext =
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
-
-// Generated schema refs contain HTML descriptions of members, not assignments.
-let isSchemaDocumentation = startsWithAny(finding["secret"], ["<p>"])
-  && finding["secret"] endsWith "</p>"
-  && containsAny(finding["secret"], [" ", "\t"])
-  && matchesAny(raw[max(finding["match_start_idx"] - 8192, 0):finding["match_start_idx"]], [
-    ` + "`" + schemaRefsPrefix + "`" + `
-  ]);
 
 // PHP signature maps assign parameter types after a function's return type.
 // The same literal in an ordinary credential assignment remains reportable.
@@ -227,7 +216,6 @@ matchesAny(finding["secret"], [
 // Do not let a CDATA capture backtrack across an earlier section's terminator.
 || (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
-|| isSchemaDocumentation
 || isSignatureType
 || isTranslationEntry
 || isCryptographicAlgorithm

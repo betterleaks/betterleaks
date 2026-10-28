@@ -5639,14 +5639,6 @@ let nearbyContext =
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
 
-// Generated schema refs contain HTML descriptions of members, not assignments.
-let isSchemaDocumentation = startsWithAny(finding["secret"], ["<p>"])
-  && finding["secret"] endsWith "</p>"
-  && containsAny(finding["secret"], [" ", "\t"])
-  && matchesAny(raw[max(finding["match_start_idx"] - 8192, 0):finding["match_start_idx"]], [
-    `(?s)['"]refs['"]\s*=>\s*\[\s*(?:(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*=>\s*(?:(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?i:null))\s*,\s*)*['"][\w.:-]+\$[\w.:-]*$`
-  ]);
-
 // PHP signature maps assign parameter types after a function's return type.
 // The same literal in an ordinary credential assignment remains reportable.
 let isSignatureType = finding["secret"] == "string" && matchesAny(linePrefix, [
@@ -5799,7 +5791,6 @@ matchesAny(finding["secret"], [
 // Do not let a CDATA capture backtrack across an earlier section's terminator.
 || (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
-|| isSchemaDocumentation
 || isSignatureType
 || isTranslationEntry
 || isCryptographicAlgorithm
