@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/base"
@@ -14,6 +15,10 @@ import (
 
 func TestGenericMetadata(t *testing.T) {
 	const token = "Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"
+	// The container opening is outside the six-line confidence window. Its
+	// distance and directory must not determine whether the password is reported.
+	largeCredentialMap := "$credentials = [\n" + strings.Repeat("  // configuration option\n", 8) +
+		"  'host' => 'db.example.test',\n  'username' => 'alice',\n  'password' => 'hunter2',\n];"
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		t.Run(engine.Version(), func(t *testing.T) {
 			cfg := base.CreateGlobalConfig()
@@ -63,17 +68,23 @@ func TestGenericMetadata(t *testing.T) {
 				{"ordinary PHP literal", "settings.php", `$password = 'string';`, 1},
 				{"PHP credential map", "settings.php", `'database' => ['mysql', 'password'=>'string'],`, 1},
 				{"PHP password argument default", "settings.php", `function connect($password = 'string') {}`, 1},
-				{"translation", "app/languages/en/messages.php", "  'Password' => 'Enter your password',", 0},
-				{"translation phrase", "app/languages/en/messages.php", "  'Reset Password' => 'Reset your password',", 0},
-				{"translation service label", "app/lang/en.php", "  'SMTP Password' => 'Mail server password',", 0},
-				{"Windows translation path", `app\languages\en\messages.php`, "  'Password' => 'Enter your password',", 0},
+				{"translation remains reportable", "app/languages/en/messages.php", "  'Password' => 'Enter your password',", 1},
+				{"translation phrase remains reportable", "app/languages/en/messages.php", "  'Reset Password' => 'Reset your password',", 1},
+				{"translation service label remains reportable", "app/lang/en.php", "  'SMTP Password' => 'Mail server password',", 1},
+				{"Windows translation path remains reportable", `app\languages\en\messages.php`, "  'Password' => 'Enter your password',", 1},
 				{"translation without path", "", "  'Password' => 'Enter your password',", 1},
 				{"ordinary PHP map", "app/settings.php", "  'Password' => 'Enter your password',", 1},
 				{"assignment in translation path", "app/lang/en.php", `$password = 'hunter2';`, 1},
 				{"inline credentials in translation path", "app/lang/en.php", `$credentials = ['password' => 'hunter2'];`, 1},
 				{"multiline credentials in translation path", "app/lang/en.php", "$credentials = [\n  'password' => 'hunter2',\n];", 1},
 				{"credential label in translation path", "app/lang/en.php", "$credentials = [\n  'SMTP Password' => 'hunter2',\n];", 1},
-				{"credentials translation is still text", "app/lang/en.php", "'credentials' => 'Credentials',\n'Password' => 'Enter your password',", 0},
+				{"credentials translation remains reportable", "app/lang/en.php", "'credentials' => 'Credentials',\n'Password' => 'Enter your password',", 1},
+				{"standalone password in translation path", "app/lang/en.php", "'password' => 'hunter2',", 1},
+				{"token password in translation path", "app/locales/en.php", "'password' => '" + token + "',", 1},
+				{"passphrase in translation path", "app/lang/en.php", "'password' => 'correct horse battery staple',", 1},
+				{"large map in lang path", "app/lang/en.php", largeCredentialMap, 1},
+				{"large map in locales path", "app/locales/en.php", largeCredentialMap, 1},
+				{"large map in ordinary path", "app/config.php", largeCredentialMap, 1},
 				{"replace-me credential", "settings.yml", "credentials: {\nusername: alice\npassword: replace_me\n}", 1},
 			} {
 				t.Run(tc.name, func(t *testing.T) {

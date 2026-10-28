@@ -66,16 +66,6 @@ let linePrefix = beforeLines[len(beforeLines) - 1];
 let isSignatureType = finding["secret"] == "string" && matchesAny(linePrefix, [
   ` + "`" + `['"][\w\\:]+['"][ \t]*=>[ \t]*\[[ \t]*['"](?:` + phpType + `(?:\|` + phpType + `)*)?['"][ \t]*,[^\]\r\n]*$` + "`" + `
 ]);
-// Only suppress dictionary entries in translation paths, not assignments or
-// explicit credential containers that happen to live in those directories.
-let isTranslationEntry = matchesAny(attributes["path"], [
-  ` + "`" + `(?i)(?:^|[\\/])(?:languages?|lang|locales?|i18n|translations?)[\\/].*\.php$` + "`" + `
-]) && matchesAny(finding["match"], [
-  ` + "`(?i)^(?:password|passwd|psw)['\"][ \\t]*=>`" + `
-]) && matchesAny(linePrefix, [` + "`^[ \\t]*['\"][\\w .-]{0,64}$`" + `])
-&& !matchesAny(nearbyContext, [
-  ` + "`(?i)\\b(?:credentials?|auth[_.-]?config|connection[_.-]?config)\\b[ \\t'\"]{0,3}(?:=>|=|:)[ \\t\\r\\n]*(?:\\[|\\{|array[ \\t]*\\()`" + `
-]);
 
 let hasAuthContext = matchesAny(nearbyContext, [
   // Authentication and connection calls.
@@ -210,7 +200,6 @@ matchesAny(finding["secret"], [
 ])
 || isEncryptedValue
 || isSignatureType
-|| isTranslationEntry
 || isCryptographicAlgorithm
 || isContextualAlgorithmName
 || isUnquotedCodeValue
