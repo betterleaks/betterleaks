@@ -53,7 +53,7 @@ func TestDefaultAssignmentGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The generic rule now has XML alternatives and uses a search window.
+	// The generic rule now permits unbounded indentation and uses a search window.
 	// Keep a rule with a literal assignment prefix as the guard baseline.
 	baseline := false
 	for _, rule := range cfg.Rules {

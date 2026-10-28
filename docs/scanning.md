@@ -189,18 +189,16 @@ credential environment variables.
 
 ---
 
-## Structured credential patterns
+## JSON credential patterns
 
 The generic rules recognize adjacent fields such as
 `{"name": "SERVICE_API_KEY", "value": "..."}` and
 `{"name": "DB_PASSWORD", "value": "..."}`. The label may also use `key`;
 bare property names work too. At most one line break may separate the fields.
-The rules also allow up to two opening JSON containers (with quoted child keys)
-or XML elements between a credential label and a literal. The API-key rule
-recognizes XML attribute records and CDATA. XML password text needs opening and
-closing tags, with at most one line break before a closing tag's `>`.
-Identifiers stay on one line, so a credential word in a comment
-cannot absorb the next assignment. Existing value filters still apply. For API
+The rules also allow up to two opening JSON containers with quoted child keys
+between a credential label and a literal. Identifiers stay on one line, so a
+credential word in a comment cannot absorb the next assignment. Existing value
+filters still apply. For API
 keys, child names such as `turkey` do not invalidate the credential label, but
 metadata fields such as `public_key` and `access_id` remain excluded.
 
@@ -211,9 +209,8 @@ does not participate in credential-name filtering.
 
 These are text patterns, so the enclosing document need not be complete. They
 otherwise find only the first value under a shared parent label. Reversed fields
-and other later siblings are not reliably detected. An element
-name does not supply context for an attribute on another line. Padding does not
-skip closing containers.
+and other later siblings are not reliably detected. Padding does not skip
+closing containers.
 
 ## Finding output
 

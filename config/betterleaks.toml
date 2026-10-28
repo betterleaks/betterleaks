@@ -3909,7 +3909,7 @@ containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.g
 [[rules]]
 id = "generic-api-key"
 description = "Detected a Generic API Key, potentially exposing access to various services and sensitive operations."
-regex = '''(?i)(?:(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[ \t'"\w.-]{0,20}[ \t'"]{0,20}[ \t]*(?:\r?\n[ \t]*)?(?:(?:=>|:{1,3}=|\|\||\?=|[=:])(?:[ \t]*(?:\r?\n[ \t]*)?"(?:[a-z0-9]{0,16}[_.-]){0,4}(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[a-z0-9_.-]{0,20}"[ \t]*(?:\r?\n[ \t]*)?(?:,[ \t]*(?:\r?\n[ \t]*)?"?value"?[ \t]*(?:\r?\n[ \t]*)?:[ \t]*(?:\r?\n[ \t]*)?|value[ \t]*=|>))?|,(?:[ \t]*(?:\r?\n[ \t]*)?"?value"?[ \t]*(?:\r?\n[ \t]*)?:[ \t]*(?:\r?\n[ \t]*)?)?|['"][ \t]*(?:\r?\n[ \t]*)?(?:value[ \t]*=|>))|<[\w.:-]{0,64}(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[\w.:-]{0,20}[ \t]*>)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:<!\[CDATA\[)?[\x60'"\s=]{0,5}([\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\?['"\x60]|[\s;]|</[\w.:-]{1,64}[ \t]*(?:\r?\n[ \t]*)?>|\]\]>|\\[nr]|$)'''
+regex = '''(?i)(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[ \t'"\w.-]{0,20}[ \t'"]{0,20}[ \t]*(?:\r?\n[ \t]*)?(?:(?:=>|:{1,3}=|\|\||\?=|[=:])(?:[ \t]*(?:\r?\n[ \t]*)?"(?:[a-z0-9]{0,16}[_.-]){0,4}(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[a-z0-9_.-]{0,20}"[ \t]*(?:\r?\n[ \t]*)?,[ \t]*(?:\r?\n[ \t]*)?"?value"?[ \t]*(?:\r?\n[ \t]*)?:[ \t]*(?:\r?\n[ \t]*)?)?|>|,(?:[ \t]*(?:\r?\n[ \t]*)?"?value"?[ \t]*(?:\r?\n[ \t]*)?:[ \t]*(?:\r?\n[ \t]*)?)?)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:)?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:){0,2})[ \t]*(?:\r?\n[ \t]*)?[\x60'"\s=]{0,5}([\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 specificity = -100
 confidence = "low"
 keywords = [
@@ -3935,15 +3935,9 @@ let credentialMatch = siblingMetadata == "" ? finding["match"]
 matchesAny(credentialMatch, [
   // Permit an indented operator on the next line, but do not bridge blank lines.
   `^[\w.'" \t-]*\r?\n[ \t'"]*\r?\n`,
-  // Credential containers can hold public identifiers or public key material.
-  `(?i)(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:client[_.-]?id|guid|X509Certificate|Modulus|Exponent)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:client[_.-]?id|guid|X509Certificate|Modulus|Exponent)[ \t]*>)`
+  // Credential containers can hold public identifiers.
+  `(?i)(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:client[_.-]?id|guid)"[ \t]*(?:\r?\n[ \t]*)?:`
 ])
-// Tie public-key version examples to the prose immediately before this match.
-|| (containsAny(finding["match"], ["<"])
-  && matchesAny(finding["match"], [`(?i)^key(?: result)?\.[ \t]+For example:[ \t]*<code>`])
-  && matchesAny(finding["fragment_raw"][
-    max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):finding["match_start_idx"]
-  ], [`(?i)\b(?:version|etag)\b[^<>"'\r\n=]{0,100}\bpublic[ \t]+$`]))
 || (
 // Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
@@ -5420,7 +5414,7 @@ matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
   "zsh.",
   "zsh_",
   "6fe4476ee5a1832882e326b506d14126"
-]) || matchesAny(genericMatchContext, [`(?i)(?:^<?[^<\[{]*(?:access(?:ibility|or)|rapid|capital|turkey|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|key[_.-]?(?:board|code|frame|mesh|press(?:ed)?|ring|stone|word|up|down|left|right))|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author(?:$|[^i]|i(?:$|[^sz]))|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|key[ \t_.-]*(?:alias|id|length|name|pair|selector|signature|size|storetype)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`]))
+]) || matchesAny(genericMatchContext, [`(?i)(?:^[^\[{]*(?:access(?:ibility|or)|rapid|capital|turkey|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|key[_.-]?(?:board|code|frame|mesh|press(?:ed)?|ring|stone|word|up|down|left|right))|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author(?:$|[^i]|i(?:$|[^sz]))|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|key[ \t_.-]*(?:alias|id|length|name|pair|selector|signature|size|storetype)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`]))
 || matchesAny(finding["line"], [
   `--mount=type=secret,`,
   `import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]`
@@ -5602,7 +5596,7 @@ isInstructionalPlaceholder
 [[rules]]
 id = "generic-password"
 description = "Detected a potential hardcoded password literal, which may expose account credentials."
-regex = '''(?i)(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60)|[ \t]{0,5}([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))|,[ \t]*(?:\r?\n[ \t]*)?"?value"?[ \t]*(?:\r?\n[ \t]*)?:[ \t]*(?:\r?\n[ \t]*)?"((?:\\.|[^"\\\r\n]){5,250})")(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])|\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:<!\[CDATA\[([^\r\n]{5,250}?)\]\]>|([^<\r\n]{5,250}?))[ \t]*(?:\r?\n[ \t]*)?</[\w.:-]{1,64}[ \t]*(?:\r?\n[ \t]*)?>)'''
+regex = '''(?i)(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:)?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60)|[ \t]{0,5}([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))|,[ \t]*(?:\r?\n[ \t]*)?"?value"?[ \t]*(?:\r?\n[ \t]*)?:[ \t]*(?:\r?\n[ \t]*)?"((?:\\.|[^"\\\r\n]){5,250})")(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])|\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\))'''
 specificity = -80
 confidence = "low"
 keywords = [
@@ -5624,11 +5618,11 @@ let siblingMetadata = containsAny(finding["match"], ["{"])
 let credentialMatch = siblingMetadata == "" ? finding["match"]
   : replace(finding["match"], siblingMetadata, "{\"value\":", 1);
 // Schema fields describe a password; they do not assign one.
-matchesAny(credentialMatch, [`(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern)[ \t]*>)`])
+matchesAny(credentialMatch, [`(?i)^(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:)?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern)"[ \t]*(?:\r?\n[ \t]*)?:`])
 // Timing fields require duration values; ordinary password literals still count.
-|| (containsAny(finding["match"], ["{", "<"])
+|| (containsAny(finding["match"], ["{"])
   && matchesAny(finding["secret"], [`^(?:[0-9]+(?:\.[0-9]+)?(?:ns|us|µs|μs|ms|s|m|h))+$`])
-  && matchesAny(credentialMatch, [`(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:elapsed|duration|average)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:elapsed|duration|average)[ \t]*>)`]))
+  && matchesAny(credentialMatch, [`(?i)^(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:)?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:elapsed|duration|average)"[ \t]*(?:\r?\n[ \t]*)?:`]))
 || (
 // Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
@@ -5693,7 +5687,7 @@ let isCodeFile = matchesAny(attributes["path"], [
 let isUnquotedAssignment = matchesAny(finding["match"], [
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]`
 ]) && !matchesAny(finding["match"], [
-  `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}>)){0,2})[ \t]*(?:\r?\n[ \t]*)?[\x22\x27\x60]`
+  `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:)?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:){0,2})[ \t]*(?:\r?\n[ \t]*)?[\x22\x27\x60]`
 ]);
 let isUnquotedCodeValue = isCodeFile && isUnquotedAssignment;
 let isUnquotedExpression = isUnquotedAssignment && matchesAny(finding["secret"], [
@@ -5761,8 +5755,6 @@ let level = (
 let _ = setConfidence(level);
 
 matchesAny(finding["secret"], [
-  // Regex capture groups are examples of patterns, not password literals.
-  `^\((?:\?:)?(?:\.[*+]|\[[^]\r\n]+\][*+])\??\)$`,
   `^\*+$`,
   `^\.+$`,
   `(?i)^x{4,}$`,
@@ -5795,8 +5787,6 @@ matchesAny(finding["secret"], [
   `(?i)^md5[0-9a-f]{32}$`,
   `^\*[0-9A-F]{40}$`
 ])
-// Do not let a CDATA capture backtrack across an earlier section's terminator.
-|| (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
 || isSignatureType
 || isTranslationEntry
