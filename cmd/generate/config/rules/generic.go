@@ -13,6 +13,11 @@ import (
 // keyword search windows small. No structural punctuation may be skipped.
 const jsonRecordSpace = `[ \t]*(?:\r?\n[ \t]*)?`
 const jsonRecordValue = jsonRecordSpace + `"?value"?` + jsonRecordSpace + `:` + jsonRecordSpace
+
+// Attributes must be quoted and single-line. Bound their count and separating
+// newlines so opening tags cannot cross markup or expand keyword windows freely.
+const xmlAttribute = `(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')`
+const xmlOpeningTagEnd = `(?:` + xmlAttribute + `){0,5}` + jsonRecordSpace + `>`
 const xmlClosingTag = `</[\w.:-]{1,64}` + jsonRecordSpace + `>`
 
 // Only flat, single-line scalar fields may precede an explicit "value" field.
@@ -23,7 +28,7 @@ const jsonValueObject = `\{` + jsonRecordSpace + jsonValueSiblings + `"value"` +
 
 // Follow up to two opening containers. Prefer an explicit "value" after up to
 // five scalar siblings; otherwise retain the first-child behavior.
-const structuredContainer = jsonRecordSpace + `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"[\w.-]{1,64}"` + jsonRecordSpace + `:|<[\w.:-]{1,64}>)`
+const structuredContainer = jsonRecordSpace + `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"[\w.-]{1,64}"` + jsonRecordSpace + `:|<[\w.:-]{1,64}` + xmlOpeningTagEnd + `)`
 const structuredValuePrefix = `(?:(?:` + structuredContainer + `)?` + jsonRecordSpace + `(?:\[` + jsonRecordSpace + `)?` + jsonValueObject + `|(?:` + structuredContainer + `){0,2})` + jsonRecordSpace
 
 // Sibling metadata does not describe the secret. Keep parent and child names
@@ -37,7 +42,7 @@ let credentialMatch = siblingMetadata == "" ? finding["match"]
 // Match a named child field, including its opening container. Bare words in a
 // literal must not be mistaken for metadata.
 func structuredFieldPattern(names string) string {
-	return `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"(?:` + names + `)"` + jsonRecordSpace + `:|<(?:[\w.-]+:)?(?:` + names + `)[ \t]*>)`
+	return `(?:(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"(?:` + names + `)"` + jsonRecordSpace + `:|<(?:[\w.-]+:)?(?:` + names + `)` + xmlOpeningTagEnd + `)`
 }
 
 func GenericCredential() *config.Rule {
@@ -52,7 +57,7 @@ func GenericCredential() *config.Rule {
 	identifier := `(?:` + identifiers + `)[ \t'"\w.-]{0,20}[ \t'"]{0,20}` + jsonRecordSpace
 	// Require the opening '<'. Rejecting closing tags in a filter is too late:
 	// a discarded match could have already consumed the next element's secret.
-	xmlIdentifier := `<[\w.:-]{0,64}(?:` + identifiers + `)[\w.:-]{0,20}[ \t]*>`
+	xmlIdentifier := `<[\w.:-]{0,64}(?:` + identifiers + `)[\w.:-]{0,20}` + xmlOpeningTagEnd
 	r := config.Rule{
 		ID:          "generic-api-key",
 		Confidence:  "low",

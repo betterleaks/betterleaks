@@ -22,6 +22,9 @@ func TestStructuredRuleWindows(t *testing.T) {
 		index, ok := s.ruleIndexByID[id]
 		require.True(t, ok, id)
 		require.NotNil(t, s.rulesBySpecificity[index].span, id)
+		// A multiline value capture can silently widen every keyword search.
+		require.GreaterOrEqual(t, s.rulesBySpecificity[index].span.Newlines, 0, id)
+		require.LessOrEqual(t, s.rulesBySpecificity[index].span.Newlines, 32, id)
 	}
 }
 
@@ -29,6 +32,9 @@ func TestStructuredRuleWindowsPreserveFindings(t *testing.T) {
 	cfg, err := config.Default()
 	require.NoError(t, err)
 	const token = "Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"
+	xmlOpen := func(name string) string {
+		return "<" + name + "\n a=\"1\"\n b='2'\n c=\"3\"\n d='4'\n e=\"5\"\n>\n"
+	}
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		t.Run(engine.Version(), func(t *testing.T) {
 			narrowed := mustNew(t, cfg, WithRegexEngine(engine))
@@ -43,6 +49,8 @@ func TestStructuredRuleWindowsPreserveFindings(t *testing.T) {
 				"{\"credential\": {\n\"score\":42,\n\"category\":\"fixture\",\n\"enabled\":true,\n\"expires\":null,\n\"ratio\":-1.25e-3,\n\"value\":\"" + token + "\"}}",
 				"<auth></auth>\n<cfg:API_KEYS>\n<production>\n<site>" + token + "</site\n></production></cfg:API_KEYS>",
 				"<PASSWORD><![CDATA[p4ss<word!]]></PASSWORD \r\n\t>",
+				xmlOpen("API_KEYS") + xmlOpen("production") + xmlOpen("site") + token + "</site></production></API_KEYS>",
+				xmlOpen("PASSWORD") + xmlOpen("production") + xmlOpen("site") + "<![CDATA[\nhunter2\n]]></site></production></PASSWORD>",
 				// The generic parent match must still yield to the provider rule.
 				"{\"tokens\": {\n  \"github\": \"ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5\"\n}}",
 			} {

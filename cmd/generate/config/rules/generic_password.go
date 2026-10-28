@@ -13,11 +13,14 @@ func GenericPassword() *config.Rule {
 	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:` + passwordLiteral + `)|,` + jsonRecordValue + quotedPassword + `)(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])`
 	// Require an opening tag as well as a closing tag, so URLs ending in
 	// "password>" cannot lend context to HTML link text.
-	xmlPasswordRegex := `<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>` + structuredValuePrefix + `(?:<!\[CDATA\[([^\r\n]{5,250}?)\]\]>|([^<\r\n]{5,250}?))` + jsonRecordSpace + xmlClosingTag
+	// Allow one padding line break on each side of CDATA. Without a line break,
+	// spaces remain part of the literal, preserving existing inline passwords.
+	cdataPadding := `(?:[ \t]*\r?\n[ \t]*)?`
+	xmlPasswordRegex := `<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b` + xmlOpeningTagEnd + structuredValuePrefix + `(?:<!\[CDATA\[` + cdataPadding + `([^\r\n]{5,250}?)` + cdataPadding + `\]\]>|([^<\r\n]{5,250}?))` + jsonRecordSpace + xmlClosingTag
 	authArgumentRegex := `\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)`
 	metadataField := structuredFieldPattern(`type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern`)
 	// Start at the assignment, so JSON-like password text and CDATA remain literals.
-	metadataPrefix := `(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t]*>)` + structuredValuePrefix
+	metadataPrefix := `(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b` + xmlOpeningTagEnd + `)` + structuredValuePrefix
 	metadataAssignment := metadataPrefix + metadataField
 	timingAssignment := metadataPrefix + structuredFieldPattern(`elapsed|duration|average`)
 	const phpType = `\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?`
