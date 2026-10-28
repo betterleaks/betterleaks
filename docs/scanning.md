@@ -198,7 +198,8 @@ bare property names work too. At most one line break may separate the fields.
 The rules also allow up to two opening JSON containers (with quoted child keys)
 or XML elements between a credential label and a literal. The API-key rule
 recognizes XML attribute records and CDATA. XML password text needs opening and
-closing tags. Identifiers stay on one line, so a credential word in a comment
+closing tags, with at most one line break before a closing tag's `>`.
+Identifiers stay on one line, so a credential word in a comment
 cannot absorb the next assignment. Existing value filters still apply. For API
 keys, child names such as `turkey` do not invalidate the credential label, but
 metadata fields such as `public_key` and `access_id` remain excluded.

@@ -13,6 +13,7 @@ import (
 // keyword search windows small. No structural punctuation may be skipped.
 const jsonRecordSpace = `[ \t]*(?:\r?\n[ \t]*)?`
 const jsonRecordValue = jsonRecordSpace + `"?value"?` + jsonRecordSpace + `:` + jsonRecordSpace
+const xmlClosingTag = `</[\w.:-]{1,64}` + jsonRecordSpace + `>`
 
 // Only flat, single-line scalar fields may precede an explicit "value" field.
 // Quoted strings consume their own escapes, commas, and braces.
@@ -42,21 +43,22 @@ func structuredFieldPattern(names string) string {
 func GenericCredential() *config.Rule {
 	const identifiers = `access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token`
 	const token = `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`
-	// Consume a key/value record's label before looking for its value. These
-	// label characters already fail the generic filter, so this cannot hide a
-	// plausible secret assigned directly to "key".
-	recordLabel := jsonRecordSpace + `"[a-z_.-]{0,50}(?:` + identifiers + `)[a-z_.-]{0,20}"` + jsonRecordSpace + `(?:,` + jsonRecordValue + `|value[ \t]*=|>)`
-	operator := `(?:(?:=(?:` + recordLabel + `)?|>|:{1,3}=|\|\||:(?:` + recordLabel + `)?|=>|\?=)` + structuredValuePrefix + `(?:<!\[CDATA\[)?|,(?:` + jsonRecordValue + `)?)`
+	// Recognize labels such as S3_API_KEY without consuming a long, unbroken
+	// token assigned directly to "key" as a record label.
+	recordLabel := jsonRecordSpace + `"(?:[a-z0-9]{0,16}[_.-]){0,4}(?:` + identifiers + `)[a-z0-9_.-]{0,20}"` + jsonRecordSpace + `(?:,` + jsonRecordValue + `|value[ \t]*=|>)`
+	operator := `(?:(?:=>|:{1,3}=|\|\||\?=|[=:])(?:` + recordLabel + `)?|,(?:` + jsonRecordValue + `)?|['"]` + jsonRecordSpace + `(?:value[ \t]*=|>))`
 	// Keep the identifier on one line. Whitespace may precede the operator,
 	// but a comment must not absorb the next line's field or assignment.
-	identifier := `(?:` + identifiers + `)[ \t'"\w.-]{0,20}[\s'"]{0,20}`
+	identifier := `(?:` + identifiers + `)[ \t'"\w.-]{0,20}[ \t'"]{0,20}` + jsonRecordSpace
+	// Require the opening '<'. Rejecting closing tags in a filter is too late:
+	// a discarded match could have already consumed the next element's secret.
+	xmlIdentifier := `<[\w.:-]{0,64}(?:` + identifiers + `)[\w.:-]{0,20}[ \t]*>`
 	r := config.Rule{
 		ID:          "generic-api-key",
 		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
-		// Consume the closing tag so its name cannot start a match over the next element.
-		Regex: `(?i)` + identifier + operator +
-			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;]|</[\w.:-]{1,64}[ \t\r\n]*>|\]\]>|\\[nr]|$)`,
+		Regex: `(?i)(?:` + identifier + operator + `|` + xmlIdentifier + `)` + structuredValuePrefix + `(?:<!\[CDATA\[)?` +
+			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;]|` + xmlClosingTag + `|\]\]>|\\[nr]|$)`,
 		Keywords: []string{
 			"access",
 			"api",
@@ -73,11 +75,7 @@ entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
 || (
 ` + structuredMatchContext + `
-// Closing XML tags must not lend their name to the next element's value.
-matchesAny(finding["fragment_raw"][max(finding["match_start_idx"] - 128, 0):finding["match_start_idx"]], [
-  ` + "`</[\\w.:-]*$`" + `
-])
-|| matchesAny(credentialMatch, [
+matchesAny(credentialMatch, [
   // Permit an indented operator on the next line, but do not bridge blank lines.
   ` + "`^[\\w.'\" \\t-]*\\r?\\n[ \\t'\"]*\\r?\\n`" + `,
   // Credential containers can hold public identifiers or public key material.

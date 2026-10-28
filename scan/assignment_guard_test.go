@@ -53,14 +53,16 @@ func TestDefaultAssignmentGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	generic := false
+	// The generic rule now has XML alternatives and uses a search window.
+	// Keep a rule with a literal assignment prefix as the guard baseline.
+	baseline := false
 	for _, rule := range cfg.Rules {
 		guard := compileAssignmentGuard(rule.Regex, rule.Keywords)
 		if guard == nil {
 			continue
 		}
-		if rule.ID == "generic-api-key" {
-			generic = true
+		if rule.ID == "deepgram-api-key" {
+			baseline = true
 		}
 		t.Run(rule.ID, func(t *testing.T) {
 			matcher := ahocorasick.Compile(rule.Keywords, true)
@@ -81,8 +83,8 @@ func TestDefaultAssignmentGuards(t *testing.T) {
 			}
 		})
 	}
-	if !generic {
-		t.Fatal("generic rule has no guard")
+	if !baseline {
+		t.Fatal("baseline assignment rule has no guard")
 	}
 }
 
@@ -134,14 +136,17 @@ func FuzzAssignmentGuard(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	rule, ok := cfg.Rule("generic-api-key")
+	rule, ok := cfg.Rule("deepgram-api-key")
 	if !ok {
-		f.Fatal("missing generic rule")
+		f.Fatal("missing baseline assignment rule")
 	}
 	guard := compileAssignmentGuard(rule.Regex, rule.Keywords)
+	if guard == nil {
+		f.Fatal("baseline assignment rule has no guard")
+	}
 	matcher := ahocorasick.Compile(rule.Keywords, true)
 	original := regexp.MustCompile(rule.Regex)
-	for _, raw := range []string{"token = 'aZ8vQ2xR9mN6pL3t'", "Key\n='abcdef123456'", "api token isn't assigned", "key\xff=abcdef123456", "key" + strings.Repeat(" ", 23) + "=abcdef123456"} {
+	for _, raw := range []string{`deepgram_key = "` + strings.Repeat("a1", 20) + `"`, "deepgram_Key=" + strings.Repeat("a1", 20), "token = 'aZ8vQ2xR9mN6pL3t'", "Key\n='abcdef123456'", "api token isn't assigned", "key\xff=abcdef123456", "key" + strings.Repeat(" ", 23) + "=abcdef123456"} {
 		f.Add(raw)
 	}
 	f.Fuzz(func(t *testing.T, raw string) {

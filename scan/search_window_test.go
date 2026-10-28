@@ -12,6 +12,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestStructuredRuleWindows(t *testing.T) {
+	cfg, err := config.Default()
+	require.NoError(t, err)
+	s := mustNew(t, cfg)
+	// Opening XML tags prevent a literal keyword prefix, so these rules use
+	// search windows rather than an assignment guard. Keep that optimization.
+	for _, id := range []string{"generic-api-key", "generic-password"} {
+		index, ok := s.ruleIndexByID[id]
+		require.True(t, ok, id)
+		require.NotNil(t, s.rulesBySpecificity[index].span, id)
+	}
+}
+
+func TestStructuredRuleWindowsPreserveFindings(t *testing.T) {
+	cfg, err := config.Default()
+	require.NoError(t, err)
+	const token = "Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		t.Run(engine.Version(), func(t *testing.T) {
+			narrowed := mustNew(t, cfg, WithRegexEngine(engine))
+			original := mustNew(t, cfg, WithRegexEngine(engine))
+			for i := range original.rulesBySpecificity {
+				original.rulesBySpecificity[i].guard = nil
+				original.rulesBySpecificity[i].span = nil
+				original.rulesBySpecificity[i].searchAnchors = nil
+			}
+			clear(original.anchorRuleIndexes)
+			for _, input := range []string{
+				"{\"credential\": {\n\"score\":42,\n\"category\":\"fixture\",\n\"enabled\":true,\n\"expires\":null,\n\"ratio\":-1.25e-3,\n\"value\":\"" + token + "\"}}",
+				"<auth></auth>\n<cfg:API_KEYS>\n<production>\n<site>" + token + "</site\n></production></cfg:API_KEYS>",
+				"<PASSWORD><![CDATA[p4ss<word!]]></PASSWORD \r\n\t>",
+				// The generic parent match must still yield to the provider rule.
+				"{\"tokens\": {\n  \"github\": \"ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5\"\n}}",
+			} {
+				// Separate matches far enough to exercise distinct keyword windows.
+				raw := strings.Repeat("ordinary text\n", 100) + input + "\n" + strings.Repeat("other text\n", 100) + input
+				fragment := sources.Fragment{Raw: raw, StartLine: 31}
+				want := original.detectFragment(t.Context(), fragment)
+				require.Len(t, want, 2, input)
+				require.Equal(t, want, narrowed.detectFragment(t.Context(), fragment), input)
+			}
+		})
+	}
+}
+
 func TestSearchWindowsPreserveFindings(t *testing.T) {
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		t.Run(engine.Version(), func(t *testing.T) {
