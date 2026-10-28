@@ -6,8 +6,18 @@ import (
 )
 
 func GenericPassword() *config.Rule {
-	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])`
+	quotedPassword := `"((?:\\.|[^"\\\r\n]){5,250})"`
+	// Newline/container padding is only for quoted literals. Applying it to
+	// unquoted values would turn YAML child fields into passwords.
+	passwordLiteral := structuredValuePrefix + `(?:` + quotedPassword + `|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60)|[ \t]{0,5}([^:=\s'"\x60,;][^\s'"\x60,;]{4,249})`
+	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:` + passwordLiteral + `)|,` + jsonRecordValue + quotedPassword + `)(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])`
 	authArgumentRegex := `\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)`
+	metadataField := structuredFieldPattern(`type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern`)
+	// Start at the assignment, so JSON-like password text remains literal.
+	metadataPrefix := `(?i)^(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)` + structuredValuePrefix
+	metadataAssignment := metadataPrefix + metadataField
+	timingAssignment := metadataPrefix + structuredFieldPattern(`elapsed|duration|average`)
+	const phpType = `\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?`
 
 	r := config.Rule{
 		ID:          "generic-password",
@@ -28,7 +38,14 @@ func GenericPassword() *config.Rule {
 				Within:   "7L,200C",
 			},
 		},
-		FilterExpr: `// Restrict nearby evidence to the password's line and the
+		FilterExpr: structuredMatchContext + `// Schema fields describe a password; they do not assign one.
+matchesAny(credentialMatch, [` + "`" + metadataAssignment + "`" + `])
+// Timing fields require duration values; ordinary password literals still count.
+|| (containsAny(finding["match"], ["{"])
+  && matchesAny(finding["secret"], [` + "`^(?:[0-9]+(?:\\.[0-9]+)?(?:ns|us|µs|μs|ms|s|m|h))+$`" + `])
+  && matchesAny(credentialMatch, [` + "`" + timingAssignment + "`" + `]))
+|| (
+// Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
 // from the evidence patterns below.
 let raw = finding["fragment_raw"];
@@ -43,6 +60,12 @@ let nearbyContext =
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
+
+// PHP signature maps assign parameter types after a function's return type.
+// The same literal in an ordinary credential assignment remains reportable.
+let isSignatureType = finding["secret"] == "string" && matchesAny(linePrefix, [
+  ` + "`" + `['"][\w\\:]+['"][ \t]*=>[ \t]*\[[ \t]*['"](?:` + phpType + `(?:\|` + phpType + `)*)?['"][ \t]*,[^\]\r\n]*$` + "`" + `
+]);
 
 let hasAuthContext = matchesAny(nearbyContext, [
   // Authentication and connection calls.
@@ -74,6 +97,8 @@ let isCodeFile = matchesAny(attributes["path"], [
 ]);
 let isUnquotedAssignment = matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*[^\\x22\\x27\\x60 \\t\\r\\n]`" + `
+]) && !matchesAny(finding["match"], [
+  ` + "`" + `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)` + structuredValuePrefix + `[\x22\x27\x60]` + "`" + `
 ]);
 let isUnquotedCodeValue = isCodeFile && isUnquotedAssignment;
 let isUnquotedExpression = isUnquotedAssignment && matchesAny(finding["secret"], [
@@ -174,6 +199,7 @@ matchesAny(finding["secret"], [
   ` + "`^\\*[0-9A-F]{40}$`" + `
 ])
 || isEncryptedValue
+|| isSignatureType
 || isCryptographicAlgorithm
 || isContextualAlgorithmName
 || isUnquotedCodeValue
@@ -182,7 +208,8 @@ matchesAny(finding["secret"], [
 || matchesAny(finding["match"], [
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `,
   ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*\\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\\]]*\\\\?(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `
-])`,
+])
+)`,
 	}
 
 	tps := []string{

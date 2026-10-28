@@ -9,22 +9,52 @@ import (
 	"github.com/betterleaks/betterleaks/v2/regexp"
 )
 
+// One line break allows pretty-printed records while keeping the scanner's
+// keyword search windows small. No structural punctuation may be skipped.
+const jsonRecordSpace = `[ \t]*(?:\r?\n[ \t]*)?`
+const jsonRecordValue = jsonRecordSpace + `"?value"?` + jsonRecordSpace + `:` + jsonRecordSpace
+
+// Only flat, single-line scalar fields may precede an explicit "value" field.
+// Quoted strings consume their own escapes, commas, and braces.
+const jsonScalar = `(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)`
+const jsonValueSiblings = `(?:"[\w.-]+"[ \t]*:[ \t]*` + jsonScalar + `[ \t]*,` + jsonRecordSpace + `){1,5}?`
+const jsonValueObject = `\{` + jsonRecordSpace + jsonValueSiblings + `"value"` + jsonRecordSpace + `:`
+
+// Follow up to two opening containers. Prefer an explicit "value" after up to
+// five scalar siblings; otherwise retain the first-child behavior.
+const structuredContainer = jsonRecordSpace + `(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"[\w.-]{1,64}"` + jsonRecordSpace + `:`
+const structuredValuePrefix = `(?:(?:` + structuredContainer + `)?` + jsonRecordSpace + `(?:\[` + jsonRecordSpace + `)?` + jsonValueObject + `|(?:` + structuredContainer + `){0,2})` + jsonRecordSpace
+
+// Sibling metadata does not describe the secret. Keep parent and child names
+// in filter context, but remove fields skipped on the way to "value".
+const structuredMatchContext = `let siblingMetadata = containsAny(finding["match"], ["{"])
+  ? findMatch(finding["match"], ` + "`(?i)" + jsonValueObject + "`" + `) : "";
+let credentialMatch = siblingMetadata == "" ? finding["match"]
+  : replace(finding["match"], siblingMetadata, "{\"value\":", 1);
+`
+
+// Match a named child field, including its opening container. Bare words in a
+// literal must not be mistaken for metadata.
+func structuredFieldPattern(names string) string {
+	return `(?:\[` + jsonRecordSpace + `)?\{` + jsonRecordSpace + `"(?:` + names + `)"` + jsonRecordSpace + `:`
+}
+
 func GenericCredential() *config.Rule {
-	// define rule
+	const identifiers = `access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token`
+	const token = `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`
+	// Recognize labels such as S3_API_KEY without consuming a long, unbroken
+	// token assigned directly to "key" as a record label.
+	recordLabel := jsonRecordSpace + `"(?:[a-z0-9]{0,16}[_.-]){0,4}(?:` + identifiers + `)[a-z0-9_.-]{0,20}"` + jsonRecordSpace + `,` + jsonRecordValue
+	operator := `(?:(?:=>|:{1,3}=|\|\||\?=|[=:])(?:` + recordLabel + `)?|>|,(?:` + jsonRecordValue + `)?)`
+	// Keep the identifier on one line. Whitespace may precede the operator,
+	// but a comment must not absorb the next line's field or assignment.
+	identifier := `(?:` + identifiers + `)[ \t'"\w.-]{0,20}[ \t'"]{0,20}` + jsonRecordSpace
 	r := config.Rule{
 		ID:          "generic-api-key",
 		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
-		Regex: utils.GenerateSemiGenericRegex([]string{
-			"access",
-			"auth",
-			`(?-i:[Aa]pi|API)`,
-			"credential",
-			"creds",
-			"key",
-			"secret",
-			"token",
-		}, `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`, true),
+		Regex: `(?i)` + identifier + operator + structuredValuePrefix +
+			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;]|\\[nr]|$)`,
 		Keywords: []string{
 			"access",
 			"api",
@@ -39,6 +69,14 @@ func GenericCredential() *config.Rule {
 		FilterExpr: `// Reject implausible values before preparing context and confidence.
 entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
+|| (
+` + structuredMatchContext + `
+matchesAny(credentialMatch, [
+  // Permit an indented operator on the next line, but do not bridge blank lines.
+  ` + "`^[\\w.'\" \\t-]*\\r?\\n[ \\t'\"]*\\r?\\n`" + `,
+  // Credential containers can hold public identifiers.
+  ` + "`(?i)" + structuredFieldPattern(`client[_.-]?id|guid`) + "`" + `
+])
 || (
 // Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
@@ -56,10 +94,10 @@ let genericMatchPrefix = findMatch(
   ` + "`[\\w.-]{0,50}$`" + `
 );
 
-// Recreate the generic rule's former regex which includes the [\w.-]{0,50} preamble.
+// Keep credential-path names and confidence hints, excluding skipped siblings.
 let genericMatchContext =
   genericMatchPrefix +
-  finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+  credentialMatch;
 
 let level = matchesAny(genericMatchContext, [
   ` + "`(?i)\\b[a-z0-9]+[_.-]+token\\b`" + `
@@ -68,6 +106,7 @@ let _ = setConfidence(level);
 
 // big ol expression to filter out FPs
 ` + genericAPIKeyFilter + `
+)
 )`,
 	}
 

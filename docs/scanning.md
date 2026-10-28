@@ -189,6 +189,29 @@ credential environment variables.
 
 ---
 
+## JSON credential patterns
+
+The generic rules recognize adjacent fields such as
+`{"name": "SERVICE_API_KEY", "value": "..."}` and
+`{"name": "DB_PASSWORD", "value": "..."}`. The label may also use `key`;
+bare property names work too. At most one line break may separate the fields.
+The rules also allow up to two opening JSON containers with quoted child keys
+between a credential label and a literal. Identifiers stay on one line, so a
+credential word in a comment cannot absorb the next assignment. Existing value
+filters still apply. For API
+keys, child names such as `turkey` do not invalidate the credential label, but
+metadata fields such as `public_key` and `access_id` remain excluded.
+
+Inside a credential object, an explicit `"value"` field may follow up to five
+scalar siblings (strings, numbers, booleans, or null). Each skipped field must
+fit on one line; nested objects and arrays are not skipped. Sibling metadata
+does not participate in credential-name filtering.
+
+These are text patterns, so the enclosing document need not be complete. They
+otherwise find only the first value under a shared parent label. Reversed fields
+and other later siblings are not reliably detected. Padding does not skip
+closing containers.
+
 ## Finding output
 
 Scan commands print findings in the human-readable format by default. Use
