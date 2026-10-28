@@ -115,7 +115,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 		ownedComponent := report.ComponentFinding{
 			RuleID: "specific-rule",
 			Location: report.Location{
-				StartLine: 170},
+				StartLine: 170, EndLine: 170, StartColumn: 1, EndColumn: 40},
 			Match: report.Match{Full: "credential: 'prefix-invalid-suffix'", Value: "prefix-invalid-suffix"},
 		}
 		primary := report.Finding{
@@ -130,7 +130,7 @@ func TestFilterTracksComponentOwnership(t *testing.T) {
 		standalone := report.Finding{
 			RuleID: "generic-rule",
 			Location: report.Location{
-				StartLine: 170},
+				StartLine: 170, EndLine: 170, StartColumn: 1, EndColumn: 40},
 			Match: report.Match{Full: "credential: 'invalid'", Value: "invalid"},
 		}
 
