@@ -166,12 +166,14 @@ func shannonEntropy(data string) (entropy float64) {
 	return entropy
 }
 
-// findingIndex limits specificity comparisons to owners with a primary or
-// component on the candidate's line. Component locations can differ from their
-// owner's location, so indexing only the primary would change suppression.
+// Index short matches on every line they cover. Long matches use a separate
+// list so a single large match cannot allocate an entry for every source line.
+const maxIndexedFindingLines = 64
+
 type findingIndex struct {
 	findings []report.Finding
 	byLine   map[int][]int
+	long     []int
 }
 
 func newFindingIndex(findings []report.Finding) *findingIndex {
@@ -186,21 +188,37 @@ func (index *findingIndex) add(i int) {
 	if index.byLine == nil {
 		index.byLine = make(map[int][]int)
 	}
-	addLine := func(line int) {
-		owners := index.byLine[line]
-		// An owner can have several components on the same line. Insert it
-		// once, preserving the original order of specificity comparisons.
-		if len(owners) == 0 || owners[len(owners)-1] != i {
-			index.byLine[line] = append(owners, i)
+	addLocation := func(loc report.Location) {
+		endLine := max(loc.StartLine, loc.EndLine)
+		if endLine-loc.StartLine >= maxIndexedFindingLines {
+			if len(index.long) == 0 || index.long[len(index.long)-1] != i {
+				index.long = append(index.long, i)
+			}
+			return
+		}
+		for line := loc.StartLine; line <= endLine; line++ {
+			owners := index.byLine[line]
+			// Several components may share a line. Index their owner once.
+			if len(owners) == 0 || owners[len(owners)-1] != i {
+				index.byLine[line] = append(owners, i)
+			}
 		}
 	}
 	f := &index.findings[i]
-	addLine(f.Location.StartLine)
+	addLocation(f.Location)
 	for _, set := range f.ComponentSets {
 		for _, component := range set.Components {
-			addLine(component.Location.StartLine)
+			addLocation(component.Location)
 		}
 	}
+}
+
+// Locations describe full matches in the original source, including decoded
+// findings. Byte columns are one-based and the ending column is inclusive.
+func locationsOverlap(a, b report.Location) bool {
+	return a.Path == b.Path && a.StartLine > 0 && b.StartLine > 0 &&
+		(a.StartLine < b.EndLine || a.StartLine == b.EndLine && a.StartColumn <= b.EndColumn) &&
+		(b.StartLine < a.EndLine || b.StartLine == a.EndLine && b.StartColumn <= a.EndColumn)
 }
 
 func (s *Scanner) containsAllowSignature(line string) bool {

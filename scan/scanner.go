@@ -1225,32 +1225,48 @@ func (s *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 	if index == nil {
 		return false
 	}
-	for _, i := range index.byLine[f.Location.StartLine] {
-		fPrime := &index.findings[i]
-		if f.Location.StartLine == fPrime.Location.StartLine &&
-			f.Attributes[sources.AttrGitSHA] == fPrime.Attributes[sources.AttrGitSHA] &&
-			f.RuleID != fPrime.RuleID &&
-			strings.Contains(fPrime.Match.Value, f.Match.Value) &&
-			s.ruleSpecificity(fPrime.RuleID) > s.ruleSpecificity(f.RuleID) {
-			s.logger.Debug("skipping finding because a more specific rule takes precedence",
-				"rule_id", f.RuleID,
-				"precedence_rule_id", fPrime.RuleID,
-			)
+	if f.Location.EndLine-f.Location.StartLine >= maxIndexedFindingLines {
+		for i := range index.findings {
+			if s.isSuppressedByOwner(f, &index.findings[i]) {
+				return true
+			}
+		}
+		return false
+	}
+	for line := f.Location.StartLine; line <= max(f.Location.StartLine, f.Location.EndLine); line++ {
+		for _, i := range index.byLine[line] {
+			if s.isSuppressedByOwner(f, &index.findings[i]) {
+				return true
+			}
+		}
+	}
+	for _, i := range index.long {
+		if s.isSuppressedByOwner(f, &index.findings[i]) {
 			return true
 		}
-		for _, set := range fPrime.ComponentSets {
-			for _, comp := range set.Components {
-				if f.RuleID != fPrime.RuleID &&
-					f.Location.StartLine == comp.Location.StartLine &&
-					f.RuleID != comp.RuleID &&
-					strings.Contains(comp.Match.Value, f.Match.Value) &&
-					s.ruleSpecificity(comp.RuleID) > s.ruleSpecificity(f.RuleID) {
-					logTrace(s.logger, "skipping finding because a more specific component takes precedence",
-						"rule_id", f.RuleID,
-						"precedence_rule_id", comp.RuleID,
-					)
-					return true
-				}
+	}
+	return false
+}
+
+func (s *Scanner) isSuppressedByOwner(f report.Finding, owner *report.Finding) bool {
+	if f.RuleID == owner.RuleID || f.Attributes[sources.AttrGitSHA] != owner.Attributes[sources.AttrGitSHA] {
+		return false
+	}
+	if locationsOverlap(f.Location, owner.Location) &&
+		strings.Contains(owner.Match.Value, f.Match.Value) &&
+		s.ruleSpecificity(owner.RuleID) > s.ruleSpecificity(f.RuleID) {
+		logTrace(s.logger, "skipping finding because a more specific rule takes precedence",
+			"rule_id", f.RuleID, "precedence_rule_id", owner.RuleID)
+		return true
+	}
+	for _, set := range owner.ComponentSets {
+		for _, comp := range set.Components {
+			if f.RuleID != comp.RuleID && locationsOverlap(f.Location, comp.Location) &&
+				strings.Contains(comp.Match.Value, f.Match.Value) &&
+				s.ruleSpecificity(comp.RuleID) > s.ruleSpecificity(f.RuleID) {
+				logTrace(s.logger, "skipping finding because a more specific component takes precedence",
+					"rule_id", f.RuleID, "precedence_rule_id", comp.RuleID)
+				return true
 			}
 		}
 	}
