@@ -166,14 +166,14 @@ func shannonEntropy(data string) (entropy float64) {
 	return entropy
 }
 
-// Index short matches on every line they cover. Long matches use a separate
-// list so a single large match cannot allocate an entry for every source line.
-const maxIndexedFindingLines = 64
+// Index short matches by line and long matches in 64-line blocks. Both lookups
+// narrow the candidates; source-range overlap still decides whether they match.
+const findingLineBlockSize = 64
 
 type findingIndex struct {
 	findings []report.Finding
 	byLine   map[int][]int
-	long     []int
+	byBlock  map[int][]int
 }
 
 func newFindingIndex(findings []report.Finding) *findingIndex {
@@ -190,9 +190,15 @@ func (index *findingIndex) add(i int) {
 	}
 	addLocation := func(loc report.Location) {
 		endLine := max(loc.StartLine, loc.EndLine)
-		if endLine-loc.StartLine >= maxIndexedFindingLines {
-			if len(index.long) == 0 || index.long[len(index.long)-1] != i {
-				index.long = append(index.long, i)
+		if endLine-loc.StartLine >= findingLineBlockSize {
+			if index.byBlock == nil {
+				index.byBlock = make(map[int][]int)
+			}
+			for block := loc.StartLine / findingLineBlockSize; block <= endLine/findingLineBlockSize; block++ {
+				owners := index.byBlock[block]
+				if len(owners) == 0 || owners[len(owners)-1] != i {
+					index.byBlock[block] = append(owners, i)
+				}
 			}
 			return
 		}

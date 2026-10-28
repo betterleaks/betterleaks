@@ -1225,24 +1225,23 @@ func (s *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 	if index == nil {
 		return false
 	}
-	if f.Location.EndLine-f.Location.StartLine >= maxIndexedFindingLines {
-		for i := range index.findings {
-			if s.isSuppressedByOwner(f, &index.findings[i]) {
-				return true
-			}
-		}
-		return false
-	}
-	for line := f.Location.StartLine; line <= max(f.Location.StartLine, f.Location.EndLine); line++ {
-		for _, i := range index.byLine[line] {
-			if s.isSuppressedByOwner(f, &index.findings[i]) {
-				return true
+	endLine := max(f.Location.StartLine, f.Location.EndLine)
+	if len(index.byLine) > 0 {
+		for line := f.Location.StartLine; line <= endLine; line++ {
+			for _, i := range index.byLine[line] {
+				if s.isSuppressedByOwner(f, &index.findings[i]) {
+					return true
+				}
 			}
 		}
 	}
-	for _, i := range index.long {
-		if s.isSuppressedByOwner(f, &index.findings[i]) {
-			return true
+	if len(index.byBlock) > 0 {
+		for block := f.Location.StartLine / findingLineBlockSize; block <= endLine/findingLineBlockSize; block++ {
+			for _, i := range index.byBlock[block] {
+				if s.isSuppressedByOwner(f, &index.findings[i]) {
+					return true
+				}
+			}
 		}
 	}
 	return false

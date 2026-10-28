@@ -2,6 +2,7 @@ package scan
 
 import (
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -139,8 +140,65 @@ func TestSpecificityLongSourceRanges(t *testing.T) {
 			{ID: "specific", Regex: patterns[0], Specificity: 100},
 			{ID: "generic", Regex: patterns[1]},
 		}})
-		findings := scanner.ScanString("provider:\n" + strings.Repeat("padding\n", maxIndexedFindingLines) + "VALUE")
+		findings := scanner.ScanString("provider:\n" + strings.Repeat("padding\n", findingLineBlockSize) + "VALUE")
 		require.Len(t, findings, 1)
 		require.Equal(t, "specific", findings[0].RuleID)
+	}
+}
+
+func TestSpecificityAcrossLineBlocks(t *testing.T) {
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		t.Run(engine.Version(), func(t *testing.T) {
+			scanner := mustNew(t, &config.Config{Rules: []config.Rule{
+				{ID: "specific", Regex: `(?s)provider:\n.*?(VALUE)\nEND`, Specificity: 100},
+				{ID: "generic", Regex: `VALUE`},
+			}}, WithRegexEngine(engine))
+			for _, prefix := range []int{0, 63, 64, 65} {
+				for _, lines := range []int{61, 62, 63, 128} {
+					raw := strings.Repeat("padding\n", prefix) + "provider:\n" + strings.Repeat("padding\n", lines) + "VALUE\nEND\nVALUE"
+					findings := scanner.ScanString(raw)
+					require.Len(t, findings, 2, "prefix %d, lines %d", prefix, lines)
+					require.Equal(t, "specific", findings[0].RuleID)
+					require.Equal(t, "generic", findings[1].RuleID)
+					require.Equal(t, prefix+lines+4, findings[1].Location.StartLine)
+				}
+			}
+		})
+	}
+}
+
+func TestSpecificityLongComponentRanges(t *testing.T) {
+	scanner := mustNew(t, &config.Config{Rules: []config.Rule{
+		{ID: "owner", Regex: `ROOT`, Specificity: -10, Components: []config.Component{{RuleID: "part"}}},
+		{ID: "part", Regex: `(?s)credential:\n.*?(VALUE)\nEND`, Specificity: 100, SkipReport: true},
+		{ID: "generic", Regex: `VALUE`},
+	}})
+	raw := "ROOT\ncredential:\n" + strings.Repeat("padding\n", 128) + "VALUE\nEND\nVALUE"
+	findings := scanner.ScanString(raw)
+	require.Len(t, findings, 2)
+	require.Equal(t, "generic", findings[0].RuleID)
+	require.Equal(t, 133, findings[0].Location.StartLine)
+	require.Equal(t, "owner", findings[1].RuleID)
+	require.Len(t, findings[1].ComponentSets, 1)
+}
+
+func BenchmarkSpecificityLongRanges(b *testing.B) {
+	for _, count := range []int{100, 1000, 10000} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			scanner, err := New(&config.Config{Rules: []config.Rule{
+				{ID: "long", Regex: `BEGIN\n(?:x\n){64}END`},
+			}}, WithPrecompile(), WithWorkers(1))
+			if err != nil {
+				b.Fatal(err)
+			}
+			raw := strings.Repeat("BEGIN\n"+strings.Repeat("x\n", 64)+"END\n", count)
+			b.SetBytes(int64(len(raw)))
+			b.ReportAllocs()
+			for b.Loop() {
+				if got := len(scanner.ScanString(raw)); got != count {
+					b.Fatalf("got %d findings, want %d", got, count)
+				}
+			}
+		})
 	}
 }
