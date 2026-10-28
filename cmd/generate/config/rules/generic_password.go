@@ -11,10 +11,16 @@ func GenericPassword() *config.Rule {
 	// unquoted values would turn YAML child fields into passwords.
 	passwordLiteral := structuredValuePrefix + `(?:` + quotedPassword + `|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60)|[ \t]{0,5}([^:=\s'"\x60,;][^\s'"\x60,;]{4,249})`
 	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:` + passwordLiteral + `)|,` + jsonRecordValue + quotedPassword + `)(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])`
+	// Require an opening tag as well as a closing tag, so URLs ending in
+	// "password>" cannot lend context to HTML link text.
+	// Allow one padding line break on each side of CDATA. Without a line break,
+	// spaces remain part of the literal, preserving existing inline passwords.
+	cdataPadding := `(?:[ \t]*\r?\n[ \t]*)?`
+	xmlPasswordRegex := `<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b` + xmlOpeningTagEnd + structuredValuePrefix + `(?:<!\[CDATA\[` + cdataPadding + `([^\r\n]{5,250}?)` + cdataPadding + `\]\]>|([^<\r\n]{5,250}?))` + jsonRecordSpace + xmlClosingTag
 	authArgumentRegex := `\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)`
 	metadataField := structuredFieldPattern(`type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern`)
-	// Start at the assignment, so JSON-like password text remains literal.
-	metadataPrefix := `(?i)^(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)` + structuredValuePrefix
+	// Start at the assignment, so JSON-like password text and CDATA remain literals.
+	metadataPrefix := `(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b` + xmlOpeningTagEnd + `)` + structuredValuePrefix
 	metadataAssignment := metadataPrefix + metadataField
 	timingAssignment := metadataPrefix + structuredFieldPattern(`elapsed|duration|average`)
 	const phpType = `\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?`
@@ -23,7 +29,7 @@ func GenericPassword() *config.Rule {
 		ID:          "generic-password",
 		Confidence:  "low",
 		Description: "Detected a potential hardcoded password literal, which may expose account credentials.",
-		Regex:       `(?i)(?:` + passwordAssignmentRegex + `|` + authArgumentRegex + `)`,
+		Regex:       `(?i)(?:` + passwordAssignmentRegex + `|` + authArgumentRegex + `|` + xmlPasswordRegex + `)`,
 		Keywords: []string{
 			"passw", "psw", "_pw", "-pw", ".pw",
 			"login(", "login (",
@@ -41,7 +47,7 @@ func GenericPassword() *config.Rule {
 		FilterExpr: structuredMatchContext + `// Schema fields describe a password; they do not assign one.
 matchesAny(credentialMatch, [` + "`" + metadataAssignment + "`" + `])
 // Timing fields require duration values; ordinary password literals still count.
-|| (containsAny(finding["match"], ["{"])
+|| (containsAny(finding["match"], ["{", "<"])
   && matchesAny(finding["secret"], [` + "`^(?:[0-9]+(?:\\.[0-9]+)?(?:ns|us|µs|μs|ms|s|m|h))+$`" + `])
   && matchesAny(credentialMatch, [` + "`" + timingAssignment + "`" + `]))
 || (
@@ -166,6 +172,8 @@ let level = (
 let _ = setConfidence(level);
 
 matchesAny(finding["secret"], [
+  // Regex capture groups are examples of patterns, not password literals.
+  ` + "`^\\((?:\\?:)?(?:\\.[*+]|\\[[^]\\r\\n]+\\][*+])\\??\\)$`" + `,
   ` + "`^\\*+$`" + `,
   ` + "`^\\.+$`" + `,
   ` + "`(?i)^x{4,}$`" + `,
@@ -198,6 +206,8 @@ matchesAny(finding["secret"], [
   ` + "`(?i)^md5[0-9a-f]{32}$`" + `,
   ` + "`^\\*[0-9A-F]{40}$`" + `
 ])
+// Do not let a CDATA capture backtrack across an earlier section's terminator.
+|| (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
 || isSignatureType
 || isCryptographicAlgorithm
