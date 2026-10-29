@@ -324,6 +324,8 @@ func TestComposioValidation(t *testing.T) {
 			{"insufficient permissions", 403, `{"error":{"slug":"APIKey_InsufficientPermissions","code":403,"message":"Forbidden"}}`, report.ValidationStatusValid},
 			// A gateway that happens to return a nested JSON slug is not Composio.
 			{"gateway json forbidden", 403, `{"error":{"slug":"blocked_by_waf"}}`, report.ValidationStatusUnknown},
+			// A gateway can return both fields, so the slug namespace decides.
+			{"gateway json forbidden with code", 403, `{"error":{"slug":"blocked_by_waf","code":403}}`, report.ValidationStatusUnknown},
 			// A 403 without Composio's envelope says nothing about the key.
 			{"gateway forbidden", 403, `<html>Forbidden</html>`, report.ValidationStatusUnknown},
 			{"rate limited", 429, `{}`, report.ValidationStatusUnknown},

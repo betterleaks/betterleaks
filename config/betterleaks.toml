@@ -2336,7 +2336,7 @@ r.status == 200 ? {
   "result": "valid",
   "reason": "Key authenticates but calls are restricted to an IP allowlist",
   "metadata": {"restriction": "ip_allowlist"}
-} : r.status == 403 && slug != "" && r.json?.error?.code != nil ? {
+} : r.status == 403 && startsWithAny(slug, ["APIKey_", "UserApiKey_", "Auth_", "HTTP_"]) && r.json?.error?.code != nil ? {
   "result": "valid",
   "reason": "Key authenticates but the request was forbidden",
   "metadata": {"restriction": slug}
@@ -2398,7 +2398,7 @@ r.status == 200 ? {
   "result": "valid",
   "reason": "Key authenticates but calls are restricted to an IP allowlist",
   "metadata": {"restriction": "ip_allowlist"}
-} : r.status == 403 && slug != "" && r.json?.error?.code != nil ? {
+} : r.status == 403 && startsWithAny(slug, ["APIKey_", "UserApiKey_", "Auth_", "HTTP_"]) && r.json?.error?.code != nil ? {
   "result": "valid",
   "reason": "Key authenticates but the request was forbidden",
   "metadata": {"restriction": slug}
@@ -2460,7 +2460,7 @@ r.status == 200 ? {
   "result": "valid",
   "reason": "Key authenticates but calls are restricted to an IP allowlist",
   "metadata": {"restriction": "ip_allowlist"}
-} : r.status == 403 && slug != "" && r.json?.error?.code != nil ? {
+} : r.status == 403 && startsWithAny(slug, ["APIKey_", "UserApiKey_", "Auth_", "HTTP_"]) && r.json?.error?.code != nil ? {
   "result": "valid",
   "reason": "Key authenticates but the request was forbidden",
   "metadata": {"restriction": slug}

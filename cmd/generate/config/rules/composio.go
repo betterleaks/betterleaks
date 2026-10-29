@@ -42,10 +42,15 @@ const composioDeadKeyExpr = `r.status == 401 && (
     (slug == "HTTP_Unauthorized" && startsWithAny(message, ["Invalid x-org-api-key"]))
   )`
 
+// composioSlugNamespaces are the prefixes Composio namespaces its error slugs
+// with. Checking the namespace rather than one slug keeps a future 403 slug
+// working while still rejecting a gateway that happens to return error.slug.
+const composioSlugNamespaces = `["APIKey_", "UserApiKey_", "Auth_", "HTTP_"]`
+
 // composioValidateExpr asks the key's own endpoint whether it still
 // authenticates. A 403 counts as live only when it carries Composio's error
-// envelope, identified by a slug and the numeric code that accompanies it; a
-// 403 from a gateway, JSON or not, says nothing about the key.
+// envelope: a slug in one of Composio's namespaces plus the numeric code that
+// always accompanies it. A 403 from a gateway says nothing about the key.
 func composioValidateExpr(verifyURL, header string) string {
 	return `let r = http.get("` + verifyURL + `", {
     "` + header + `": finding["secret"],
@@ -62,7 +67,7 @@ r.status == 200 ? {
   "result": "valid",
   "reason": "Key authenticates but calls are restricted to an IP allowlist",
   "metadata": {"restriction": "ip_allowlist"}
-} : r.status == 403 && slug != "" && r.json?.error?.code != nil ? {
+} : r.status == 403 && startsWithAny(slug, ` + composioSlugNamespaces + `) && r.json?.error?.code != nil ? {
   "result": "valid",
   "reason": "Key authenticates but the request was forbidden",
   "metadata": {"restriction": slug}
