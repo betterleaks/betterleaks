@@ -8121,10 +8121,120 @@ keywords = ["mailgun"]
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
 id = "mapbox-api-token"
-description = "Detected a MapBox API token, posing a risk to geospatial services and sensitive location data exposure."
-regex = '''(?i)(?:mapbox)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(pk\.[a-z0-9]{60}\.[a-z0-9]{22})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+description = "Mapbox public access token. Requests can incur charges on the owner's account."
+regex = '''\b(pk\.eyJ1Ijoi[A-Za-z0-9_-]{15,300}\.[A-Za-z0-9_-]{21}[AQgw])(?:$|[^A-Za-z0-9_-])'''
 confidence = "high"
-keywords = ["mapbox"]
+keywords = ["pk.eyj1ijoi"]
+tags = [
+    "provider:mapbox","category:maps",
+]
+validate = '''
+let r = http.get("https://api.mapbox.com/tokens/v2?access_token=" + strings.urlQueryEscape(finding["secret"]), {"Accept": "application/json"});
+let body = type(r.json) == "map" ? r.json : {};
+let code = body.code ?? "";
+let token = type(body.token) == "map" ? body.token : {};
+r.status == 200 && code == "TokenValid" ? {
+ "result": "valid", "reason": code,
+ "analysis": {
+  "username": type(token.user) == "string" ? token.user : "",
+  "token_id": type(token.authorization) == "string" ? token.authorization : "",
+  "usage": type(token.usage) == "string" ? token.usage : ""
+ }
+} : r.status == 200 && code in ["TokenRevoked", "TokenExpired"] ? {
+ "result": "revoked", "reason": code
+} : r.status == 200 && code in ["TokenInvalid", "TokenMalformed"] ? {
+ "result": "invalid", "reason": code
+} : r.status == 401 && type(body.message) == "string" && body.message != "" ? {
+ "result": "invalid", "reason": "401 Unauthorized: " + body.message
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let username = input["username"] ?? "";
+let token_id = input["token_id"] ?? "";
+let usage = input["usage"] ?? "";
+let r = usage == "sk" && username matches "^[A-Za-z0-9_-]+$" && token_id != "" ?
+ http.get("https://api.mapbox.com/tokens/v2/" + username + "?access_token=" + strings.urlQueryEscape(finding["secret"]) + "&usage=sk&limit=100", {"Accept": "application/json"}) : {};
+let tokens = (r.status ?? 0) == 200 && type(r.json) == "array" ? r.json : [];
+let token = find(tokens, {type(#) == "map" && (#.id ?? "") == token_id});
+{
+ "identity": {"username": username},
+ "metadata": {
+  "token_id": token_id,
+  "usage": usage,
+  "note": type(token?.note) == "string" ? token.note : "",
+  "scopes": type(token?.scopes) == "array" ? filter(token.scopes, {type(#) == "string"}) : []
+ }
+}
+'''
+filter = '''
+let parts = split(finding["secret"], ".");
+let payload = len(parts) == 3 ? parts[1] : "";
+let padding = (4 - len(payload) % 4) % 4;
+entropy(finding["secret"]) < 4 || len(payload) % 4 == 1 ||
+ !(fromBase64(replace(replace(payload, "-", "+"), "_", "/") + repeat("=", padding)) matches
+   '^\\{"u":"[^"\\\\\\x00-\\x1f]+"\\s*,\\s*"a"\\s*:\\s*"[A-Za-z0-9]+"\\s*\\}$')
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mapbox-secret-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mapbox-secret-token"
+description = "Mapbox secret access token. Granted scopes may allow uploads, edits, or token management."
+regex = '''\b(sk\.eyJ1Ijoi[A-Za-z0-9_-]{15,300}\.[A-Za-z0-9_-]{21}[AQgw])(?:$|[^A-Za-z0-9_-])'''
+confidence = "high"
+keywords = ["sk.eyj1ijoi"]
+tags = [
+    "provider:mapbox","category:maps",
+]
+validate = '''
+let r = http.get("https://api.mapbox.com/tokens/v2?access_token=" + strings.urlQueryEscape(finding["secret"]), {"Accept": "application/json"});
+let body = type(r.json) == "map" ? r.json : {};
+let code = body.code ?? "";
+let token = type(body.token) == "map" ? body.token : {};
+r.status == 200 && code == "TokenValid" ? {
+ "result": "valid", "reason": code,
+ "analysis": {
+  "username": type(token.user) == "string" ? token.user : "",
+  "token_id": type(token.authorization) == "string" ? token.authorization : "",
+  "usage": type(token.usage) == "string" ? token.usage : ""
+ }
+} : r.status == 200 && code in ["TokenRevoked", "TokenExpired"] ? {
+ "result": "revoked", "reason": code
+} : r.status == 200 && code in ["TokenInvalid", "TokenMalformed"] ? {
+ "result": "invalid", "reason": code
+} : r.status == 401 && type(body.message) == "string" && body.message != "" ? {
+ "result": "invalid", "reason": "401 Unauthorized: " + body.message
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let username = input["username"] ?? "";
+let token_id = input["token_id"] ?? "";
+let usage = input["usage"] ?? "";
+let r = usage == "sk" && username matches "^[A-Za-z0-9_-]+$" && token_id != "" ?
+ http.get("https://api.mapbox.com/tokens/v2/" + username + "?access_token=" + strings.urlQueryEscape(finding["secret"]) + "&usage=sk&limit=100", {"Accept": "application/json"}) : {};
+let tokens = (r.status ?? 0) == 200 && type(r.json) == "array" ? r.json : [];
+let token = find(tokens, {type(#) == "map" && (#.id ?? "") == token_id});
+{
+ "identity": {"username": username},
+ "metadata": {
+  "token_id": token_id,
+  "usage": usage,
+  "note": type(token?.note) == "string" ? token.note : "",
+  "scopes": type(token?.scopes) == "array" ? filter(token.scopes, {type(#) == "string"}) : []
+ }
+}
+'''
+filter = '''
+let parts = split(finding["secret"], ".");
+let payload = len(parts) == 3 ? parts[1] : "";
+let padding = (4 - len(payload) % 4) % 4;
+entropy(finding["secret"]) < 4 || len(payload) % 4 == 1 ||
+ !(fromBase64(replace(replace(payload, "-", "+"), "_", "/") + repeat("=", padding)) matches
+   '^\\{"u":"[^"\\\\\\x00-\\x1f]+"\\s*,\\s*"a"\\s*:\\s*"[A-Za-z0-9]+"\\s*\\}$')
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # mattermost-access-token
