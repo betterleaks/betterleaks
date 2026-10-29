@@ -8047,7 +8047,8 @@ let token = find(tokens, {type(#) == "map" && (#.id ?? "") == token_id});
 }
 '''
 filter = '''
-let payload = split(finding["secret"], ".")[1];
+let parts = split(finding["secret"], ".");
+let payload = len(parts) == 3 ? parts[1] : "";
 let padding = (4 - len(payload) % 4) % 4;
 entropy(finding["secret"]) < 4 || len(payload) % 4 == 1 ||
  !(fromBase64(replace(replace(payload, "-", "+"), "_", "/") + repeat("=", padding)) matches
@@ -8106,7 +8107,8 @@ let token = find(tokens, {type(#) == "map" && (#.id ?? "") == token_id});
 }
 '''
 filter = '''
-let payload = split(finding["secret"], ".")[1];
+let parts = split(finding["secret"], ".");
+let payload = len(parts) == 3 ? parts[1] : "";
 let padding = (4 - len(payload) % 4) % 4;
 entropy(finding["secret"]) < 4 || len(payload) % 4 == 1 ||
  !(fromBase64(replace(replace(payload, "-", "+"), "_", "/") + repeat("=", padding)) matches

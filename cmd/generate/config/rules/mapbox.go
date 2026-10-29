@@ -58,7 +58,8 @@ func MapBox() *config.Rule {
 		Regex:    `\b(pk\.eyJ1Ijoi[A-Za-z0-9_-]{15,300}\.[A-Za-z0-9_-]{21}[AQgw])(?:$|[^A-Za-z0-9_-])`,
 		Keywords: []string{"pk.eyJ1Ijoi"},
 		Tags:     []string{"provider:mapbox", "category:maps"},
-		FilterExpr: `let payload = split(finding["secret"], ".")[1];
+		FilterExpr: `let parts = split(finding["secret"], ".");
+let payload = len(parts) == 3 ? parts[1] : "";
 let padding = (4 - len(payload) % 4) % 4;
 entropy(finding["secret"]) < 4 || len(payload) % 4 == 1 ||
  !(fromBase64(replace(replace(payload, "-", "+"), "_", "/") + repeat("=", padding)) matches
@@ -107,7 +108,8 @@ func MapboxSecretToken() *config.Rule {
 		Regex:       `\b(sk\.eyJ1Ijoi[A-Za-z0-9_-]{15,300}\.[A-Za-z0-9_-]{21}[AQgw])(?:$|[^A-Za-z0-9_-])`,
 		Keywords:    []string{"sk.eyJ1Ijoi"},
 		Tags:        []string{"provider:mapbox", "category:maps"},
-		FilterExpr: `let payload = split(finding["secret"], ".")[1];
+		FilterExpr: `let parts = split(finding["secret"], ".");
+let payload = len(parts) == 3 ? parts[1] : "";
 let padding = (4 - len(payload) % 4) % 4;
 entropy(finding["secret"]) < 4 || len(payload) % 4 == 1 ||
  !(fromBase64(replace(replace(payload, "-", "+"), "_", "/") + repeat("=", padding)) matches
