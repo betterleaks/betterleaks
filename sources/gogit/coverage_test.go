@@ -187,6 +187,70 @@ func TestRevisionRange(t *testing.T) {
 	require.ErrorContains(t, (&Source{RepoPath: repo, Revision: "missing..main"}).Fragments(t.Context(), func(sources.Fragment, error) error { return nil }), "missing")
 }
 
+func TestCommitList(t *testing.T) {
+	repo := newHistory(t)
+	gitFixture(t, repo, "tag", "-a", "-m", "modify", "modify", "main~3")
+	id := func(rev string) string { return gitFixture(t, repo, "rev-parse", rev) }
+	root := id("main~4")
+	modify := id("main~3")
+	merge := id("main~1")
+	side := id("side")
+	tag := id("modify")
+	tree, blob, missing := id("main^{tree}"), id("main:renamed.txt"), strings.Repeat("a", 40)
+	t.Setenv("PATH", t.TempDir())
+	changed := map[string]string{"TOKEN_CHANGED\n": "file.txt:2"}
+	for _, tc := range []struct {
+		name   string
+		source Source
+		want   map[string]string
+	}{
+		{"no ancestors", Source{Commits: []string{modify}}, changed},
+		{"annotated tag", Source{Commits: []string{tag}}, changed},
+		{"duplicates", Source{Commits: []string{modify, modify, tag}}, changed},
+		{"separate branches", Source{Commits: []string{side, modify}}, map[string]string{
+			"TOKEN_SIDE\n": "side.txt:1", "TOKEN_CHANGED\n": "file.txt:2",
+		}},
+		{"root commit", Source{Commits: []string{root}}, map[string]string{
+			"first\nTOKEN_ROOT\nlast\n": "file.txt:1",
+		}},
+		{"empty list", Source{Commits: []string{}}, map[string]string{}},
+		{"merge excluded", Source{Commits: []string{merge}}, map[string]string{}},
+		{"merge included", Source{Commits: []string{merge}, Include: []string{"merges"}}, map[string]string{
+			"TOKEN_SIDE\n": "side.txt:1",
+		}},
+		{"filtered list", Source{Commits: []string{side, modify}, Author: "modify <", MaxCount: 1}, changed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.source.RepoPath = repo
+			fragments := collect(t, &tc.source)
+			require.Equal(t, tc.want, textOccurrences(fragments))
+			require.Len(t, fragments, len(tc.want))
+		})
+	}
+	t.Run("commit messages", func(t *testing.T) {
+		fragments := collect(t, &Source{
+			RepoPath: repo, Commits: []string{modify, side},
+			Include: []string{"commit-messages"}, Exclude: []string{"history"},
+		})
+		var commits []string
+		for _, fragment := range fragments {
+			require.Equal(t, sources.ResourceGitCommitMessage, fragment.Attr(sources.AttrResource))
+			commits = append(commits, fragment.Attr(sources.AttrGitSHA))
+		}
+		require.ElementsMatch(t, []string{modify, side}, commits)
+	})
+	for name, bad := range map[string]string{"tree": tree, "blob": blob, "missing": missing} {
+		t.Run(name, func(t *testing.T) {
+			source := &Source{RepoPath: repo, Commits: []string{modify, bad}}
+			err := source.Fragments(t.Context(), func(sources.Fragment, error) error {
+				t.Error("invalid commit list must fail before yielding fragments")
+				return nil
+			})
+			require.ErrorContains(t, err, bad)
+		})
+	}
+}
+
 func TestExternalStores(t *testing.T) {
 	other := newHistory(t)
 	noYield := func(sources.Fragment, error) error { return errors.New("yield from external storage") }

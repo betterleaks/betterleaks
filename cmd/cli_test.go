@@ -843,17 +843,27 @@ func TestFilesystemSetupFailureFinalizesIncompleteReport(t *testing.T) {
 
 func TestStdinReadFailureFinalizesIncompleteReport(t *testing.T) {
 	configPath := writeTestConfig(t, "[[rules]]\nid='token'\nregex='TOKEN'\n")
-	root, stdout := newTestCLI(t)
-	root.SetIn(iotest.ErrReader(fmt.Errorf("input failed")))
-	var exitCode int
-	root.runtime.exit = func(code int) { exitCode = code }
-	root.SetArgs([]string{"stdin", "--config", configPath, "--no-banner", "--output=-"})
-	require.NoError(t, root.Execute())
-	metadata, findings := decodeScanJSON(t, stdout.Bytes())
-	assert.Equal(t, report.ScanStateIncomplete, metadata.State)
-	assert.Equal(t, 1, exitCode)
-	assert.Empty(t, findings)
-	assert.Zero(t, metadata.BytesScanned)
+	for _, args := range [][]string{
+		{"stdin"},
+		{"git", t.TempDir(), "--commit-list-file=-"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			root, stdout := newTestCLI(t)
+			root.SetIn(iotest.ErrReader(fmt.Errorf("input failed")))
+			var logs bytes.Buffer
+			root.runtime.stderr = &logs
+			var exitCode int
+			root.runtime.exit = func(code int) { exitCode = code }
+			root.SetArgs(append(args, "--config", configPath, "--no-banner", "--output=-"))
+			require.NoError(t, root.Execute())
+			metadata, findings := decodeScanJSON(t, stdout.Bytes())
+			assert.Equal(t, report.ScanStateIncomplete, metadata.State)
+			assert.Equal(t, 1, exitCode)
+			assert.Empty(t, findings)
+			assert.Zero(t, metadata.BytesScanned)
+			assert.Contains(t, logs.String(), "input failed")
+		})
+	}
 }
 
 type blockedStdin struct {
@@ -869,8 +879,12 @@ func (r *blockedStdin) Read([]byte) (int, error) {
 
 func TestStdinCancellationFinalizesIncompleteReport(t *testing.T) {
 	configPath := writeTestConfig(t, "[[rules]]\nid='token'\nregex='TOKEN'\n")
-	for _, gitDiff := range []bool{false, true} {
-		t.Run(fmt.Sprintf("git-diff=%v", gitDiff), func(t *testing.T) {
+	for _, args := range [][]string{
+		{"stdin"},
+		{"stdin", "--git-diff"},
+		{"git", t.TempDir(), "--commit-list-file=-"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			input := &blockedStdin{started: make(chan struct{}), release: make(chan struct{})}
@@ -879,11 +893,7 @@ func TestStdinCancellationFinalizesIncompleteReport(t *testing.T) {
 			root.SetIn(input)
 			var exitCode int
 			root.runtime.exit = func(code int) { exitCode = code }
-			args := []string{"stdin", "--config", configPath, "--no-banner", "--output=-"}
-			if gitDiff {
-				args = append(args, "--git-diff")
-			}
-			root.SetArgs(args)
+			root.SetArgs(append(args, "--config", configPath, "--no-banner", "--output=-"))
 			done := make(chan error, 1)
 			finished := make(chan struct{})
 			defer func() {

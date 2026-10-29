@@ -226,6 +226,9 @@ func TestSource(t *testing.T) {
 			{RepoPath: repo, MaxBlobBytes: 5 << 30},
 			{RepoPath: repo, Workers: 17},
 			{RepoPath: repo, DiskCacheMiB: -1},
+			{RepoPath: repo, Revision: "main", Commits: []string{strings.Repeat("a", 40)}},
+			{RepoPath: repo, Commits: []string{"abc1234"}},
+			{RepoPath: repo, Commits: []string{strings.Repeat("a", 40)}, Include: []string{"reflogs"}},
 		} {
 			require.Error(t, bad.Validate())
 		}

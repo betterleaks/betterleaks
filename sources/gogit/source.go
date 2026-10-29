@@ -50,6 +50,11 @@ type Source struct {
 	// commits reachable from B but not from A. Empty scans HEAD and every non-note
 	// ref. It selects existing history and never fetches additional refs.
 	Revision string
+	// Commits selects full commit IDs without scanning earlier commits. Annotated
+	// tags select the commits they point to. Nil uses Revision; an empty slice
+	// selects no commits.
+	// Mutually exclusive with Revision and reflogs. Other commit filters still apply.
+	Commits []string
 	// Since and Until filter committer time inclusively, without pruning ancestors
 	// based on timestamps. Non-monotonic history therefore remains traversable.
 	Since, Until *time.Time
@@ -113,6 +118,13 @@ func (s *Source) Validate() error {
 		return errors.New("until must not precede since")
 	case strings.Contains(s.Revision, "..."):
 		return errors.New("symmetric revision ranges (A...B) are not supported; use A..B")
+	case s.Commits != nil && s.Revision != "":
+		return errors.New("commit list and revision are mutually exclusive")
+	}
+	for _, id := range s.Commits {
+		if !gitobj.IsHash(id) {
+			return fmt.Errorf("invalid commit ID %q; use a full object ID", id)
+		}
 	}
 	if err := (scm.CloneOptions{Refs: s.CloneRefs, AllRefs: s.CloneAllRefs}).Validate(); err != nil {
 		return err
@@ -122,8 +134,14 @@ func (s *Source) Validate() error {
 			return fmt.Errorf("invalid identity filter: %w", err)
 		}
 	}
-	_, err := s.selection()
-	return err
+	sel, err := s.selection()
+	if err != nil {
+		return err
+	}
+	if s.Commits != nil && sel.reflogs {
+		return errors.New("commit list and reflogs are mutually exclusive")
+	}
+	return nil
 }
 
 // selection is the resolved Include/Exclude choice.
