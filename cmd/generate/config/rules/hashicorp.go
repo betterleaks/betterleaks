@@ -34,9 +34,13 @@ func HashiCorpTerraform() *config.Rule {
 func HashicorpField() *config.Rule {
 	keywords := []string{"administrator_login_password", "password"}
 	inlinePasswordRegex := utils.GenerateSemiGenericRegex(keywords, fmt.Sprintf(`"%s"`, utils.AlphaNumericExtended("8,20")), true)
+	variableBody := `(?:#[^\r\n]*|//[^\r\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[^{}"])*?`
+	for range 4 {
+		variableBody = `(?:#[^\r\n]*|//[^\r\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[^{}"]|\{` + variableBody + `\})*?`
+	}
 	variableDefaultPasswordRegex := fmt.Sprintf(
-		`(?im)\bvariable\s+"(?:%s)"\s*\{[^}]*?^[ \t]*default[ \t]*=[ \t]*"([a-z0-9=_\-]{8,})"[ \t]*\r?(?://[^\r\n]*|#[^\r\n]*)?$`,
-		strings.Join(keywords, "|"),
+		`(?im)\bvariable\s+"(?:%s)"\s*\{%s^[ \t]*default[ \t]*=[ \t]*("[a-z0-9=_\-]{8,}")[ \t]*\r?(?://[^\r\n]*|#[^\r\n]*)?$`,
+		strings.Join(keywords, "|"), variableBody,
 	)
 	// define rule
 	r := config.Rule{

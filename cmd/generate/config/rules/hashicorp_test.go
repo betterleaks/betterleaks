@@ -33,7 +33,7 @@ func TestHashicorpFieldTerraformVariableDefaults(t *testing.T) {
   type    = string
   default = "` + longPassword + `"
 }`,
-			wantValues: []string{longPassword},
+			wantValues: []string{`"` + longPassword + `"`},
 		},
 		{
 			name: "reported Terraform snippet",
@@ -43,19 +43,42 @@ func TestHashicorpFieldTerraformVariableDefaults(t *testing.T) {
   default     = "693cb103178f5ac67ccc56a349"
   description = "Password for the application"
 }`,
-			wantValues: []string{"693cb103178f5ac67ccc56a349"},
+			wantValues: []string{`"693cb103178f5ac67ccc56a349"`},
+		},
+		{
+			name: "low entropy variable default",
+			path: "variables.tf",
+			content: `variable "password" {
+  default = "abcdabcd"
+}`,
+			wantValues: []string{`"abcdabcd"`},
+		},
+		{
+			name: "nested braces and braces in strings and comments",
+			path: "variables.tf",
+			content: `variable "password" {
+  description = "closing brace } inside a string"
+  type = object({ settings = object({ enabled = bool }) })
+  validation {
+    condition     = length(var.password) > 0
+    error_message = "opening brace { inside a string"
+  }
+  # closing brace } inside a comment
+  default = "nestedSecret123"
+}`,
+			wantValues: []string{`"nestedSecret123"`},
 		},
 		{
 			name:       "password variable in hcl",
 			path:       "variables.hcl",
 			content:    "variable \"password\" {\n  default = \"rootpasswd\"\n}",
-			wantValues: []string{"rootpasswd"},
+			wantValues: []string{`"rootpasswd"`},
 		},
 		{
 			name:       "windows line endings",
 			path:       "variables.tf",
 			content:    "variable \"password\" {\r\n  default = \"rootpasswd\"\r\n}",
-			wantValues: []string{"rootpasswd"},
+			wantValues: []string{`"rootpasswd"`},
 		},
 		{
 			name:       "existing inline assignment",
@@ -105,4 +128,33 @@ func TestHashicorpFieldTerraformVariableDefaults(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultConfigDetectsTerraformVariableDefault(t *testing.T) {
+	cfg, err := config.Default()
+	require.NoError(t, err)
+	scanner, err := scan.New(cfg)
+	require.NoError(t, err)
+
+	var findings []report.Finding
+	summary, err := scanner.Scan(t.Context(), &sources.Reader{
+		Content: strings.NewReader(`variable "password" {
+  validation {
+    condition = length(var.password) > 0
+  }
+  default = "abcdabcd"
+}`),
+		Attributes: map[string]string{
+			sources.AttrPath: "variables.tf",
+		},
+	}, func(finding report.Finding) error {
+		if finding.RuleID == "hashicorp-tf-password" {
+			findings = append(findings, finding)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, summary.Findings, 1)
+	require.Len(t, findings, 1)
+	require.Equal(t, `"abcdabcd"`, findings[0].Match.Value)
 }
