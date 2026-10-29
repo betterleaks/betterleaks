@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/config/utils"
 	"github.com/betterleaks/betterleaks/v2/cmd/generate/secrets"
@@ -32,12 +33,17 @@ func HashiCorpTerraform() *config.Rule {
 
 func HashicorpField() *config.Rule {
 	keywords := []string{"administrator_login_password", "password"}
+	inlinePasswordRegex := utils.GenerateSemiGenericRegex(keywords, fmt.Sprintf(`"%s"`, utils.AlphaNumericExtended("8,20")), true)
+	variableDefaultPasswordRegex := fmt.Sprintf(
+		`(?im)\bvariable\s+"(?:%s)"\s*\{[^}]*?^[ \t]*default[ \t]*=[ \t]*"([a-z0-9=_\-]{8,})"[ \t]*\r?(?://[^\r\n]*|#[^\r\n]*)?$`,
+		strings.Join(keywords, "|"),
+	)
 	// define rule
 	r := config.Rule{
 		ID:          "hashicorp-tf-password",
 		Confidence:  "medium",
 		Description: "Identified a HashiCorp Terraform password field, risking unauthorized infrastructure configuration and security breaches.",
-		Regex:       utils.GenerateSemiGenericRegex(keywords, fmt.Sprintf(`"%s"`, utils.AlphaNumericExtended("8,20")), true),
+		Regex:       fmt.Sprintf(`(?:%s)|(?:%s)`, inlinePasswordRegex, variableDefaultPasswordRegex),
 		Path:        `(?i)\.(?:tf|hcl)$`,
 		Keywords:    keywords,
 		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
@@ -48,11 +54,18 @@ func HashicorpField() *config.Rule {
 		"file.tf": "administrator_login_password = " + `"thisIsDog11"`,
 		// https://registry.terraform.io/providers/petoju/mysql/latest/docs
 		"file.hcl": "password       = " + `"rootpasswd"`,
+		"variables.tf": `variable "password" {
+  type    = string
+  default = "A1b2C3d4E5f6G7h8I9j0K1l2M3"
+}`,
 	}
 	fps := map[string]string{
-		"file.tf":      "administrator_login_password = var.db_password",
-		"file.hcl":     `password = "${aws_db_instance.default.password}"`,
-		"unrelated.js": "password       = " + `"rootpasswd"`,
+		"file.tf":        "administrator_login_password = var.db_password",
+		"file.hcl":       `password = "${aws_db_instance.default.password}"`,
+		"unrelated.js":   "password       = " + `"rootpasswd"`,
+		"variables.tf":   "variable \"username\" {\n  default = \"rootpasswd\"\n}",
+		"expression.tf":  "variable \"password\" {\n  default = var.db_password\n}",
+		"unrelated.yaml": "variable \"password\" {\n  default = \"rootpasswd\"\n}",
 	}
 
 	return utils.ValidateWithPaths(r, tps, fps)
