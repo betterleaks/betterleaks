@@ -458,12 +458,13 @@ Source prefilters are explicit: compile `cfg.PrefilterExpr` and set the source's
 limits, and symlink handling belong to sources; detection options belong to
 `scan.New`. Use `gogit.Source{RepoPath: "."}` for repository history.
 For staged changes, supply a caller-produced patch stream to
-`sources.GitDiff{Content: reader}`; Betterleaks does not execute Git.
+`gitpatch.GitDiff{Content: reader}`; Betterleaks does not execute Git.
 
 GitHub, GitLab, and Hugging Face resource selection uses `Include`/`Exclude`;
 the derived resource map is private. Configure a fresh source for each scan.
-`scm.CloneOptions.Mirror` is replaced by `AllRefs` and `Refs`; the zero value
-fetches branches, tags, and notes. Provider sources expose `CloneAllRefs`.
+The old `scm.CloneOptions.Mirror` is replaced by `clone.CloneOptions.AllRefs`
+and `Refs` in `sources/scm/clone`; the zero value fetches branches, tags, and
+notes. Provider sources expose `CloneAllRefs`.
 `File` manages its own read buffer; callers no longer supply `File.Buffer`.
 
 Callbacks are serialized within a scan; returning an error stops it. Finding
@@ -471,6 +472,29 @@ order is not guaranteed. Reuse scanners across concurrent calls with independent
 sources. `ScanString` remains convenient for small strings, but cannot return
 scan errors; use `Scan` when failures must be observable. Callers own
 `sources.Reader.Content` and must close or cancel it to interrupt a blocked read.
+
+### Source package layout
+
+The `sources` package contains `Source`, `Fragment`, `FragmentsFunc`,
+`PrefilterFunc`, shared metadata constants, and `Reader`. It has no third-party
+dependencies. Import concrete implementations separately; all paths below are
+relative to `github.com/betterleaks/betterleaks/v2`.
+
+| Earlier v2 API | Current API | Import path |
+| :--- | :--- | :--- |
+| `sources.File`, `sources.Files` | `filesystem.File`, `filesystem.Files` | `sources/filesystem` |
+| `sources.URL` | `web.URL` | `sources/web` |
+| `sources.GitDiff` | `gitpatch.GitDiff` | `sources/gitpatch` |
+| `sources.Auto`, `Kind`, `AutoOption`, and kind constants | Same names in `auto` | `sources/auto` |
+| `sources.WithAutoHTTPClient`, `sources.WithAutoLogger` | Same names in `auto` | `sources/auto` |
+| `scm.CloneOptions`, `CloneAuthed`, `CloneToTempDir`, `SanitizeOutput` | Same names in `clone` | `sources/scm/clone` |
+
+Update imports and package qualifiers; there are no compatibility aliases at
+the old locations. Custom source implementations keep the same
+`Fragments(context.Context, sources.FragmentsFunc) error` contract. Shared
+attribute constants and their serialized values are unchanged. Platform types
+and remote URL helpers remain in `sources/scm`, without Git transport imports.
+The CLI commands and source behavior are unchanged.
 
 ### Config is data; engines own execution
 

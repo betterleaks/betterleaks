@@ -19,16 +19,17 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
 	"github.com/betterleaks/betterleaks/v2/sources/scm"
+	"github.com/betterleaks/betterleaks/v2/sources/scm/clone"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -910,7 +911,7 @@ func (s *Source) scanProjectGit(ctx context.Context, proj *gitlabProject, yield 
 	if proj.HTTPURLToRepo == "" {
 		return nil
 	}
-	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
+	return clone.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", clone.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
 		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,
@@ -1440,7 +1441,7 @@ func (s *Source) downloadAndScan(ctx context.Context, rawURL, path string, attrs
 		TempPattern: "betterleaks-gitlab-dl-*",
 		Logger:      s.Logger,
 	}, func(content *os.File) error {
-		file := &sources.File{
+		file := &filesystem.File{
 			Content: content, Path: path, Attributes: attrs,
 			Logger: s.Logger, Prefilter: s.Prefilter,
 			MaxArchiveDepth: max(1, s.MaxArchiveDepth), DetectArchive: true,

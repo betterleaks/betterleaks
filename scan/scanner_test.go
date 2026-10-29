@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -31,13 +32,14 @@ import (
 	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
+	"github.com/betterleaks/betterleaks/v2/sources/gitpatch"
 	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"os/exec"
 )
 
 const maxDecodeDepth = 8
@@ -549,7 +551,7 @@ func TestPathOnlyRuleRunsOnFirstFileFragment(t *testing.T) {
 	}
 	timingCollector := ruletiming.NewCollector()
 	scanner := mustNew(t, cfg)
-	source := &sources.File{
+	source := &filesystem.File{
 		Content: strings.NewReader(strings.Repeat("aa\n\n", 100_000)),
 		Path:    "bundle.p12",
 	}
@@ -2695,7 +2697,7 @@ func TestFromGit(t *testing.T) {
 				args := append([]string{"-C", tt.source, "log", "-p", "-U0"}, strings.Fields(tt.logOpts)...)
 				patch, err := exec.Command("git", args...).Output()
 				require.NoError(t, err)
-				src = &sources.GitDiff{Content: bytes.NewReader(patch), Prefilter: mustPrefilter(t, cfg.PrefilterExpr)}
+				src = &gitpatch.GitDiff{Content: bytes.NewReader(patch), Prefilter: mustPrefilter(t, cfg.PrefilterExpr)}
 			}
 			findings, err := collectSourceFindings(t.Context(), scanner, src)
 
@@ -2751,7 +2753,7 @@ func TestFromGitStaged(t *testing.T) {
 		scanner := mustNew(t, cfg)
 		patch, err := exec.Command("git", "-C", tt.source, "diff", "--cached", "-U0", "--no-ext-diff", "--no-textconv").Output()
 		require.NoError(t, err)
-		findings, err := collectSourceFindings(t.Context(), scanner, &sources.GitDiff{Content: bytes.NewReader(patch), Prefilter: mustPrefilter(t, cfg.PrefilterExpr)})
+		findings, err := collectSourceFindings(t.Context(), scanner, &gitpatch.GitDiff{Content: bytes.NewReader(patch), Prefilter: mustPrefilter(t, cfg.PrefilterExpr)})
 
 		require.NoError(t, err)
 
@@ -2783,7 +2785,7 @@ func TestScanBinaryFiles(t *testing.T) {
 		t.Run(engine.Version(), func(t *testing.T) {
 			for _, usePrefilter := range []bool{true, false} {
 				t.Run(fmt.Sprintf("prefilter=%t", usePrefilter), func(t *testing.T) {
-					source := &sources.Files{Path: dir}
+					source := &filesystem.Files{Path: dir}
 					want := []string{"program", "program.exe", "report.pdf", "data.bin"}
 					if usePrefilter {
 						source.Prefilter = mustPrefilter(t, cfg.PrefilterExpr)
@@ -2836,7 +2838,7 @@ func TestScanTGZArchives(t *testing.T) {
 			path := filepath.Join(t.TempDir(), tc.name)
 			require.NoError(t, os.WriteFile(path, tc.data, 0o600))
 			for depth := 0; depth <= tc.depth; depth++ {
-				findings, err := collectSourceFindings(t.Context(), scanner, &sources.Files{Path: path, MaxArchiveDepth: depth})
+				findings, err := collectSourceFindings(t.Context(), scanner, &filesystem.Files{Path: path, MaxArchiveDepth: depth})
 				require.NoError(t, err)
 				if depth < tc.depth {
 					require.Empty(t, findings, "archive depth %d", depth)
@@ -2866,7 +2868,7 @@ func TestBinaryFindingReports(t *testing.T) {
 				path := filepath.Join(t.TempDir(), "data.db")
 				require.NoError(t, os.WriteFile(path, []byte(raw), 0o600))
 				scanner := mustNew(t, cfg, WithRegexEngine(engine), WithMaxDecodeDepth(1))
-				findings, err := collectSourceFindings(t.Context(), scanner, &sources.Files{Path: path})
+				findings, err := collectSourceFindings(t.Context(), scanner, &filesystem.Files{Path: path})
 				require.NoError(t, err)
 				require.Len(t, findings, 1)
 				f := findings[0]
@@ -3001,7 +3003,7 @@ func TestFromFiles(t *testing.T) {
 			findings, err := collectSourceFindings(
 				t.Context(), scanner,
 
-				&sources.Files{
+				&filesystem.Files{
 					Prefilter:      mustPrefilter(t, cfg.PrefilterExpr),
 					FollowSymlinks: true,
 					Path:           tt.source,
@@ -3452,7 +3454,7 @@ func TestDetectWithArchives(t *testing.T) {
 			scanner := mustNew(t, cfg)
 			findings, err := collectSourceFindings(
 				ctx, scanner,
-				&sources.Files{
+				&filesystem.Files{
 					Path:            tt.source,
 					Prefilter:       mustPrefilter(t, cfg.PrefilterExpr),
 					MaxArchiveDepth: 8,
@@ -3509,7 +3511,7 @@ func TestDetectWithSymlinks(t *testing.T) {
 		findings, err := collectSourceFindings(
 			t.Context(), scanner,
 
-			&sources.Files{
+			&filesystem.Files{
 				Prefilter:      mustPrefilter(t, cfg.PrefilterExpr),
 				FollowSymlinks: true,
 				Path:           tt.source,

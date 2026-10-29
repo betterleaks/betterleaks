@@ -10,6 +10,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/gitpatch"
 	"golang.org/x/term"
 )
 
@@ -55,7 +56,7 @@ func runStdIn(runtime *commandRuntime, globals *GlobalFlags, options *StdinCmd) 
 	defer closeInput()
 	source := newStdinSource(input, attrs, filters.shouldSkip)
 	if options.GitDiff {
-		source = &sources.GitDiff{Content: input, Attributes: attrs, Prefilter: filters.shouldSkip}
+		source = &gitpatch.GitDiff{Content: input, Attributes: attrs, Prefilter: filters.shouldSkip}
 	}
 	findings.startScan(runtime)
 	if file, ok := runtime.stdin.(*os.File); ok && term.IsTerminal(int(file.Fd())) {

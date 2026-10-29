@@ -1,5 +1,5 @@
 //nolint:exhaustruct // Pack state is populated incrementally after input validation.
-package scm
+package clone
 
 import (
 	"bufio"

@@ -54,11 +54,11 @@ func run() error {
 		Prefilter: skip,
 	}
 
-	// For caller-supplied paths or URLs, sources.Auto(ctx, target) returns
-	// an enum without constructing a source. Use sources.Files for local paths,
-	// gogit.Source{URL: target} for remote history, or sources.URL{URL: target}
+	// For caller-supplied paths or URLs, auto.Auto(ctx, target) returns
+	// an enum without constructing a source. Use filesystem.Files for local paths,
+	// gogit.Source{URL: target} for remote history, or web.URL{URL: target}
 	// for one HTTP response. Detection and remote sources may use the network.
-	// For caller-supplied patches, use sources.GitDiff{Content: patchReader}.
+	// For caller-supplied patches, use gitpatch.GitDiff{Content: patchReader}.
 	writer, err := report.NewJSONLWriter(os.Stdout)
 	if err != nil {
 		return err

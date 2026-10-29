@@ -1,5 +1,5 @@
 //nolint:exhaustruct // Fixtures vary the field relevant to each case.
-package scm
+package clone
 
 import (
 	"bufio"

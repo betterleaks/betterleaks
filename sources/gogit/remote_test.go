@@ -14,7 +14,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
+	"github.com/betterleaks/betterleaks/v2/sources/scm/clone"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,7 +56,7 @@ func TestRemotePackScanParity(t *testing.T) {
 	})
 	require.ErrorIs(t, err, gitobj.ErrReferenceNotFound)
 	require.ErrorContains(t, err, "--clone-ref=refs/...")
-	require.NoError(t, scm.CloneToTempDir(t.Context(), remote, "", "", scm.CloneOptions{}, func(path string) error {
+	require.NoError(t, clone.CloneToTempDir(t.Context(), remote, "", "", clone.CloneOptions{}, func(path string) error {
 		r, cleanup, err := (&Source{RepoPath: path}).open(t.Context())
 		require.NoError(t, err)
 		defer cleanup()
