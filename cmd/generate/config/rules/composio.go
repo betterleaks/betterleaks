@@ -44,7 +44,8 @@ const composioDeadKeyExpr = `r.status == 401 && (
 
 // composioValidateExpr asks the key's own endpoint whether it still
 // authenticates. A 403 counts as live only when it carries Composio's error
-// envelope; a bare 403 from a WAF says nothing about the key.
+// envelope, identified by a slug and the numeric code that accompanies it; a
+// 403 from a gateway, JSON or not, says nothing about the key.
 func composioValidateExpr(verifyURL, header string) string {
 	return `let r = http.get("` + verifyURL + `", {
     "` + header + `": finding["secret"],
@@ -61,7 +62,7 @@ r.status == 200 ? {
   "result": "valid",
   "reason": "Key authenticates but calls are restricted to an IP allowlist",
   "metadata": {"restriction": "ip_allowlist"}
-} : r.status == 403 && slug != "" ? {
+} : r.status == 403 && slug != "" && r.json?.error?.code != nil ? {
   "result": "valid",
   "reason": "Key authenticates but the request was forbidden",
   "metadata": {"restriction": slug}

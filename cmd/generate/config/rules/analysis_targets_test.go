@@ -321,7 +321,9 @@ func TestComposioValidation(t *testing.T) {
 			{"generic unauthorized", 401, `{"error":{"slug":"HTTP_Unauthorized","message":"Something else"}}`, report.ValidationStatusUnknown},
 			// A live key the caller cannot use from this address is still live.
 			{"ip allowlist", 401, `{"error":{"slug":"Auth_Unauthorized","message":"Request blocked by the IP allowlist"}}`, report.ValidationStatusValid},
-			{"insufficient permissions", 403, `{"error":{"slug":"APIKey_InsufficientPermissions","message":"Forbidden"}}`, report.ValidationStatusValid},
+			{"insufficient permissions", 403, `{"error":{"slug":"APIKey_InsufficientPermissions","code":403,"message":"Forbidden"}}`, report.ValidationStatusValid},
+			// A gateway that happens to return a nested JSON slug is not Composio.
+			{"gateway json forbidden", 403, `{"error":{"slug":"blocked_by_waf"}}`, report.ValidationStatusUnknown},
 			// A 403 without Composio's envelope says nothing about the key.
 			{"gateway forbidden", 403, `<html>Forbidden</html>`, report.ValidationStatusUnknown},
 			{"rate limited", 429, `{}`, report.ValidationStatusUnknown},
