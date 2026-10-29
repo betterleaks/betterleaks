@@ -15,6 +15,7 @@ func init() {
 	protectCmd.Flags().Bool("staged", false, "detect secrets in a --staged state")
 	protectCmd.Flags().String("log-opts", "", "git log options")
 	protectCmd.Flags().StringP("source", "s", ".", "path to source")
+	protectCmd.Flags().Bool("trust-local-git-config", false, "trust the repository's local Git configuration and hooks, which can execute programs; use only for trusted repositories")
 	rootCmd.AddCommand(protectCmd)
 }
 
@@ -50,7 +51,8 @@ func runProtect(cmd *cobra.Command, args []string) {
 		gitCmd   *sources.GitCmd
 	)
 
-	if gitCmd, err = sources.NewGitDiffCmdContext(cmd.Context(), source, staged); err != nil {
+	gitOpts := sources.GitOptions{TrustLocalGitConfig: mustGetBoolFlag(cmd, "trust-local-git-config")}
+	if gitCmd, err = gitOpts.NewDiffCmd(cmd.Context(), source, staged); err != nil {
 		logging.Fatal().Err(err).Msg("could not create Git diff cmd")
 	}
 	src := &sources.Git{

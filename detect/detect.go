@@ -633,6 +633,12 @@ func (d *Detector) Run(ctx context.Context, source sources.Source) iter.Seq[Resu
 				return
 			}
 		}
+		// emit intentionally stops sending once canceled. Report the parent
+		// cancellation after the source has finished cleaning up, so the CLI
+		// cannot label an interrupted scan as successfully finding no leaks.
+		if err := ctx.Err(); err != nil {
+			yield(Result{Err: err})
+		}
 	}
 }
 

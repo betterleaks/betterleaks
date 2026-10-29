@@ -60,7 +60,7 @@ type GitLab struct {
 	AllGroups        bool
 	IncludeSubgroups bool
 
-	// Scan config (passed through to Git/ParallelGit per project)
+	// Scan config (passed through to Git per project)
 	ShouldSkip      SkipFunc
 	Sema            *semgroup.Group
 	MaxArchiveDepth int
@@ -985,24 +985,13 @@ func (s *GitLab) scanProjectGit(ctx context.Context, proj *gitlabProject, yield 
 		return nil
 	}
 	return scm.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", scm.CloneOptions{Mirror: true}, func(repoPath string) error {
-		var src Source
-		if s.Workers > 0 {
-			src = &ParallelGit{
-				RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
-				Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-				LogOpts: s.LogOpts, Workers: s.Workers,
-			}
-		} else {
-			gitCmd, err := NewGitLogCmdContext(ctx, repoPath, s.LogOpts)
-			if err != nil {
-				return err
-			}
-			src = &Git{
-				Cmd: gitCmd, ShouldSkip: s.ShouldSkip,
-				Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
-				Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
-			}
+		// Betterleaks created this clone, so its configuration is trusted.
+		src := &Git{
+			RepoPath: repoPath, ShouldSkip: s.ShouldSkip,
+			Platform: scm.GitLabPlatform, RemoteURL: proj.WebURL,
+			Sema: s.Sema, MaxArchiveDepth: s.MaxArchiveDepth,
+			LogOpts: s.LogOpts, Workers: s.Workers,
+			TrustLocalGitConfig: true,
 		}
 		return src.Fragments(ctx, yield)
 	})
