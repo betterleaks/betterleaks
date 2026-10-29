@@ -283,3 +283,135 @@ func TestRecursionAPIKeyValidation(t *testing.T) {
 		})
 	}
 }
+
+// composioKeyTypes pairs each Composio rule with the endpoint and header that
+// Composio accepts it on. A live key sent under another type's header is
+// rejected exactly like an unknown key, so the pairing is load bearing.
+var composioKeyTypes = []struct {
+	name   string
+	rule   func() *config.Rule
+	url    string
+	header string
+}{
+	{"project", ComposioProjectAPIKey, "https://backend.composio.dev/api/v3/toolkits/categories", "x-api-key"},
+	{"org", ComposioOrgAPIKey, "https://backend.composio.dev/api/v3/org/owner/project/list?limit=1", "x-org-api-key"},
+	{"user", ComposioUserAPIKey, "https://backend.composio.dev/api/v3/org/list?limit=1", "x-user-api-key"},
+}
+
+func TestComposioValidation(t *testing.T) {
+	for _, keyType := range composioKeyTypes {
+		fixture := targetFixture{
+			rule:       keyType.rule,
+			url:        keyType.url,
+			authHeader: keyType.header,
+			authValue:  "fixture-secret-us20",
+		}
+		for _, test := range []struct {
+			name   string
+			status int
+			body   string
+			want   report.ValidationStatus
+		}{
+			{"live key", 200, `{"items":[]}`, report.ValidationStatusValid},
+			{"unknown key", 401, `{"error":{"slug":"APIKey_InvalidAPIKey","message":"Invalid API key"}}`, report.ValidationStatusInvalid},
+			{"expired key", 401, `{"error":{"slug":"APIKey_APIKeyExpired","message":"Expired"}}`, report.ValidationStatusInvalid},
+			{"rejected user key", 401, `{"error":{"slug":"UserApiKey_Unauthorized","message":"Invalid or revoked user API key"}}`, report.ValidationStatusInvalid},
+			// The org endpoint reports a generic slug, so only the message decides.
+			{"rejected org key", 401, `{"error":{"slug":"HTTP_Unauthorized","message":"Invalid x-org-api-key. Please check you are using a valid API key."}}`, report.ValidationStatusInvalid},
+			{"generic unauthorized", 401, `{"error":{"slug":"HTTP_Unauthorized","message":"Something else"}}`, report.ValidationStatusUnknown},
+			// A live key the caller cannot use from this address is still live.
+			{"ip allowlist", 401, `{"error":{"slug":"Auth_Unauthorized","message":"Request blocked by the IP allowlist"}}`, report.ValidationStatusValid},
+			{"insufficient permissions", 403, `{"error":{"slug":"APIKey_InsufficientPermissions","message":"Forbidden"}}`, report.ValidationStatusValid},
+			// A 403 without Composio's envelope says nothing about the key.
+			{"gateway forbidden", 403, `<html>Forbidden</html>`, report.ValidationStatusUnknown},
+			{"rate limited", 429, `{}`, report.ValidationStatusUnknown},
+			{"unavailable", 503, `{}`, report.ValidationStatusUnknown},
+		} {
+			t.Run(keyType.name+"/"+test.name, func(t *testing.T) {
+				result, _ := runTargetFixture(t, fixture.rule(), fixture, test.status, test.body, false)
+				assert.Equal(t, test.want, result.Status)
+			})
+		}
+	}
+}
+
+// composioRevocationResponse is one scripted reply in the revocation sequence.
+type composioRevocationResponse struct {
+	status int
+	body   string
+}
+
+// runComposioRevocation evaluates a revocation expression against scripted
+// replies and returns the result plus every request the expression sent.
+func runComposioRevocation(t *testing.T, rule *config.Rule, replies []composioRevocationResponse) (*provider.Result, []*http.Request, []string) {
+	t.Helper()
+	var requests []*http.Request
+	var bodies []string
+	runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(req *http.Request) (*http.Response, error) {
+		raw := ""
+		if req.Body != nil {
+			payload, readErr := io.ReadAll(req.Body)
+			require.NoError(t, readErr)
+			raw = string(payload)
+		}
+		requests = append(requests, req)
+		bodies = append(bodies, raw)
+		require.LessOrEqual(t, len(requests), len(replies), "revocation sent more requests than the fixture scripts")
+		reply := replies[len(requests)-1]
+		return &http.Response{StatusCode: reply.status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(reply.body))}, nil
+	})})
+	require.NoError(t, err)
+	program, err := runtime.CompileRevocation(rule.RevokeExpr)
+	require.NoError(t, err)
+	finding := map[string]string{"rule_id": rule.ID, "secret": "fixture-secret-us20"}
+	value, err := runtime.EvalRevocationWithComponents(t.Context(), program, finding, nil, nil, exprruntime.EvalOptions{})
+	require.NoError(t, err)
+	return provider.ParseResult(value.Value), requests, bodies
+}
+
+func TestComposioRevocation(t *testing.T) {
+	const killSwitch = "https://backend.composio.dev/api/v3.1/api_key_revocation"
+	accepted := composioRevocationResponse{200, `{"received":true}`}
+
+	t.Run("posts the key to the kill switch then confirms", func(t *testing.T) {
+		for _, keyType := range composioKeyTypes {
+			t.Run(keyType.name, func(t *testing.T) {
+				rule := keyType.rule()
+				dead := `{"error":{"slug":"APIKey_InvalidAPIKey","message":"Invalid API key"}}`
+				if keyType.name == "org" {
+					dead = `{"error":{"slug":"HTTP_Unauthorized","message":"Invalid x-org-api-key. Please check you are using a valid API key."}}`
+				}
+				result, requests, bodies := runComposioRevocation(t, rule, []composioRevocationResponse{accepted, {401, dead}})
+				require.Len(t, requests, 2)
+				assert.Equal(t, http.MethodPost, requests[0].Method)
+				assert.Equal(t, killSwitch, requests[0].URL.String())
+				assert.JSONEq(t, `{"api_keys":["fixture-secret-us20"]}`, bodies[0])
+				// The key is never sent as a credential to the kill switch.
+				assert.Empty(t, requests[0].Header.Get(keyType.header))
+				assert.Equal(t, http.MethodGet, requests[1].Method)
+				assert.Equal(t, keyType.url, requests[1].URL.String())
+				assert.Equal(t, "fixture-secret-us20", requests[1].Header.Get(keyType.header))
+				assert.Equal(t, report.ValidationStatusRevoked, result.Status)
+			})
+		}
+	})
+
+	// Composio answers a constant body, so acceptance alone proves nothing.
+	t.Run("acceptance without confirmation is not revocation", func(t *testing.T) {
+		result, requests, _ := runComposioRevocation(t, ComposioProjectAPIKey(), []composioRevocationResponse{accepted, {200, `{"items":[]}`}})
+		require.Len(t, requests, 2)
+		assert.Equal(t, report.ValidationStatusUnknown, result.Status)
+	})
+
+	t.Run("a rejected kill switch request never checks the key", func(t *testing.T) {
+		result, requests, _ := runComposioRevocation(t, ComposioProjectAPIKey(), []composioRevocationResponse{{500, `{}`}})
+		require.Len(t, requests, 1, "a failed revocation must not probe the key")
+		assert.Equal(t, report.ValidationStatusUnknown, result.Status)
+	})
+
+	t.Run("an undecided follow-up is not revocation", func(t *testing.T) {
+		result, requests, _ := runComposioRevocation(t, ComposioProjectAPIKey(), []composioRevocationResponse{accepted, {503, `{}`}})
+		require.Len(t, requests, 2)
+		assert.Equal(t, report.ValidationStatusUnknown, result.Status)
+	})
+}

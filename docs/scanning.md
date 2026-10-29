@@ -1991,6 +1991,7 @@ The default config supports these providers:
 | Provider | Rule IDs | Workflow |
 | :--- | :--- | :--- |
 | Buildkite | `buildkite-user-access-token` | Delete the authenticating token. |
+| Composio | `composio-project-api-key`, `composio-org-api-key`, `composio-user-api-key` | Submit the key to the public revocation endpoint, then confirm it no longer authenticates. |
 | GitLab | `gitlab-pat`, `gitlab-pat-routable`, `gitlab-pat-routable-versioned` | Revoke the authenticating PAT through the `self` endpoint. |
 | GitHub | `github-pat`, `github-fine-grained-pat`, `github-oauth`, `github-refresh-token` | Submit the token to the public credential revocation endpoint. |
 | Hugging Face | `huggingface-access-token`, `huggingface-organization-api-token` | Submit the token for global invalidation. |
@@ -2003,7 +2004,13 @@ is unconfirmed. Its [API documentation](https://docs.github.com/en/rest/credenti
 only promises acceptance. Hugging Face also returns `202`, but
 [documents immediate invalidation of matching tokens](https://huggingface.co/docs/hub/security-tokens#revoking-a-leaked-token);
 its result is `revoked`, with a reason noting that prior token validity is not
-disclosed. Neither public submission endpoint receives an Authorization header.
+disclosed. Composio revokes a matched key before it answers, but its constant
+`{"received": true}` deliberately does not reveal whether any submitted key
+matched, so its expression asks the key's own validation endpoint afterwards and
+reports `revoked` only once Composio rejects the key. An accepted request whose
+key still authenticates stays `unknown`, and a Composio `500` means at least one
+key was not revoked and the request should be retried. None of these public
+submission endpoints receives an Authorization header.
 
 For a custom GitLab instance, set `GITLAB_BASE_URL` to the instance URL and allow
 it with `--provider-env-vars GITLAB_BASE_URL`. GitHub uses the existing
