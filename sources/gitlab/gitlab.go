@@ -19,16 +19,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/internal/gitclone"
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
+	"github.com/betterleaks/betterleaks/v2/scm"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
-	"github.com/betterleaks/betterleaks/v2/sources/scm/clone"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -911,7 +911,7 @@ func (s *Source) scanProjectGit(ctx context.Context, proj *gitlabProject, yield 
 	if proj.HTTPURLToRepo == "" {
 		return nil
 	}
-	return clone.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", clone.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
+	return gitclone.CloneToTempDir(ctx, proj.HTTPURLToRepo, s.Token, "betterleaks-gitlab-*", gitclone.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
 		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,

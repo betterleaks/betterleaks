@@ -462,9 +462,9 @@ For staged changes, supply a caller-produced patch stream to
 
 GitHub, GitLab, and Hugging Face resource selection uses `Include`/`Exclude`;
 the derived resource map is private. Configure a fresh source for each scan.
-The old `scm.CloneOptions.Mirror` is replaced by `clone.CloneOptions.AllRefs`
-and `Refs` in `sources/scm/clone`; the zero value fetches branches, tags, and
-notes. Provider sources expose `CloneAllRefs`.
+Configure remote Git scans through `gogit.Source.URL`, `Token`, `CloneRefs`,
+and `CloneAllRefs`. By default, fetching includes branches, tags, and notes.
+Provider sources expose `CloneAllRefs`.
 `File` manages its own read buffer; callers no longer supply `File.Buffer`.
 
 Callbacks are serialized within a scan; returning an error stops it. Finding
@@ -487,13 +487,20 @@ relative to `github.com/betterleaks/betterleaks/v2`.
 | `sources.GitDiff` | `gitpatch.GitDiff` | `sources/gitpatch` |
 | `sources.Auto`, `Kind`, `AutoOption`, and kind constants | Same names in `auto` | `sources/auto` |
 | `sources.WithAutoHTTPClient`, `sources.WithAutoLogger` | Same names in `auto` | `sources/auto` |
-| `scm.CloneOptions`, `CloneAuthed`, `CloneToTempDir`, `SanitizeOutput` | Same names in `clone` | `sources/scm/clone` |
+| `scm.Platform`, platform constants, and remote URL helpers from `sources/scm` | Same names in `scm` | `scm` |
 
 Update imports and package qualifiers; there are no compatibility aliases at
 the old locations. Custom source implementations keep the same
 `Fragments(context.Context, sources.FragmentsFunc) error` contract. Shared
 attribute constants and their serialized values are unchanged. Platform types
-and remote URL helpers remain in `sources/scm`, without Git transport imports.
+and remote URL helpers now live in the top-level `scm` package, without Git
+transport imports. `gogit.Source.Platform` still accepts `scm.Platform`;
+update the import to `github.com/betterleaks/betterleaks/v2/scm`.
+
+The former public cloning helpers (`scm.CloneOptions`, `CloneAuthed`,
+`CloneToTempDir`, and `SanitizeOutput`, later in `sources/scm/clone`) are now
+implementation details in `internal/gitclone`. SDK callers configure remote
+scans through Git-capable sources instead of calling cloning helpers directly.
 The CLI commands and source behavior are unchanged.
 
 ### Config is data; engines own execution

@@ -921,6 +921,9 @@ empty `Revision`, history starts at HEAD and all non-note refs.
 `Include`/`Exclude` use the CLI's resource names. `CloneRefs` and `CloneAllRefs`
 correspond to the URL-only clone flags. Supply `Token` explicitly for an
 authenticated URL; the SDK does not infer environment tokens.
+Platform types and constants come from
+`github.com/betterleaks/betterleaks/v2/scm`. For example, set
+`Platform: scm.NoPlatform` to disable finding links.
 
 | CLI option | `gogit.Source` field | SDK behavior |
 |---|---|---|

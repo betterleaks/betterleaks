@@ -28,7 +28,7 @@ func TestSDKDoesNotImportSourceImplementations(t *testing.T) {
 	// Include Reader's package and the pipeline/prefilter entry points: making
 	// ScanString lightweight must also work for callers scanning their own streams.
 	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}",
-		".", "../report", "../analyze", "../pipeline", "../sources", "../sources/prefilter", "../sources/scm")
+		".", "../report", "../analyze", "../pipeline", "../sources", "../sources/prefilter", "../scm")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("list SDK dependencies: %v\n%s", err, output)
@@ -38,13 +38,13 @@ func TestSDKDoesNotImportSourceImplementations(t *testing.T) {
 		sourcePath:                      true,
 		sourcePath + "/internal/stream": true,
 		sourcePath + "/prefilter":       true,
-		sourcePath + "/scm":             true,
 	}
 	for _, dependency := range strings.Fields(string(output)) {
 		if strings.HasPrefix(dependency, sourcePath+"/") && !allowed[dependency] {
 			t.Errorf("SDK imports source implementation %s", dependency)
 		}
 		for _, forbidden := range []string{
+			"github.com/betterleaks/betterleaks/v2/internal/gitclone",
 			"github.com/go-git/go-git",
 			"github.com/mholt/archives",
 			"github.com/charlievieth/fastwalk",
@@ -58,7 +58,7 @@ func TestSDKDoesNotImportSourceImplementations(t *testing.T) {
 
 func TestSourceProtocolDoesNotImportThirdPartyPackages(t *testing.T) {
 	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}",
-		"../sources", "../sources/scm")
+		"../sources", "../scm")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("list source protocol dependencies: %v\n%s", err, output)

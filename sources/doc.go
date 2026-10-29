@@ -8,7 +8,8 @@
 // Provider integrations live in github, gitlab, huggingface, s3, and container.
 // Import the implementation needed and pass it to scan.Scanner or
 // pipeline.Pipeline. The auto package classifies targets without constructing
-// a source; scm provides platform metadata independently of scm/clone.
+// a source. The top-level scm package provides platform metadata; cloning is
+// implemented internally by Git-capable sources.
 //
 // Common, filesystem, and Git attribute constants live here. Provider-specific
 // attribute constants and resource values live with their providers. Their

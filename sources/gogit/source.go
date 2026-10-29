@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/internal/gitclone"
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
+	"github.com/betterleaks/betterleaks/v2/scm"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
-	"github.com/betterleaks/betterleaks/v2/sources/scm/clone"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -115,7 +115,7 @@ func (s *Source) Validate() error {
 	case strings.Contains(s.Revision, "..."):
 		return errors.New("symmetric revision ranges (A...B) are not supported; use A..B")
 	}
-	if err := (clone.CloneOptions{Refs: s.CloneRefs, AllRefs: s.CloneAllRefs}).Validate(); err != nil {
+	if err := (gitclone.CloneOptions{Refs: s.CloneRefs, AllRefs: s.CloneAllRefs}).Validate(); err != nil {
 		return err
 	}
 	for _, pattern := range []string{s.Author, s.Committer} {
@@ -202,8 +202,8 @@ func (s *Source) Fragments(ctx context.Context, yield sources.FragmentsFunc) err
 	if s.URL != "" {
 		logger, start := logging.OrDiscard(s.Logger), time.Now()
 		logger.Info("starting clone", "url", urlredact.PublicString(s.URL))
-		options := clone.CloneOptions{Refs: s.CloneRefs, AllRefs: s.CloneAllRefs}
-		return clone.CloneToTempDir(ctx, s.URL, s.Token, "betterleaks-git-*", options, func(path string) error {
+		options := gitclone.CloneOptions{Refs: s.CloneRefs, AllRefs: s.CloneAllRefs}
+		return gitclone.CloneToTempDir(ctx, s.URL, s.Token, "betterleaks-git-*", options, func(path string) error {
 			logger.Info("clone complete, starting scan", "duration", time.Since(start).Round(time.Millisecond))
 			local := *s
 			local.RepoPath, local.URL, local.Token = path, "", ""

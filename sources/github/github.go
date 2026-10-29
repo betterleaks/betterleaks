@@ -16,16 +16,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/internal/gitclone"
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
+	"github.com/betterleaks/betterleaks/v2/scm"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
-	"github.com/betterleaks/betterleaks/v2/sources/scm/clone"
 	"github.com/google/go-github/v72/github"
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/sync/errgroup"
@@ -622,7 +622,7 @@ func (s *Source) newClient(ctx context.Context) *github.Client {
 //
 //nolint:exhaustruct // Unspecified Git source options retain their documented defaults.
 func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, yield sources.FragmentsFunc) error {
-	return clone.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", clone.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
+	return gitclone.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", gitclone.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
 		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,
