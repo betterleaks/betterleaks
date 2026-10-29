@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,7 +23,9 @@ const (
 	azureAppConfigVersion = "1.0"
 )
 
-var azureTenantPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$`)
+var azureTenantPatternOnce = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$`)
+})
 
 func azureNamespace(rt *runtimeBindings) map[string]any {
 	return map[string]any{
@@ -106,7 +109,7 @@ func (rt *runtimeBindings) azureValidateServicePrincipal(tenantID, clientID, cli
 	if tenantID == "" || clientID == "" || clientSecret == "" {
 		return azureInputError("missing_service_principal_fields")
 	}
-	if !azureTenantPattern.MatchString(tenantID) {
+	if !azureTenantPatternOnce().MatchString(tenantID) {
 		return azureInputError("invalid_tenant_id")
 	}
 
