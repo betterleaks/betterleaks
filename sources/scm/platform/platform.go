@@ -1,4 +1,4 @@
-package scm
+package platform
 
 import (
 	"fmt"

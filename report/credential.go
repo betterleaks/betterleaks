@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/betterleaks/betterleaks/v2/sources"
+	sources "github.com/betterleaks/betterleaks/v2/sources/sourcetypes"
 )
 
 // SchemaVersion identifies the JSON report contract, independently of the

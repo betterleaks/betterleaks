@@ -16,8 +16,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
 
-const InnerPathSeparator = "!"
-
 type seekReaderAt interface {
 	io.ReaderAt
 	io.Seeker

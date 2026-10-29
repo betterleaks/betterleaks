@@ -1,4 +1,4 @@
-package sources
+package sourcetypes
 
 // Common source attributes. Provider-specific keys live in their source packages.
 

@@ -31,7 +31,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/tokenizer"
 	blregexp "github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/report"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	sources "github.com/betterleaks/betterleaks/v2/sources/sourcetypes"
 )
 
 var errStopScan = errors.New("scanner: stop scan")

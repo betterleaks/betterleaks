@@ -1,4 +1,4 @@
-package sources
+package sourcetypes
 
 // Git resource selectors name what a Git source scans. They are values for a
 // source's Include and Exclude lists, not fragment attributes.

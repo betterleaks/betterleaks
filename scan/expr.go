@@ -2,7 +2,7 @@ package scan
 
 import (
 	"github.com/betterleaks/betterleaks/v2/report"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	sources "github.com/betterleaks/betterleaks/v2/sources/sourcetypes"
 	"maps"
 )
 

@@ -1,4 +1,4 @@
-package sources
+package sourcetypes
 
 import (
 	"context"

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/internal/confidence"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	sources "github.com/betterleaks/betterleaks/v2/sources/sourcetypes"
 )
 
 // Finding describes what a rule matched, where it was found, and optional provider

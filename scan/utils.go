@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/report"
-	"github.com/betterleaks/betterleaks/v2/sources"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
+	scm "github.com/betterleaks/betterleaks/v2/sources/scm/platform"
+	sources "github.com/betterleaks/betterleaks/v2/sources/sourcetypes"
 )
 
 var linkCleaner = strings.NewReplacer(

@@ -1,4 +1,4 @@
-package sources
+package sourcetypes
 
 // Fragment represents a fragment of a source with its meta data
 type Fragment struct {
