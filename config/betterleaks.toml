@@ -8865,9 +8865,98 @@ entropy(finding["secret"]) < 3.5
 [[rules]]
 id = "notion-api-token"
 description = "Notion API token"
-regex = '''\b(ntn_[0-9]{11}[A-Za-z0-9]{32}[A-Za-z0-9]{3})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''\b(ntn_[A-Za-z0-9]{46})\b'''
 confidence = "high"
 keywords = ["ntn_"]
+validate = '''
+let r = http.get("https://api.notion.com/v1/users/me", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Notion-Version": "2026-03-11"
+});
+r.status == 200 && type(r.json) == "map" && r.json?.object == "user" && type(r.json?.id) == "string" && r.json.id != "" ? (
+  let bot = type(r.json?.bot) == "map" ? r.json.bot : {};
+  let owner = type(bot?.owner) == "map" ? bot.owner : {};
+  let user = owner?.type == "user" && type(owner?.user) == "map" ? owner.user : {};
+  {
+    "result": "valid",
+    "analysis": {
+      "identity": {
+        "id": user?.id ?? r.json.id,
+        "name": user?.name ?? r.json?.name ?? "",
+        "email": user?.person?.email ?? "",
+        "account": {"id": bot?.workspace_id ?? "", "name": bot?.workspace_name ?? ""}
+      },
+      "metadata": {
+        "bot_id": r.json.id,
+        "bot_name": r.json?.name ?? "",
+        "owner_type": owner?.type ?? ""
+      }
+    }
+  }
+) : r.status == 401 && type(r.json) == "map" && r.json?.code == "unauthorized" ? {
+  "result": "invalid", "reason": "Notion rejected the API token"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": input["identity"] ?? {},
+  "metadata": input["metadata"] ?? {},
+  "capabilities": [],
+  "reason": "Identity resolved; effective permissions were not returned"
+}
+'''
+filter = '''
+entropy(finding["secret"]) <= 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# notion-api-token-legacy
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "notion-api-token-legacy"
+description = "Notion API token (legacy)"
+regex = '''\b(secret_[A-Za-z0-9]{43})\b'''
+confidence = "medium"
+keywords = ["secret_"]
+validate = '''
+let r = http.get("https://api.notion.com/v1/users/me", {
+  "Authorization": "Bearer " + finding["secret"],
+  "Notion-Version": "2026-03-11"
+});
+r.status == 200 && type(r.json) == "map" && r.json?.object == "user" && type(r.json?.id) == "string" && r.json.id != "" ? (
+  let bot = type(r.json?.bot) == "map" ? r.json.bot : {};
+  let owner = type(bot?.owner) == "map" ? bot.owner : {};
+  let user = owner?.type == "user" && type(owner?.user) == "map" ? owner.user : {};
+  {
+    "result": "valid",
+    "analysis": {
+      "identity": {
+        "id": user?.id ?? r.json.id,
+        "name": user?.name ?? r.json?.name ?? "",
+        "email": user?.person?.email ?? "",
+        "account": {"id": bot?.workspace_id ?? "", "name": bot?.workspace_name ?? ""}
+      },
+      "metadata": {
+        "bot_id": r.json.id,
+        "bot_name": r.json?.name ?? "",
+        "owner_type": owner?.type ?? ""
+      }
+    }
+  }
+) : r.status == 401 && type(r.json) == "map" && r.json?.code == "unauthorized" ? {
+  "result": "invalid", "reason": "Notion rejected the API token"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": input["identity"] ?? {},
+  "metadata": input["metadata"] ?? {},
+  "capabilities": [],
+  "reason": "Identity resolved; effective permissions were not returned"
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 4.0
 '''
