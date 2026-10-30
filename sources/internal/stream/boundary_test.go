@@ -1,4 +1,4 @@
-package sources
+package stream
 
 import (
 	"bufio"
@@ -170,3 +170,7 @@ func TestReadUntilSafeBoundaryDoesNotRefillPastBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "remaining", string(rest))
 }
+
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }

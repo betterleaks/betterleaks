@@ -9,6 +9,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 )
 
@@ -60,7 +61,7 @@ func (s *Source) blobs(ctx context.Context, r *repository, unreachable bool, yie
 			return err
 		}
 		// A blob has no intrinsic filename. Archive detection uses magic bytes.
-		file := &sources.File{Path: "", Symlink: "", DetectArchive: true, StrictArchives: false, Content: reader, Attributes: attrs, MaxArchiveDepth: s.MaxArchiveDepth, Prefilter: s.Prefilter, Logger: s.Logger}
+		file := &filesystem.File{Path: "", Symlink: "", DetectArchive: true, StrictArchives: false, Content: reader, Attributes: attrs, MaxArchiveDepth: s.MaxArchiveDepth, Prefilter: s.Prefilter, Logger: s.Logger}
 		err = file.Fragments(ctx, yield)
 		closeErr := reader.Close()
 		return errors.Join(err, closeErr)

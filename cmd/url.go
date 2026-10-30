@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/scan"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/web"
 )
 
 type URLCmd struct {
@@ -29,7 +29,7 @@ func (cmd *URLCmd) Run(cli *CLI, runtime *commandRuntime) error {
 	}
 	findings := mustNewFindingCollector(runtime, &cmd.ScanFlags, cli.NoColor, start, cfg, "url", cmd.URL)
 
-	src := &sources.URL{
+	src := &web.URL{
 		URL:             cmd.URL,
 		Logger:          runtime.Logger(),
 		Prefilter:       filters.shouldSkip,

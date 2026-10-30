@@ -161,28 +161,30 @@ SSH Git URLs and scheme-less remote addresses are not supported by this shorthan
 Self-hosted provider resources and custom S3-compatible endpoints use explicit
 provider commands; arbitrary HTTP(S) Git servers can use discovery or `git`.
 
-The SDK exposes the same classification without constructing a source:
+The SDK exposes the same classification without constructing a source through
+`github.com/betterleaks/betterleaks/v2/sources/auto`:
 
 ```go
-kind, err := sources.Auto(ctx, target)
+kind, err := auto.Auto(ctx, target)
 if err != nil {
-    return err // kind == sources.UnknownKind
+    return err // kind == auto.UnknownKind
 }
 switch kind {
-case sources.FilesystemKind:
-    // Construct sources.Files with Path: target.
-case sources.GitKind:
+case auto.FilesystemKind:
+    // Construct filesystem.Files with Path: target.
+case auto.GitKind:
     // Construct gogit.Source with URL: target.
-case sources.URLKind:
-    // Construct sources.URL with URL: target.
+case auto.URLKind:
+    // Construct web.URL with URL: target.
     // Set MaxArchiveDepth if archives should be scanned.
 }
 ```
 
-Other kinds are `GitHubKind`, `GitLabKind`, `HuggingFaceKind`, and `S3Kind`.
-`WithAutoHTTPClient(client)` supplies a discovery client, including custom
+Other kinds are `auto.GitHubKind`, `auto.GitLabKind`, `auto.HuggingFaceKind`,
+and `auto.S3Kind`.
+`auto.WithAutoHTTPClient(client)` supplies a discovery client, including custom
 authentication. Detection can make network requests and respects context
-cancellation. `WithAutoLogger(logger)` enables SDK diagnostics; the CLI logs the
+cancellation. `auto.WithAutoLogger(logger)` enables SDK diagnostics; the CLI logs the
 selected source at info level and Git discovery at debug level (`--log-level debug`).
 Logged URLs omit userinfo, query parameters, and fragments. The SDK does not read
 credential environment variables.
@@ -582,7 +584,8 @@ Archive recursion follows `--max-archive-depth`. Temporary downloads are removed
 on completion or failure. Findings use `resource=url.content`, the URL path as
 `path`, and a `url` attribute with userinfo, query parameters, and fragments
 removed. URL userinfo can supply HTTP Basic authentication; SDK callers can
-supply `sources.URL.HTTPClient` for other authentication or timeout policies.
+supply `web.URL.HTTPClient` from `sources/web` for other authentication or
+timeout policies.
 Archive entries retain the URL attributes, so prefilters can combine `url`,
 `resource`, and the full archive entry `path` (for example, `download!secret.txt`).
 
@@ -920,6 +923,9 @@ empty `Revision`, history starts at HEAD and all non-note refs.
 `Include`/`Exclude` use the CLI's resource names. `CloneRefs` and `CloneAllRefs`
 correspond to the URL-only clone flags. Supply `Token` explicitly for an
 authenticated URL; the SDK does not infer environment tokens.
+Platform types and constants come from
+`github.com/betterleaks/betterleaks/v2/scm`. For example, set
+`Platform: scm.NoPlatform` to disable finding links.
 
 | CLI option | `gogit.Source` field | SDK behavior |
 |---|---|---|
@@ -979,7 +985,7 @@ Each flag matters:
 Removed and context lines and commit messages aren't scanned. Binary patches
 don't contain file bytes and are skipped. Combined merge patches are rejected;
 use `--diff-merges=first-parent` or `--diff-merges=separate`. SDK callers can use
-`sources.GitDiff{Content: reader}`.
+`gitpatch.GitDiff{Content: reader}` from `sources/gitpatch`.
 
 A pre-receive hook scans the commits being pushed. Git quarantines them until
 the hook accepts the push, and `git log` inside the hook can read them:

@@ -18,6 +18,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/gitfs"
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/gitpatch"
 	format "github.com/go-git/go-git/v5/plumbing/format/config"
 	"github.com/stretchr/testify/require"
 )
@@ -278,7 +279,7 @@ func TestMatchesGitLog(t *testing.T) {
 			"--no-color", "--format=medium", "--no-abbrev-commit", "--src-prefix=a/", "--dst-prefix=b/", "-U0")
 		var mu sync.Mutex
 		var fragments []sources.Fragment
-		require.NoError(t, (&sources.GitDiff{Content: strings.NewReader(patch + "\n")}).Fragments(t.Context(), func(f sources.Fragment, err error) error {
+		require.NoError(t, (&gitpatch.GitDiff{Content: strings.NewReader(patch + "\n")}).Fragments(t.Context(), func(f sources.Fragment, err error) error {
 			require.NoError(t, err)
 			mu.Lock()
 			defer mu.Unlock()

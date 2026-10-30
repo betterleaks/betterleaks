@@ -1,53 +1,16 @@
-package sources
+package stream
 
-import (
-	"bufio"
-	"context"
-	"path/filepath"
-	"runtime"
+import "bufio"
 
-	"github.com/mholt/archives"
-)
-
-const (
-	maxPeekSize = 25 * 1_000 // 25kb
-)
+const maxPeekSize = 25 * 1_000 // 25 KB
 
 var isWhitespace [256]bool
-var isWindows = runtime.GOOS == "windows"
 
 func init() {
-	// define whitespace characters
 	isWhitespace[' '] = true
 	isWhitespace['\t'] = true
 	isWhitespace['\n'] = true
 	isWhitespace['\r'] = true
-}
-
-// isArchive does a light check to see if the provided path is an archive or
-// compressed file. The File source already does this, so this exists mainly
-// to avoid expensive calls before sending things to the File source
-func isArchive(ctx context.Context, path string) bool {
-	format, _, err := archives.Identify(ctx, path, nil)
-	return err == nil && format != nil
-}
-
-// shouldSkipPath checks a path against the skip callback.
-// Also handles the Windows forward-slash path normalization workaround.
-func shouldSkipPath(skip PrefilterFunc, path string) bool {
-	if skip == nil {
-		return false
-	}
-	attrs := map[string]string{AttrPath: path}
-	if skip(attrs) {
-		return true
-	}
-	// TODO: Remove this Windows workaround in v9 (gitleaks/gitleaks#1641).
-	if isWindows {
-		attrs[AttrPath] = filepath.ToSlash(path)
-		return skip(attrs)
-	}
-	return false
 }
 
 // readUntilSafeBoundary consumes r until it finds two consecutive `\n`

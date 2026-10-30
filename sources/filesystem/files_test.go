@@ -1,4 +1,4 @@
-package sources
+package filesystem
 
 import (
 	"archive/zip"
@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
+	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +34,7 @@ func TestFilesDoesNotRepeatPrefilterForAcceptedFile(t *testing.T) {
 		checks.Add(1)
 		return false
 	}}
-	require.NoError(t, source.Fragments(t.Context(), func(_ Fragment, err error) error {
+	require.NoError(t, source.Fragments(t.Context(), func(_ sources.Fragment, err error) error {
 		fragments.Add(1)
 		return err
 	}))
@@ -57,14 +58,14 @@ func TestFilesFragmentsOwnContents(t *testing.T) {
 	}
 	// One reader forces buffer reuse before retained fragments are inspected.
 	source := &Files{Path: root}
-	var fragments []Fragment
-	require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	require.NoError(t, source.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {
 		fragments = append(fragments, fragment)
 		return err
 	}))
 	require.Len(t, fragments, len(contents))
 	for _, fragment := range fragments {
-		require.Equal(t, contents[filepath.FromSlash(fragment.Attr(AttrPath))], fragment.Raw)
+		require.Equal(t, contents[filepath.FromSlash(fragment.Attr(sources.AttrPath))], fragment.Raw)
 		require.Equal(t, 1, fragment.StartLine)
 	}
 }
@@ -95,7 +96,7 @@ func TestFilesConcurrencyAndCancellation(t *testing.T) {
 				done := make(chan error, 1)
 				callbackErr := errors.New("stop callback")
 				go func() {
-					done <- source.Fragments(ctx, func(_ Fragment, err error) error {
+					done <- source.Fragments(ctx, func(_ sources.Fragment, err error) error {
 						if err != nil {
 							return err
 						}
@@ -143,7 +144,7 @@ func TestFilesMissingRootReturnsError(t *testing.T) {
 	previous := runtime.GOMAXPROCS(1)
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
 	source := &Files{Path: filepath.Join(t.TempDir(), "missing")}
-	yield := func(Fragment, error) error {
+	yield := func(sources.Fragment, error) error {
 		t.Error("missing root should fail before yielding")
 		return nil
 	}
@@ -169,7 +170,7 @@ func TestFilesCancellationWhenPrefilterSkipsRoot(t *testing.T) {
 				cancel()
 				return true
 			}}
-			err := source.Fragments(ctx, func(Fragment, error) error {
+			err := source.Fragments(ctx, func(sources.Fragment, error) error {
 				t.Error("skipped root yielded a fragment")
 				return nil
 			})
@@ -189,7 +190,7 @@ func TestFilesPrefilterPrecedesSizeChecks(t *testing.T) {
 			MaxFileSize: 10,
 			Logger:      slog.New(slog.NewJSONHandler(&output, nil)),
 			Prefilter: func(attrs map[string]string) bool {
-				require.Equal(t, path, attrs[AttrPath])
+				require.Equal(t, path, attrs[sources.AttrPath])
 				checks++
 				return true
 			},
@@ -212,7 +213,7 @@ func TestFilesDirectoryPrefilterPrunesTraversal(t *testing.T) {
 	require.NoError(t, os.WriteFile(accepted, []byte("keep"), 0o600))
 	for _, follow := range []bool{false, true} {
 		source := &Files{Path: root, FollowSymlinks: follow, Prefilter: func(attrs map[string]string) bool {
-			path := filepath.FromSlash(attrs[AttrPath])
+			path := filepath.FromSlash(attrs[sources.AttrPath])
 			if strings.HasPrefix(path, skipped+string(filepath.Separator)) {
 				t.Errorf("visited child of skipped directory: %s", path)
 			}
@@ -240,11 +241,11 @@ func TestFilesPrefilterStillAppliesToArchiveEntries(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bundle.zip")
 	require.NoError(t, os.WriteFile(path, archive.Bytes(), 0o600))
 	source := &Files{Path: path, MaxArchiveDepth: 1, Prefilter: func(attrs map[string]string) bool {
-		return strings.HasSuffix(attrs[AttrPath], "!skip.txt")
+		return strings.HasSuffix(attrs[sources.AttrPath], "!skip.txt")
 	}}
 	var paths []string
-	require.NoError(t, source.Fragments(t.Context(), func(fragment Fragment, err error) error {
-		paths = append(paths, fragment.Attr(AttrPath))
+	require.NoError(t, source.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {
+		paths = append(paths, fragment.Attr(sources.AttrPath))
 		return err
 	}))
 	require.Equal(t, []string{filepath.ToSlash(path) + "!keep.txt"}, paths)
@@ -289,7 +290,7 @@ func TestFilesWalkFilesPathsMatchFilepathWalkDir(t *testing.T) {
 		Path: scanRoot,
 		Prefilter: func(attrs map[string]string) bool {
 			visitedMu.Lock()
-			visited = append(visited, attrs[AttrPath])
+			visited = append(visited, attrs[sources.AttrPath])
 			visitedMu.Unlock()
 			return false
 		},
@@ -332,7 +333,7 @@ func TestFilesReadersBoundReadAhead(t *testing.T) {
 	var peak atomic.Int64
 	var yielded atomic.Int64
 	go func() {
-		done <- source.Fragments(t.Context(), func(_ Fragment, err error) error {
+		done <- source.Fragments(t.Context(), func(_ sources.Fragment, err error) error {
 			if err != nil {
 				return err
 			}
@@ -399,7 +400,7 @@ func TestFilesFollowDirectorySymlinks(t *testing.T) {
 			for range 2 { // Directory deduplication must be scoped to each scan.
 				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				var contents []string
-				err := source.Fragments(ctx, func(f Fragment, err error) error {
+				err := source.Fragments(ctx, func(f sources.Fragment, err error) error {
 					if err != nil {
 						return err
 					}
@@ -429,7 +430,7 @@ func TestFilesDirectorySymlinkPrefilter(t *testing.T) {
 	for _, scanRoot := range []string{root, link} {
 		for _, skipped := range []string{link, target} {
 			source := &Files{Path: scanRoot, FollowSymlinks: true, Prefilter: func(attrs map[string]string) bool {
-				return attrs[AttrPath] == skipped
+				return attrs[sources.AttrPath] == skipped
 			}}
 			require.NoError(t, source.walkFiles(t.Context(), func(filePath) error {
 				t.Error("prefiltered directory must not be scanned")
@@ -482,7 +483,7 @@ func TestFilesUnreadableDirectoriesDoNotAbortScan(t *testing.T) {
 		for _, path := range []string{root, denied, link} {
 			source := &Files{Path: path, FollowSymlinks: follow}
 			var contents []string
-			err := source.Fragments(t.Context(), func(f Fragment, err error) error {
+			err := source.Fragments(t.Context(), func(f sources.Fragment, err error) error {
 				if err != nil {
 					return err
 				}
@@ -507,7 +508,7 @@ func TestFilesDisappearingDirectoryDoesNotAbortScan(t *testing.T) {
 		readable := filepath.Join(root, "readable.txt")
 		require.NoError(t, os.WriteFile(readable, []byte("readable"), 0o600))
 		source := &Files{Path: root, FollowSymlinks: follow, Prefilter: func(attrs map[string]string) bool {
-			if attrs[AttrPath] == vanishing {
+			if attrs[sources.AttrPath] == vanishing {
 				// Remove it after inspection but before fastwalk reads it.
 				if err := os.Remove(vanishing); err != nil {
 					t.Errorf("remove directory: %v", err)
@@ -558,7 +559,7 @@ func TestSourceLoggingIsOptIn(t *testing.T) {
 	}
 
 	require.NoError(t, os.WriteFile(source.Path, []byte("large"), 0o600))
-	err := source.Fragments(t.Context(), func(Fragment, error) error { return nil })
+	err := source.Fragments(t.Context(), func(sources.Fragment, error) error { return nil })
 	require.NoError(t, err)
 	record := decodeLogRecord(t, output.Bytes())
 	assert.Equal(t, "skipping file: too large", record.Message)
@@ -580,7 +581,7 @@ func TestSourceLoggersAreIndependent(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(first.Path, []byte("large"), 0o600))
 	require.NoError(t, os.WriteFile(second.Path, []byte("large"), 0o600))
-	yield := func(Fragment, error) error { return nil }
+	yield := func(sources.Fragment, error) error { return nil }
 	require.NoError(t, first.Fragments(t.Context(), yield))
 	require.NoError(t, second.Fragments(t.Context(), yield))
 

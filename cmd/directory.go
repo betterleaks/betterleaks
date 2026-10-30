@@ -8,7 +8,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/pipeline"
 	"github.com/betterleaks/betterleaks/v2/scan"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 )
 
 // multipleErrors wraps multiple scan errors into a single error that supports
@@ -70,7 +70,7 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 		}
 		validationEnabled = validationEnabled || runner.ValidationEnabled()
 
-		s := &sources.Files{
+		s := &filesystem.Files{
 			Logger:          runtime.Logger(),
 			Prefilter:       findings.FilePrefilterFunc(filters.shouldSkip),
 			FollowSymlinks:  options.FollowSymlinks,

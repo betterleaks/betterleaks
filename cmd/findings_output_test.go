@@ -17,6 +17,7 @@ import (
 	"github.com/betterleaks/betterleaks/v2/pipeline"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/betterleaks/betterleaks/v2/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -317,7 +318,7 @@ func TestFindingCollectorSkipsReportBeforeFilesOpenIt(t *testing.T) {
 	configuredPrefilter := func(attributes map[string]string) bool {
 		return filepath.Clean(filepath.FromSlash(attributes[sources.AttrPath])) == blockedPath
 	}
-	files := &sources.Files{
+	files := &filesystem.Files{
 		Path:      directory,
 		Prefilter: collector.FilePrefilterFunc(configuredPrefilter),
 	}

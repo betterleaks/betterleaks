@@ -1,4 +1,4 @@
-package sources
+package filesystem
 
 import (
 	"archive/tar"
@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/stream"
 	"github.com/mholt/archives"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +63,7 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 				t.Context(),
 				&panicDecompressor{reader: pr},
 				strings.NewReader("irrelevant"),
-				func(Fragment, error) error { return nil },
+				func(sources.Fragment, error) error { return nil },
 			)
 		})
 
@@ -76,7 +78,7 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 				t.Context(),
 				&panicDecompressor{panicOnOpen: true},
 				strings.NewReader("irrelevant"),
-				func(Fragment, error) error { return nil },
+				func(sources.Fragment, error) error { return nil },
 			)
 		})
 	})
@@ -94,7 +96,7 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 					openErr: errors.New("invalid header"),
 				},
 				strings.NewReader("irrelevant"),
-				func(Fragment, error) error {
+				func(sources.Fragment, error) error {
 					yielded = true
 					return nil
 				},
@@ -114,7 +116,7 @@ func TestFile_decompressorFragments_recoversAndClosesReader(t *testing.T) {
 					reader: &closePanicReader{Reader: strings.NewReader("")},
 				},
 				strings.NewReader("irrelevant"),
-				func(Fragment, error) error { return nil },
+				func(sources.Fragment, error) error { return nil },
 			)
 		})
 	})
@@ -136,7 +138,7 @@ func TestFile_extractorFragments_recoversPanic(t *testing.T) {
 			t.Context(),
 			panicExtractor{},
 			strings.NewReader("irrelevant"),
-			func(Fragment, error) error { return nil },
+			func(sources.Fragment, error) error { return nil },
 		)
 	})
 }
@@ -155,7 +157,7 @@ func TestFile_Fragments_malformedRarDoesNotPanic(t *testing.T) {
 	}
 
 	require.NotPanics(t, func() {
-		err := s.Fragments(t.Context(), func(Fragment, error) error { return nil })
+		err := s.Fragments(t.Context(), func(sources.Fragment, error) error { return nil })
 		require.NoError(t, err)
 	})
 }
@@ -173,7 +175,7 @@ func TestFile_Fragments_malformedGzipDoesNotPanic(t *testing.T) {
 	}
 
 	require.NotPanics(t, func() {
-		err := s.Fragments(t.Context(), func(Fragment, error) error {
+		err := s.Fragments(t.Context(), func(sources.Fragment, error) error {
 			yielded = true
 			return nil
 		})
@@ -184,22 +186,22 @@ func TestFile_Fragments_malformedGzipDoesNotPanic(t *testing.T) {
 
 func TestFile_Fragments_marksFirstFragment(t *testing.T) {
 	s := &File{
-		Content: strings.NewReader(strings.Repeat("a", defaultBufferSize-2) + "\n\nbb\n\n"),
+		Content: strings.NewReader(strings.Repeat("a", stream.BufferSize-2) + "\n\nbb\n\n"),
 		Path:    "example.txt",
 	}
 
-	var fragments []Fragment
-	require.NoError(t, s.Fragments(t.Context(), func(fragment Fragment, err error) error {
+	var fragments []sources.Fragment
+	require.NoError(t, s.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {
 		require.NoError(t, err)
 		fragments = append(fragments, fragment)
 		return nil
 	}))
 
 	require.Len(t, fragments, 2)
-	require.Equal(t, strings.Repeat("a", defaultBufferSize-2)+"\n\n", fragments[0].Raw)
+	require.Equal(t, strings.Repeat("a", stream.BufferSize-2)+"\n\n", fragments[0].Raw)
 	require.Equal(t, "bb\n\n", fragments[1].Raw)
-	require.Equal(t, "true", fragments[0].Attr(AttrFSFirstFragment))
-	require.Equal(t, "false", fragments[1].Attr(AttrFSFirstFragment))
+	require.Equal(t, "true", fragments[0].Attr(sources.AttrFSFirstFragment))
+	require.Equal(t, "false", fragments[1].Attr(sources.AttrFSFirstFragment))
 }
 
 func TestFileLZ4StrictEndOfStream(t *testing.T) {
@@ -236,7 +238,7 @@ func TestFileLZ4StrictEndOfStream(t *testing.T) {
 				src := &File{Content: bytes.NewReader(data), Path: "Packages.lz4", DetectArchive: true, StrictArchives: true, MaxArchiveDepth: 8}
 				var content strings.Builder
 				var errs []error
-				err = src.Fragments(t.Context(), func(fragment Fragment, err error) error {
+				err = src.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {
 					if err != nil {
 						errs = append(errs, err)
 					} else {

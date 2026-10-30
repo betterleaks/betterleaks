@@ -458,12 +458,13 @@ Source prefilters are explicit: compile `cfg.PrefilterExpr` and set the source's
 limits, and symlink handling belong to sources; detection options belong to
 `scan.New`. Use `gogit.Source{RepoPath: "."}` for repository history.
 For staged changes, supply a caller-produced patch stream to
-`sources.GitDiff{Content: reader}`; Betterleaks does not execute Git.
+`gitpatch.GitDiff{Content: reader}`; Betterleaks does not execute Git.
 
 GitHub, GitLab, and Hugging Face resource selection uses `Include`/`Exclude`;
 the derived resource map is private. Configure a fresh source for each scan.
-`scm.CloneOptions.Mirror` is replaced by `AllRefs` and `Refs`; the zero value
-fetches branches, tags, and notes. Provider sources expose `CloneAllRefs`.
+Configure remote Git scans through `gogit.Source.URL`, `Token`, `CloneRefs`,
+and `CloneAllRefs`. By default, fetching includes branches, tags, and notes.
+Provider sources expose `CloneAllRefs`.
 `File` manages its own read buffer; callers no longer supply `File.Buffer`.
 
 Callbacks are serialized within a scan; returning an error stops it. Finding
@@ -471,6 +472,36 @@ order is not guaranteed. Reuse scanners across concurrent calls with independent
 sources. `ScanString` remains convenient for small strings, but cannot return
 scan errors; use `Scan` when failures must be observable. Callers own
 `sources.Reader.Content` and must close or cancel it to interrupt a blocked read.
+
+### Source package layout
+
+The `sources` package contains `Source`, `Fragment`, `FragmentsFunc`,
+`PrefilterFunc`, shared metadata constants, and `Reader`. It has no third-party
+dependencies. Import concrete implementations separately; all paths below are
+relative to `github.com/betterleaks/betterleaks/v2`.
+
+| Earlier v2 API | Current API | Import path |
+| :--- | :--- | :--- |
+| `sources.File`, `sources.Files` | `filesystem.File`, `filesystem.Files` | `sources/filesystem` |
+| `sources.URL` | `web.URL` | `sources/web` |
+| `sources.GitDiff` | `gitpatch.GitDiff` | `sources/gitpatch` |
+| `sources.Auto`, `Kind`, `AutoOption`, and kind constants | Same names in `auto` | `sources/auto` |
+| `sources.WithAutoHTTPClient`, `sources.WithAutoLogger` | Same names in `auto` | `sources/auto` |
+| `scm.Platform`, platform constants, and remote URL helpers from `sources/scm` | Same names in `scm` | `scm` |
+
+Update imports and package qualifiers; there are no compatibility aliases at
+the old locations. Custom source implementations keep the same
+`Fragments(context.Context, sources.FragmentsFunc) error` contract. Shared
+attribute constants and their serialized values are unchanged. Platform types
+and remote URL helpers now live in the top-level `scm` package, without Git
+transport imports. `gogit.Source.Platform` still accepts `scm.Platform`;
+update the import to `github.com/betterleaks/betterleaks/v2/scm`.
+
+The former public cloning helpers (`scm.CloneOptions`, `CloneAuthed`,
+`CloneToTempDir`, and `SanitizeOutput`, later in `sources/scm/clone`) are now
+implementation details in `internal/gitclone`. SDK callers configure remote
+scans through Git-capable sources instead of calling cloning helpers directly.
+The CLI commands and source behavior are unchanged.
 
 ### Config is data; engines own execution
 
