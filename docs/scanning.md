@@ -180,7 +180,8 @@ case auto.URLKind:
 }
 ```
 
-Other kinds are `GitHubKind`, `GitLabKind`, `HuggingFaceKind`, and `S3Kind`.
+Other kinds are `auto.GitHubKind`, `auto.GitLabKind`, `auto.HuggingFaceKind`,
+and `auto.S3Kind`.
 `auto.WithAutoHTTPClient(client)` supplies a discovery client, including custom
 authentication. Detection can make network requests and respects context
 cancellation. `auto.WithAutoLogger(logger)` enables SDK diagnostics; the CLI logs the
@@ -583,7 +584,8 @@ Archive recursion follows `--max-archive-depth`. Temporary downloads are removed
 on completion or failure. Findings use `resource=url.content`, the URL path as
 `path`, and a `url` attribute with userinfo, query parameters, and fragments
 removed. URL userinfo can supply HTTP Basic authentication; SDK callers can
-supply `web.URL.HTTPClient` for other authentication or timeout policies.
+supply `web.URL.HTTPClient` from `sources/web` for other authentication or
+timeout policies.
 Archive entries retain the URL attributes, so prefilters can combine `url`,
 `resource`, and the full archive entry `path` (for example, `download!secret.txt`).
 
@@ -983,7 +985,7 @@ Each flag matters:
 Removed and context lines and commit messages aren't scanned. Binary patches
 don't contain file bytes and are skipped. Combined merge patches are rejected;
 use `--diff-merges=first-parent` or `--diff-merges=separate`. SDK callers can use
-`gitpatch.GitDiff{Content: reader}`.
+`gitpatch.GitDiff{Content: reader}` from `sources/gitpatch`.
 
 A pre-receive hook scans the commits being pushed. Git quarantines them until
 the hook accepts the push, and `git log` inside the hook can read them:

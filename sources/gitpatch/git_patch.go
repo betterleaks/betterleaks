@@ -19,7 +19,7 @@ import (
 // GitDiff scans additions from a caller-supplied git log -p or git diff stream.
 // It never opens a repository or executes Git. Binary patches contain no
 // scannable file content and are skipped. The caller owns and closes Content.
-// As with Reader, cancellation cannot interrupt an arbitrary blocked Read.
+// As with sources.Reader, cancellation cannot interrupt an arbitrary blocked Read.
 type GitDiff struct {
 	Content    io.Reader
 	Attributes map[string]string
