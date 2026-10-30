@@ -220,6 +220,7 @@ func main() {
 		rules.FacebookPageAccessToken(),
 		rules.FalAPIKey(),
 		rules.FastlyAPIToken(),
+		rules.FastmailAPIToken(),
 		rules.FigmaPersonalAccessToken(),
 		rules.FigmaPersonalAccessHeaderToken(),
 		rules.FinicityClientSecret(),
