@@ -1,6 +1,6 @@
 module github.com/betterleaks/betterleaks/v2
 
-go 1.26.0
+go 1.26.10
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
