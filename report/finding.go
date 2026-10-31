@@ -102,6 +102,12 @@ type Match struct {
 	// to provider expressions.
 	Line string `json:"-"`
 
+	// LineColumnOffset is the zero-based byte offset of Line's first byte within
+	// its source line. It is non-zero when a long source line was split into
+	// chunks, so Location.StartColumn (a source-wide column) can be rebased onto
+	// Line for snippet rendering. It is not serialized.
+	LineColumnOffset int `json:"-"`
+
 	// Context is the explicitly requested source window around the match, also
 	// exposed as finding.context to local filters. It stays empty when no context
 	// was requested; Line is never used as a default. Provider expressions cannot
