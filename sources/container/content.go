@@ -14,6 +14,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 )
 
@@ -69,7 +70,7 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 			}
 			return r.metadata(ctx, data, location, ResourceArtifact, a)
 		}
-		file := sources.File{
+		file := filesystem.File{
 			Content:         compressed,
 			Path:            location,
 			Attributes:      a,
@@ -191,7 +192,7 @@ func (r *session) layer(ctx context.Context, l layerInput, attrs map[string]stri
 			}
 			continue
 		}
-		file := sources.File{
+		file := filesystem.File{
 			Content:         t,
 			Path:            p,
 			Attributes:      a,

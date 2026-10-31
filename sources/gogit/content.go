@@ -9,6 +9,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/mholt/archives"
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -484,6 +485,6 @@ func (w *worker) archive(ctx context.Context, e gitobj.ChangeEntry, attrs map[st
 		return nil
 	}
 	// Match filesystem scans: damaged archives warn without failing history traversal.
-	source := sources.File{Logger: w.source.Logger, Content: stream, Path: e.Name, Attributes: attrs, Prefilter: w.source.Prefilter, MaxArchiveDepth: w.source.MaxArchiveDepth, StrictArchives: false, Symlink: "", DetectArchive: false}
+	source := filesystem.File{Logger: w.source.Logger, Content: stream, Path: e.Name, Attributes: attrs, Prefilter: w.source.Prefilter, MaxArchiveDepth: w.source.MaxArchiveDepth, StrictArchives: false, Symlink: "", DetectArchive: false}
 	return source.Fragments(ctx, yield)
 }

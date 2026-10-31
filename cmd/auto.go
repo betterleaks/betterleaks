@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/alecthomas/kong"
-	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/auto"
 )
 
 type AutoCmd struct {
@@ -46,51 +46,51 @@ func (cmd *AutoCmd) Run(cli *CLI, runtime *commandRuntime, parsed *kong.Context)
 			return errors.New("--follow-symlinks requires an existing filesystem target")
 		}
 	}
-	opts := []sources.AutoOption{sources.WithAutoLogger(runtime.Logger())}
+	opts := []auto.AutoOption{auto.WithAutoLogger(runtime.Logger())}
 	if token := remoteGitToken(target); token != "" {
 		u, _ := url.Parse(target)
-		opts = append(opts, sources.WithAutoHTTPClient(&http.Client{
+		opts = append(opts, auto.WithAutoHTTPClient(&http.Client{
 			Transport: gitAutoTransport{host: u.Host, token: token},
 		}))
 	}
-	kind, err := sources.Auto(runtime.Context, target, opts...)
+	kind, err := auto.Auto(runtime.Context, target, opts...)
 	if err != nil {
 		return err
 	}
-	if flagWasSet(parsed, "max-target-megabytes") && kind != sources.FilesystemKind && kind != sources.URLKind {
+	if flagWasSet(parsed, "max-target-megabytes") && kind != auto.FilesystemKind && kind != auto.URLKind {
 		return errors.New("--max-target-megabytes requires a filesystem target or a single downloadable URL")
 	}
 	// Copy the parsed commands to retain their defaults without changing CLI state.
 	switch kind {
-	case sources.FilesystemKind:
+	case auto.FilesystemKind:
 		return directory.Run(cli, runtime)
-	case sources.GitKind:
+	case auto.GitKind:
 		command := cli.Git
 		command.MaxArchiveDepth = cmd.MaxArchiveDepth
 		command.ScanFlags, command.Repo = cmd.ScanFlags, target
 		return command.Run(cli, runtime)
-	case sources.URLKind:
+	case auto.URLKind:
 		command := cli.URL
 		command.MaxTargetMegabytes = cmd.MaxTargetMegabytes
 		command.MaxArchiveDepth = cmd.MaxArchiveDepth
 		command.ScanFlags, command.URL = cmd.ScanFlags, target
 		return command.Run(cli, runtime)
-	case sources.GitHubKind:
+	case auto.GitHubKind:
 		command := cli.GitHub
 		command.MaxArchiveDepth = cmd.MaxArchiveDepth
 		command.ScanFlags, command.TargetURL = cmd.ScanFlags, target
 		return command.Run(cli, runtime)
-	case sources.GitLabKind:
+	case auto.GitLabKind:
 		command := cli.GitLab
 		command.MaxArchiveDepth = cmd.MaxArchiveDepth
 		command.ScanFlags, command.TargetURL = cmd.ScanFlags, target
 		return command.Run(cli, runtime)
-	case sources.HuggingFaceKind:
+	case auto.HuggingFaceKind:
 		command := cli.HuggingFace
 		command.MaxArchiveDepth = cmd.MaxArchiveDepth
 		command.ScanFlags, command.TargetURL = cmd.ScanFlags, target
 		return command.Run(cli, runtime)
-	case sources.S3Kind:
+	case auto.S3Kind:
 		command := cli.S3
 		command.MaxArchiveDepth = cmd.MaxArchiveDepth
 		command.ScanFlags, command.URL = cmd.ScanFlags, target

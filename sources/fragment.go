@@ -1,5 +1,8 @@
 package sources
 
+// InnerPathSeparator separates an archive path from the path of a file inside it.
+const InnerPathSeparator = "!"
+
 // Fragment represents a fragment of a source with its meta data
 type Fragment struct {
 	// Raw is the raw content of the fragment

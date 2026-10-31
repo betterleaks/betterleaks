@@ -323,6 +323,7 @@ func main() {
 		rules.MailGunSigningKey(),
 		rules.MailerSendAPIToken(),
 		rules.MapBox(),
+		rules.MapboxSecretToken(),
 		rules.Mistral(),
 		rules.MattermostAccessToken(),
 		rules.MaxMindLicenseKey(),

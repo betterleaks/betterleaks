@@ -1,4 +1,4 @@
-package sources
+package web
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 )
 
@@ -20,14 +22,14 @@ type URL struct {
 	URL             string
 	HTTPClient      *http.Client
 	Logger          *slog.Logger
-	Prefilter       PrefilterFunc
+	Prefilter       sources.PrefilterFunc
 	MaxArchiveDepth int
 	// MaxSize limits the downloaded response in bytes. Zero means unlimited.
 	// Oversized responses are skipped before any fragments are emitted.
 	MaxSize int64
 }
 
-func (s *URL) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *URL) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
 	u, err := parseHTTPSource(s.URL)
 	if err != nil {
 		return err
@@ -40,9 +42,9 @@ func (s *URL) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		path = u.Hostname()
 	}
 	attrs := map[string]string{
-		AttrPath:     path,
-		AttrURL:      urlredact.Public(u),
-		AttrResource: ResourceURLContent,
+		sources.AttrPath:     path,
+		sources.AttrURL:      urlredact.Public(u),
+		sources.AttrResource: sources.ResourceURLContent,
 	}
 	if s.Prefilter != nil && s.Prefilter(attrs) {
 		return nil
@@ -50,7 +52,7 @@ func (s *URL) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	return download.WithFile(ctx, download.Options{
 		URL: s.URL, HTTPClient: s.HTTPClient, MaxSize: s.MaxSize, Logger: s.Logger,
 	}, func(content *os.File) error {
-		file := &File{
+		file := &filesystem.File{
 			Content: content, Path: path, Attributes: attrs,
 			Logger: s.Logger, Prefilter: s.Prefilter,
 			MaxArchiveDepth: s.MaxArchiveDepth, DetectArchive: true,

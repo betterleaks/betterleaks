@@ -1,4 +1,4 @@
-package sources
+package filesystem
 
 import (
 	"context"
@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/betterleaks/betterleaks/v2/internal/logging"
+	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/charlievieth/fastwalk"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/betterleaks/betterleaks/v2/internal/logging"
 )
 
 type filePath struct {
@@ -31,7 +31,7 @@ func (e *walkCallbackError) Unwrap() error { return e.err }
 type Files struct {
 	// Logger receives source diagnostics. A nil logger disables logging.
 	Logger          *slog.Logger
-	Prefilter       PrefilterFunc
+	Prefilter       sources.PrefilterFunc
 	FollowSymlinks  bool // Follow file and directory links; visit each directory once.
 	MaxFileSize     int
 	Path            string
@@ -152,7 +152,7 @@ func (s *Files) walkFiles(ctx context.Context, yield func(filePath) error) error
 }
 
 // Fragments yields fragments from files discovered under the path
-func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *Files) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
 	g, groupCtx := errgroup.WithContext(ctx)
 	// Extra readers retain buffers and decompressor workspaces while detection catches up.
 	workers := max(runtime.GOMAXPROCS(0), 1)
@@ -185,7 +185,7 @@ func (s *Files) Fragments(ctx context.Context, yield FragmentsFunc) error {
 	return errors.Join(producerErr, workerErr, ctx.Err())
 }
 
-func (s *Files) readFile(ctx context.Context, name filePath, yield FragmentsFunc) error {
+func (s *Files) readFile(ctx context.Context, name filePath, yield sources.FragmentsFunc) error {
 	f, err := os.Open(name.path)
 	if err != nil {
 		if os.IsPermission(err) {

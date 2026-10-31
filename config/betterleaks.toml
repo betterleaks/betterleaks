@@ -3909,7 +3909,7 @@ containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.g
 [[rules]]
 id = "generic-api-key"
 description = "Detected a Generic API Key, potentially exposing access to various services and sensitive operations."
-regex = '''(?i)(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)(?:(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[ \t'"\w.-]{0,20}[ \t'"]{0,20}[ \t]*(?:\r?\n[ \t]*)?(?:(?:=>|:{1,3}=|\|\||\?=|[=:])(?:[ \t]*(?:\r?\n[ \t]*)?"(?:[a-z0-9]{0,16}[_.-]){0,4}(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[a-z0-9_.-]{0,20}"[ \t]*(?:\r?\n[ \t]*)?(?:,[ \t]*(?:\r?\n[ \t]*)?"?value"?[ \t]*(?:\r?\n[ \t]*)?:[ \t]*(?:\r?\n[ \t]*)?|value[ \t]*=|>))?|,(?:[ \t]*(?:\r?\n[ \t]*)?"?value"?[ \t]*(?:\r?\n[ \t]*)?:[ \t]*(?:\r?\n[ \t]*)?)?|['"][ \t]*(?:\r?\n[ \t]*)?(?:value[ \t]*=|>))|<[\w.:-]{0,64}(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[\w.:-]{0,20}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:<!\[CDATA\[)?[\x60'"\s=]{0,5}([\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\?['"\x60]|[\s;]|</[\w.:-]{1,64}[ \t]*(?:\r?\n[ \t]*)?>|\]\]>|\\[nr]|$)'''
 specificity = -100
 confidence = "low"
 keywords = [
@@ -3927,6 +3927,33 @@ filter = '''
 entropy(finding["secret"]) <= 3.5
 || failsTokenEfficiency(finding["secret"])
 || (
+let siblingMetadata = containsAny(finding["match"], ["{"])
+  ? findMatch(finding["match"], `(?i)\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:`) : "";
+let credentialMatch = siblingMetadata == "" ? finding["match"]
+  : replace(finding["match"], siblingMetadata, "{\"value\":", 1);
+
+// Remove XML attributes from complete opening tags in the name-filter context.
+// Preserve element names and literal text.
+let nameContext = containsAny(credentialMatch, ["<"])
+  ? join(map(split(credentialMatch, "<"), {
+      let tag = findMatch(#, `^[\w.:-]+(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>`);
+      tag == "" ? # : replace(#, tag, findMatch(tag, `^[\w.:-]+`) + ">", 1)
+    }), "<")
+  : credentialMatch;
+
+matchesAny(nameContext, [
+  // Permit an indented operator on the next line, but do not bridge blank lines.
+  `^[\w.'" \t-]*\r?\n[ \t'"]*\r?\n`,
+  // Credential containers can hold public identifiers or public key material.
+  `(?i)(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:client[_.-]?id|guid|X509Certificate|Modulus|Exponent)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:client[_.-]?id|guid|X509Certificate|Modulus|Exponent)(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)`
+])
+// Tie public-key version examples to the prose immediately before this match.
+|| (containsAny(finding["match"], ["<"])
+  && matchesAny(finding["match"], [`(?i)^key(?: result)?\.[ \t]+For example:[ \t]*<code>`])
+  && matchesAny(finding["fragment_raw"][
+    max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):finding["match_start_idx"]
+  ], [`(?i)\b(?:version|etag)\b[^<>"'\r\n=]{0,100}\bpublic[ \t]+$`]))
+|| (
 // Provider checks use a fixed window around the match, clamped to its line.
 let providerMatchContext = finding["fragment_raw"][
   max(finding["match_start_idx"] - 150, finding["match_line_start_idx"]):
@@ -3943,10 +3970,10 @@ let genericMatchPrefix = findMatch(
   `[\w.-]{0,50}$`
 );
 
-// Recreate the generic rule's former regex which includes the [\w.-]{0,50} preamble.
+// Keep credential-path names and confidence hints, excluding skipped metadata.
 let genericMatchContext =
   genericMatchPrefix +
-  finding["fragment_raw"][finding["match_start_idx"]:finding["match_end_idx"]];
+  nameContext;
 
 let level = matchesAny(genericMatchContext, [
   `(?i)\b[a-z0-9]+[_.-]+token\b`
@@ -5402,7 +5429,7 @@ matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
   "zsh.",
   "zsh_",
   "6fe4476ee5a1832882e326b506d14126"
-]) || matchesAny(genericMatchContext, [`(?i)(?:access(?:ibility|or)|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|rapid|capital|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|(?:turkey)|key[_.-]?(?:alias|board|code|frame|id|length|mesh|name|pair|press(?:ed)?|ring|selector|signature|size|stone|storetype|word|up|down|left|right)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`]))
+]) || matchesAny(genericMatchContext, [`(?i)(?:^<?[^<\[{]*(?:access(?:ibility|or)|rapid|capital|turkey|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|key[_.-]?(?:board|code|frame|mesh|press(?:ed)?|ring|stone|word|up|down|left|right))|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author(?:$|[^i]|i(?:$|[^sz]))|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|key[ \t_.-]*(?:alias|id|length|name|pair|selector|signature|size|storetype)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`]))
 || matchesAny(finding["line"], [
   `--mount=type=secret,`,
   `import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]`
@@ -5483,6 +5510,7 @@ matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`])
 || (matchesAny(finding["secret"], [`^test_[a-zA-Z0-9]{27}$`]) && containsAny(providerMatchContext, ["paddle"]))
 || (matchesAny(finding["secret"], [`^live_[a-zA-Z0-9]{27}$`]) && containsAny(providerMatchContext, ["paddle"]))
 || (matchesAny(finding["secret"], [`^pk_live_[0-9A-F]{16}$`]) && containsAny(providerMatchContext, ["magic"]))
+)
 )
 '''
 
@@ -5583,7 +5611,7 @@ isInstructionalPlaceholder
 [[rules]]
 id = "generic-password"
 description = "Detected a potential hardcoded password literal, which may expose account credentials."
-regex = '''(?i)(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])|\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\))'''
+regex = '''(?i)(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60)|[ \t]{0,5}([^:=\s'"\x60,;][^\s'"\x60,;]{4,249}))|,[ \t]*(?:\r?\n[ \t]*)?"?value"?[ \t]*(?:\r?\n[ \t]*)?:[ \t]*(?:\r?\n[ \t]*)?"((?:\\.|[^"\\\r\n]){5,250})")(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])|\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:<!\[CDATA\[(?:[ \t]*\r?\n[ \t]*)?([^\r\n]{5,250}?)(?:[ \t]*\r?\n[ \t]*)?\]\]>|([^<\r\n]{5,250}?))[ \t]*(?:\r?\n[ \t]*)?</[\w.:-]{1,64}[ \t]*(?:\r?\n[ \t]*)?>)'''
 specificity = -80
 confidence = "low"
 keywords = [
@@ -5600,6 +5628,17 @@ keywords = [
     "authenticate (",
 ]
 filter = '''
+let siblingMetadata = containsAny(finding["match"], ["{"])
+  ? findMatch(finding["match"], `(?i)\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:`) : "";
+let credentialMatch = siblingMetadata == "" ? finding["match"]
+  : replace(finding["match"], siblingMetadata, "{\"value\":", 1);
+// Schema fields describe a password; they do not assign one.
+matchesAny(credentialMatch, [`(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern)(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)`])
+// Timing fields require duration values; ordinary password literals still count.
+|| (containsAny(finding["match"], ["{", "<"])
+  && matchesAny(finding["secret"], [`^(?:[0-9]+(?:\.[0-9]+)?(?:ns|us|µs|μs|ms|s|m|h))+$`])
+  && matchesAny(credentialMatch, [`(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)){0,2})[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"(?:elapsed|duration|average)"[ \t]*(?:\r?\n[ \t]*)?:|<(?:[\w.-]+:)?(?:elapsed|duration|average)(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)`]))
+|| (
 // Restrict nearby evidence to the password's line and the
 // six lines on either side. The password key itself is intentionally excluded
 // from the evidence patterns below.
@@ -5615,6 +5654,12 @@ let nearbyContext =
   + "\n"
   + join(afterLines[:min(len(afterLines), 7)], "\n");
 let linePrefix = beforeLines[len(beforeLines) - 1];
+
+// PHP signature maps assign parameter types after a function's return type.
+// The same literal in an ordinary credential assignment remains reportable.
+let isSignatureType = finding["secret"] == "string" && matchesAny(linePrefix, [
+  `['"][\w\\:]+['"][ \t]*=>[ \t]*\[[ \t]*['"](?:\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?(?:\|\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?)*)?['"][ \t]*,[^\]\r\n]*$`
+]);
 
 let hasAuthContext = matchesAny(nearbyContext, [
   // Authentication and connection calls.
@@ -5646,6 +5691,8 @@ let isCodeFile = matchesAny(attributes["path"], [
 ]);
 let isUnquotedAssignment = matchesAny(finding["match"], [
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*[^\x22\x27\x60 \t\r\n]`
+]) && !matchesAny(finding["match"], [
+  `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)(?:(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>))?[ \t]*(?:\r?\n[ \t]*)?(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?(?:"[\w.-]+"[ \t]*:[ \t]*(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \t]*,[ \t]*(?:\r?\n[ \t]*)?){1,5}?"value"[ \t]*(?:\r?\n[ \t]*)?:|(?:[ \t]*(?:\r?\n[ \t]*)?(?:(?:\[[ \t]*(?:\r?\n[ \t]*)?)?\{[ \t]*(?:\r?\n[ \t]*)?"[\w.-]{1,64}"[ \t]*(?:\r?\n[ \t]*)?:|<[\w.:-]{1,64}(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)[\w.:-]{1,64}[ \t]*=[ \t]*(?:"[^"<\r\n]*"|'[^'<\r\n]*')){0,5}[ \t]*(?:\r?\n[ \t]*)?>)){0,2})[ \t]*(?:\r?\n[ \t]*)?[\x22\x27\x60]`
 ]);
 let isUnquotedCodeValue = isCodeFile && isUnquotedAssignment;
 let isUnquotedExpression = isUnquotedAssignment && matchesAny(finding["secret"], [
@@ -5713,6 +5760,8 @@ let level = (
 let _ = setConfidence(level);
 
 matchesAny(finding["secret"], [
+  // Regex capture groups are examples of patterns, not password literals.
+  `^\((?:\?:)?(?:\.[*+]|\[[^]\r\n]+\][*+])\??\)$`,
   `^\*+$`,
   `^\.+$`,
   `(?i)^x{4,}$`,
@@ -5745,7 +5794,10 @@ matchesAny(finding["secret"], [
   `(?i)^md5[0-9a-f]{32}$`,
   `^\*[0-9A-F]{40}$`
 ])
+// Do not let a CDATA capture backtrack across an earlier section's terminator.
+|| (startsWithAny(finding["match"], ["<"]) && containsAny(finding["secret"], ["]]>"]))
 || isEncryptedValue
+|| isSignatureType
 || isCryptographicAlgorithm
 || isContextualAlgorithmName
 || isUnquotedCodeValue
@@ -5755,6 +5807,7 @@ matchesAny(finding["secret"], [
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`,
   `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\[[^]\r\n]+\]|\([^,\r\n)]*\)?)(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*|\[[^]\r\n]+\]|\([^,\r\n)]*\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\]]*\\?(?:[ \t]*[,;)}\]\r\n]|[ \t]*$|\\[nr])`
 ])
+)
 '''
 components = [
     { id = "generic-username", optional = true, within = "7L,200C" },
@@ -6816,14 +6869,52 @@ keywords = [
 ]
 validate = '''
 let r = http.get("https://app.harness.io/v1/orgs?limit=1&page=1", {
+  "Accept": "application/json",
+  "x-api-key": finding["secret"]
+}); r.status in [200, 403] ? {
+  "result": "valid",
+  "analysis": {
+    "can_read": r.status == 200 && type(r.json) == "array"
+  }
+} : r.status == 401 ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let parts = split(finding["secret"], ".");
+let account_id = len(parts) == 4 ? parts[1] : "";
+let is_pat = parts[0] == "pat";
+let profile = is_pat ? (
+  let r = http.get("https://app.harness.io/ng/api/user/currentUser", {
     "Accept": "application/json",
     "x-api-key": finding["secret"]
-  }); r.status in [200, 403] ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  });
+  r.status == 200 && type(r.json) == "map" && r.json?.status == "SUCCESS" &&
+    type(r.json?.data) == "map" && type(r.json.data?.uuid) == "string" && r.json.data.uuid != "" ? r.json.data : {}
+) : {};
+let accounts = type(profile?.accounts) == "array" ? profile.accounts : [];
+let account = find(accounts, {type(#) == "map" && #?.uuid == account_id});
+let can_read = input["can_read"] ?? false;
+{
+  "identity": {
+    "id": profile?.uuid ?? "",
+    "name": type(profile?.name) == "string" ? profile.name : "",
+    "email": type(profile?.email) == "string" ? profile.email : "",
+    "account": {
+      "id": account_id,
+      "name": type(account?.accountName) == "string" ? account.accountName : ""
+    }
+  },
+  "metadata": {
+    "token_type": is_pat ? "personal_access_token" : "service_account_token"
+  },
+  "capabilities": analysis.capabilities({"read": can_read}),
+  "reason": is_pat && len(profile) == 0 ? "Harness user profile was unavailable; effective permissions were not returned" :
+    can_read ? "Organization listing confirmed read access; other effective permissions were not returned" :
+    "Harness did not return effective permissions"
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.4
@@ -8068,10 +8159,120 @@ keywords = ["mailgun"]
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
 id = "mapbox-api-token"
-description = "Detected a MapBox API token, posing a risk to geospatial services and sensitive location data exposure."
-regex = '''(?i)(?:mapbox)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(pk\.[a-z0-9]{60}\.[a-z0-9]{22})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+description = "Mapbox public access token. Requests can incur charges on the owner's account."
+regex = '''\b(pk\.eyJ1Ijoi[A-Za-z0-9_-]{15,300}\.[A-Za-z0-9_-]{21}[AQgw])(?:$|[^A-Za-z0-9_-])'''
 confidence = "high"
-keywords = ["mapbox"]
+keywords = ["pk.eyj1ijoi"]
+tags = [
+    "provider:mapbox","category:maps",
+]
+validate = '''
+let r = http.get("https://api.mapbox.com/tokens/v2?access_token=" + strings.urlQueryEscape(finding["secret"]), {"Accept": "application/json"});
+let body = type(r.json) == "map" ? r.json : {};
+let code = body.code ?? "";
+let token = type(body.token) == "map" ? body.token : {};
+r.status == 200 && code == "TokenValid" ? {
+ "result": "valid", "reason": code,
+ "analysis": {
+  "username": type(token.user) == "string" ? token.user : "",
+  "token_id": type(token.authorization) == "string" ? token.authorization : "",
+  "usage": type(token.usage) == "string" ? token.usage : ""
+ }
+} : r.status == 200 && code in ["TokenRevoked", "TokenExpired"] ? {
+ "result": "revoked", "reason": code
+} : r.status == 200 && code in ["TokenInvalid", "TokenMalformed"] ? {
+ "result": "invalid", "reason": code
+} : r.status == 401 && type(body.message) == "string" && body.message != "" ? {
+ "result": "invalid", "reason": "401 Unauthorized: " + body.message
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let username = input["username"] ?? "";
+let token_id = input["token_id"] ?? "";
+let usage = input["usage"] ?? "";
+let r = usage == "sk" && username matches "^[A-Za-z0-9_-]+$" && token_id != "" ?
+ http.get("https://api.mapbox.com/tokens/v2/" + username + "?access_token=" + strings.urlQueryEscape(finding["secret"]) + "&usage=sk&limit=100", {"Accept": "application/json"}) : {};
+let tokens = (r.status ?? 0) == 200 && type(r.json) == "array" ? r.json : [];
+let token = find(tokens, {type(#) == "map" && (#.id ?? "") == token_id});
+{
+ "identity": {"username": username},
+ "metadata": {
+  "token_id": token_id,
+  "usage": usage,
+  "note": type(token?.note) == "string" ? token.note : "",
+  "scopes": type(token?.scopes) == "array" ? filter(token.scopes, {type(#) == "string"}) : []
+ }
+}
+'''
+filter = '''
+let parts = split(finding["secret"], ".");
+let payload = len(parts) == 3 ? parts[1] : "";
+let padding = (4 - len(payload) % 4) % 4;
+entropy(finding["secret"]) < 4 || len(payload) % 4 == 1 ||
+ !(fromBase64(replace(replace(payload, "-", "+"), "_", "/") + repeat("=", padding)) matches
+   '^\\{"u":"[^"\\\\\\x00-\\x1f]+"\\s*,\\s*"a"\\s*:\\s*"[A-Za-z0-9]+"\\s*\\}$')
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# mapbox-secret-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "mapbox-secret-token"
+description = "Mapbox secret access token. Granted scopes may allow uploads, edits, or token management."
+regex = '''\b(sk\.eyJ1Ijoi[A-Za-z0-9_-]{15,300}\.[A-Za-z0-9_-]{21}[AQgw])(?:$|[^A-Za-z0-9_-])'''
+confidence = "high"
+keywords = ["sk.eyj1ijoi"]
+tags = [
+    "provider:mapbox","category:maps",
+]
+validate = '''
+let r = http.get("https://api.mapbox.com/tokens/v2?access_token=" + strings.urlQueryEscape(finding["secret"]), {"Accept": "application/json"});
+let body = type(r.json) == "map" ? r.json : {};
+let code = body.code ?? "";
+let token = type(body.token) == "map" ? body.token : {};
+r.status == 200 && code == "TokenValid" ? {
+ "result": "valid", "reason": code,
+ "analysis": {
+  "username": type(token.user) == "string" ? token.user : "",
+  "token_id": type(token.authorization) == "string" ? token.authorization : "",
+  "usage": type(token.usage) == "string" ? token.usage : ""
+ }
+} : r.status == 200 && code in ["TokenRevoked", "TokenExpired"] ? {
+ "result": "revoked", "reason": code
+} : r.status == 200 && code in ["TokenInvalid", "TokenMalformed"] ? {
+ "result": "invalid", "reason": code
+} : r.status == 401 && type(body.message) == "string" && body.message != "" ? {
+ "result": "invalid", "reason": "401 Unauthorized: " + body.message
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let username = input["username"] ?? "";
+let token_id = input["token_id"] ?? "";
+let usage = input["usage"] ?? "";
+let r = usage == "sk" && username matches "^[A-Za-z0-9_-]+$" && token_id != "" ?
+ http.get("https://api.mapbox.com/tokens/v2/" + username + "?access_token=" + strings.urlQueryEscape(finding["secret"]) + "&usage=sk&limit=100", {"Accept": "application/json"}) : {};
+let tokens = (r.status ?? 0) == 200 && type(r.json) == "array" ? r.json : [];
+let token = find(tokens, {type(#) == "map" && (#.id ?? "") == token_id});
+{
+ "identity": {"username": username},
+ "metadata": {
+  "token_id": token_id,
+  "usage": usage,
+  "note": type(token?.note) == "string" ? token.note : "",
+  "scopes": type(token?.scopes) == "array" ? filter(token.scopes, {type(#) == "string"}) : []
+ }
+}
+'''
+filter = '''
+let parts = split(finding["secret"], ".");
+let payload = len(parts) == 3 ? parts[1] : "";
+let padding = (4 - len(payload) % 4) % 4;
+entropy(finding["secret"]) < 4 || len(payload) % 4 == 1 ||
+ !(fromBase64(replace(replace(payload, "-", "+"), "_", "/") + repeat("=", padding)) matches
+   '^\\{"u":"[^"\\\\\\x00-\\x1f]+"\\s*,\\s*"a"\\s*:\\s*"[A-Za-z0-9]+"\\s*\\}$')
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # mattermost-access-token

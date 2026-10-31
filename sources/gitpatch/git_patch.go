@@ -1,4 +1,4 @@
-package sources
+package gitpatch
 
 import (
 	"bufio"
@@ -13,19 +13,20 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitdiff"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 // GitDiff scans additions from a caller-supplied git log -p or git diff stream.
 // It never opens a repository or executes Git. Binary patches contain no
 // scannable file content and are skipped. The caller owns and closes Content.
-// As with Reader, cancellation cannot interrupt an arbitrary blocked Read.
+// As with sources.Reader, cancellation cannot interrupt an arbitrary blocked Read.
 type GitDiff struct {
 	Content    io.Reader
 	Attributes map[string]string
-	Prefilter  PrefilterFunc
+	Prefilter  sources.PrefilterFunc
 }
 
-func (s *GitDiff) Fragments(ctx context.Context, yield FragmentsFunc) error {
+func (s *GitDiff) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
 	if s.Content == nil {
 		return errors.New("git diff source requires input")
 	}
@@ -33,14 +34,14 @@ func (s *GitDiff) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		if file.IsDelete || file.IsBinary {
 			return nil, nil
 		}
-		attrs := map[string]string{AttrPath: file.NewName, AttrResource: ResourceGitPatchContent}
+		attrs := map[string]string{sources.AttrPath: file.NewName, sources.AttrResource: sources.ResourceGitPatchContent}
 		if p := file.PatchHeader; p != nil {
-			attrs[AttrGitSHA], attrs[AttrGitMessage] = p.SHA, p.Message()
+			attrs[sources.AttrGitSHA], attrs[sources.AttrGitMessage] = p.SHA, p.Message()
 			if !p.AuthorDate.IsZero() {
-				attrs[AttrGitDate] = p.AuthorDate.UTC().Format(time.RFC3339)
+				attrs[sources.AttrGitDate] = p.AuthorDate.UTC().Format(time.RFC3339)
 			}
 			if p.Author != nil {
-				attrs[AttrGitAuthorName], attrs[AttrGitAuthorEmail] = p.Author.Name, p.Author.Email
+				attrs[sources.AttrGitAuthorName], attrs[sources.AttrGitAuthorEmail] = p.Author.Name, p.Author.Email
 			}
 		}
 		maps.Copy(attrs, s.Attributes)
@@ -51,7 +52,7 @@ func (s *GitDiff) Fragments(ctx context.Context, yield FragmentsFunc) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			return yield(Fragment{Raw: raw, StartLine: line, Attributes: attrs}, nil)
+			return yield(sources.Fragment{Raw: raw, StartLine: line, Attributes: attrs}, nil)
 		}, nil
 	})
 }

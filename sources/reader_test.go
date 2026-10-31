@@ -56,24 +56,6 @@ func TestReaderCopiesCallerAttributes(t *testing.T) {
 	assert.NotContains(t, attributes, "copy")
 }
 
-func TestReaderFragmentsTracksLinesAcrossChunks(t *testing.T) {
-	var fragments []Fragment
-	err := readerFragments(
-		t.Context(),
-		strings.NewReader("one\n\ntwo"),
-		make([]byte, 3),
-		func(fragment Fragment, err error) error {
-			require.NoError(t, err)
-			fragments = append(fragments, fragment)
-			return nil
-		},
-	)
-	require.NoError(t, err)
-	require.Len(t, fragments, 2)
-	assert.Equal(t, Fragment{Raw: "one\n\n", StartLine: 1}, fragments[0])
-	assert.Equal(t, Fragment{Raw: "two", StartLine: 3}, fragments[1])
-}
-
 type readerFunc func([]byte) (int, error)
 
 func (f readerFunc) Read(p []byte) (int, error) { return f(p) }

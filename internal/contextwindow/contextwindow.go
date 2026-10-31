@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Mode determines how a context window is interpreted.
@@ -37,7 +38,9 @@ type direction struct {
 	bidirected int
 }
 
-var tokenRE = regexp.MustCompile(`(?i)^([+-]?)(\d+)([CL]?)$`)
+var tokenREOnce = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)^([+-]?)(\d+)([CL]?)$`)
+})
 
 // Parse parses the grammar shared by --match-context and component within fields.
 func Parse(value string) (Spec, error) {
@@ -55,7 +58,7 @@ func Parse(value string) (Spec, error) {
 			return Spec{}, fmt.Errorf("empty token in context window %q", value)
 		}
 
-		matches := tokenRE.FindStringSubmatch(token)
+		matches := tokenREOnce().FindStringSubmatch(token)
 		if matches == nil {
 			return Spec{}, fmt.Errorf("invalid context window token %q", token)
 		}

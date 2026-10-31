@@ -1,4 +1,4 @@
-package scm
+package gitclone
 
 import (
 	"fmt"

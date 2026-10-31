@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
+	"github.com/betterleaks/betterleaks/v2/scm"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
 	"github.com/go-git/go-billy/v5"
 	"github.com/stretchr/testify/require"
 )

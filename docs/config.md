@@ -178,8 +178,10 @@ Each `[[rules]]` entry can use:
   Zero (the default) selects the first non-empty capture group, falling back to
   `match.full` if none exists. An explicitly selected group that does not
   participate produces an empty value.
-- `specificity`: precedence among overlapping findings; higher values win
-  (default `0`). Negative values lower precedence; positive values raise it.
+- `specificity`: precedence among overlapping source matches when the higher
+  rule's value contains the lower rule's value; higher numbers win (default `0`).
+  Locations cover full matches, and decoded matches can cover an entire encoded
+  segment. Equal values within those ranges may be combined.
 - `tags`: optional metadata labels.
 - `skipReport`: suppress standalone reporting of this rule, commonly used for
   credential components (`false` by default).
