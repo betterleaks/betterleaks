@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/betterleaks/betterleaks/v2/scm"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
 	"github.com/stretchr/testify/require"
 )
 

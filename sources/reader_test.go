@@ -8,6 +8,7 @@ import (
 	"testing"
 	"testing/iotest"
 
+	"github.com/betterleaks/betterleaks/v2/sources/internal/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,24 +55,6 @@ func TestReaderCopiesCallerAttributes(t *testing.T) {
 		return nil
 	}))
 	assert.NotContains(t, attributes, "copy")
-}
-
-func TestReaderFragmentsTracksLinesAcrossChunks(t *testing.T) {
-	var fragments []Fragment
-	err := readerFragments(
-		t.Context(),
-		strings.NewReader("one\n\ntwo"),
-		make([]byte, 3),
-		func(fragment Fragment, err error) error {
-			require.NoError(t, err)
-			fragments = append(fragments, fragment)
-			return nil
-		},
-	)
-	require.NoError(t, err)
-	require.Len(t, fragments, 2)
-	assert.Equal(t, Fragment{Raw: "one\n\n", StartLine: 1}, fragments[0])
-	assert.Equal(t, Fragment{Raw: "two", StartLine: 3}, fragments[1])
 }
 
 type readerFunc func([]byte) (int, error)
@@ -171,7 +154,7 @@ func TestReaderPreservesCallbackFailureAndCancellationAtEOF(t *testing.T) {
 func TestReaderFragmentColumnOffsets(t *testing.T) {
 	for name, raw := range map[string]string{
 		"no newlines": strings.Repeat("é", 200_000),
-		"aligned":     strings.Repeat(strings.Repeat("x", defaultBufferSize-2)+"\n\n", 3),
+		"aligned":     strings.Repeat(strings.Repeat("x", stream.BufferSize-2)+"\n\n", 3),
 		"CRLF":        strings.Repeat(strings.Repeat("é", 63_000)+"\r\n", 3) + "end",
 	} {
 		t.Run(name, func(t *testing.T) {

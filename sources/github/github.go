@@ -16,18 +16,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/go-github/v72/github"
-	"github.com/shurcooL/githubv4"
-	"golang.org/x/sync/errgroup"
-
+	"github.com/betterleaks/betterleaks/v2/internal/gitclone"
 	"github.com/betterleaks/betterleaks/v2/internal/httpclient"
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/urlredact"
+	"github.com/betterleaks/betterleaks/v2/scm"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/betterleaks/betterleaks/v2/sources/gogit"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/download"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/targeturl"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
+	"github.com/google/go-github/v72/github"
+	"github.com/shurcooL/githubv4"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -573,7 +574,7 @@ func (s *Source) downloadAndScan(ctx context.Context, rawURL string, reader io.R
 		TempPattern: "betterleaks-download-*",
 		Logger:      s.Logger,
 	}, func(content *os.File) error {
-		file := &sources.File{
+		file := &filesystem.File{
 			Content: content, Path: path, Attributes: attrs,
 			Logger: s.Logger, Prefilter: s.Prefilter,
 			MaxArchiveDepth: max(1, s.MaxArchiveDepth), DetectArchive: true,
@@ -621,7 +622,7 @@ func (s *Source) newClient(ctx context.Context) *github.Client {
 //
 //nolint:exhaustruct // Unspecified Git source options retain their documented defaults.
 func (s *Source) scanRepoGit(ctx context.Context, repo *github.Repository, yield sources.FragmentsFunc) error {
-	return scm.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", scm.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
+	return gitclone.CloneToTempDir(ctx, repo.GetCloneURL(), s.Token, "betterleaks-github-*", gitclone.CloneOptions{AllRefs: s.CloneAllRefs}, func(repoPath string) error {
 		src := &gogit.Source{
 			Logger:   s.Logger,
 			RepoPath: repoPath, Prefilter: s.Prefilter,

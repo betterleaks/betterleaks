@@ -161,33 +161,65 @@ SSH Git URLs and scheme-less remote addresses are not supported by this shorthan
 Self-hosted provider resources and custom S3-compatible endpoints use explicit
 provider commands; arbitrary HTTP(S) Git servers can use discovery or `git`.
 
-The SDK exposes the same classification without constructing a source:
+The SDK exposes the same classification without constructing a source through
+`github.com/betterleaks/betterleaks/v2/sources/auto`:
 
 ```go
-kind, err := sources.Auto(ctx, target)
+kind, err := auto.Auto(ctx, target)
 if err != nil {
-    return err // kind == sources.UnknownKind
+    return err // kind == auto.UnknownKind
 }
 switch kind {
-case sources.FilesystemKind:
-    // Construct sources.Files with Path: target.
-case sources.GitKind:
+case auto.FilesystemKind:
+    // Construct filesystem.Files with Path: target.
+case auto.GitKind:
     // Construct gogit.Source with URL: target.
-case sources.URLKind:
-    // Construct sources.URL with URL: target.
+case auto.URLKind:
+    // Construct web.URL with URL: target.
     // Set MaxArchiveDepth if archives should be scanned.
 }
 ```
 
-Other kinds are `GitHubKind`, `GitLabKind`, `HuggingFaceKind`, and `S3Kind`.
-`WithAutoHTTPClient(client)` supplies a discovery client, including custom
+Other kinds are `auto.GitHubKind`, `auto.GitLabKind`, `auto.HuggingFaceKind`,
+and `auto.S3Kind`.
+`auto.WithAutoHTTPClient(client)` supplies a discovery client, including custom
 authentication. Detection can make network requests and respects context
-cancellation. `WithAutoLogger(logger)` enables SDK diagnostics; the CLI logs the
+cancellation. `auto.WithAutoLogger(logger)` enables SDK diagnostics; the CLI logs the
 selected source at info level and Git discovery at debug level (`--log-level debug`).
 Logged URLs omit userinfo, query parameters, and fragments. The SDK does not read
 credential environment variables.
 
 ---
+
+## Structured credential patterns
+
+The generic rules recognize adjacent fields such as
+`{"name": "SERVICE_API_KEY", "value": "..."}` and
+`{"name": "DB_PASSWORD", "value": "..."}`. The label may also use `key`;
+bare property names work too. At most one line break may separate the fields.
+The rules also allow up to two opening JSON containers (with quoted child keys)
+or XML elements between a credential label and a literal. The API-key rule
+recognizes XML attribute records and CDATA. XML password text needs opening and
+closing tags, with at most one line break before a closing tag's `>`.
+Opening tags allow up to five quoted, single-line attributes, with one line
+break between attributes or before `>`. CDATA passwords allow one padding line
+break on each side of a single-line value; inline spaces remain part of the value.
+Identifiers stay on one line, so a credential word in a comment
+cannot absorb the next assignment. Existing value filters still apply. For API
+keys, child names such as `turkey` do not invalidate the credential label, but
+metadata fields such as `public_key` and `access_id` remain excluded.
+For XML element matches, attributes do not participate in these name checks.
+
+Inside a credential object, an explicit `"value"` field may follow up to five
+scalar siblings (strings, numbers, booleans, or null). Each skipped field must
+fit on one line; nested objects and arrays are not skipped. Sibling metadata
+does not participate in credential-name filtering.
+
+These are text patterns, so the enclosing document need not be complete. They
+otherwise find only the first value under a shared parent label. Reversed fields
+and other later siblings are not reliably detected. An element
+name does not supply context for an attribute on another line. Padding does not
+skip closing containers.
 
 ## Finding output
 
@@ -552,7 +584,8 @@ Archive recursion follows `--max-archive-depth`. Temporary downloads are removed
 on completion or failure. Findings use `resource=url.content`, the URL path as
 `path`, and a `url` attribute with userinfo, query parameters, and fragments
 removed. URL userinfo can supply HTTP Basic authentication; SDK callers can
-supply `sources.URL.HTTPClient` for other authentication or timeout policies.
+supply `web.URL.HTTPClient` from `sources/web` for other authentication or
+timeout policies.
 Archive entries retain the URL attributes, so prefilters can combine `url`,
 `resource`, and the full archive entry `path` (for example, `download!secret.txt`).
 
@@ -890,6 +923,9 @@ empty `Revision`, history starts at HEAD and all non-note refs.
 `Include`/`Exclude` use the CLI's resource names. `CloneRefs` and `CloneAllRefs`
 correspond to the URL-only clone flags. Supply `Token` explicitly for an
 authenticated URL; the SDK does not infer environment tokens.
+Platform types and constants come from
+`github.com/betterleaks/betterleaks/v2/scm`. For example, set
+`Platform: scm.NoPlatform` to disable finding links.
 
 | CLI option | `gogit.Source` field | SDK behavior |
 |---|---|---|
@@ -949,7 +985,7 @@ Each flag matters:
 Removed and context lines and commit messages aren't scanned. Binary patches
 don't contain file bytes and are skipped. Combined merge patches are rejected;
 use `--diff-merges=first-parent` or `--diff-merges=separate`. SDK callers can use
-`sources.GitDiff{Content: reader}`.
+`gitpatch.GitDiff{Content: reader}` from `sources/gitpatch`.
 
 A pre-receive hook scans the commits being pushed. Git quarantines them until
 the hook accepts the push, and `git log` inside the hook can read them:

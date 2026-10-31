@@ -1,35 +1,13 @@
 package sources
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
-	"strings"
-	"sync"
-)
 
-const defaultBufferSize = 100 * 1_000 // 100 KB
-
-var (
-	bufferPool = sync.Pool{
-		New: func() any {
-			// Keep lookahead in the same reusable backing array as the initial
-			// read. Fragment.Raw receives one exact-sized string copy before the
-			// buffer returns to the pool.
-			buffer := make([]byte, defaultBufferSize, defaultBufferSize+maxPeekSize)
-			return &buffer
-		},
-	}
-	readerPool = sync.Pool{
-		New: func() any {
-			// Match bufio.NewReader's default size to preserve chunk boundaries
-			// when readUntilSafeBoundary reads ahead.
-			return bufio.NewReader(nil)
-		},
-	}
+	"github.com/betterleaks/betterleaks/v2/sources/internal/stream"
 )
 
 // Reader yields fragments from arbitrary text read from Content. It does not
@@ -51,10 +29,8 @@ func (s *Reader) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		return errors.New("reader content is nil")
 	}
 
-	buffer := getBuffer()
-	defer putBuffer(buffer)
-
-	return readerFragments(ctx, s.Content, buffer, func(fragment Fragment, err error) error {
+	return stream.Read(ctx, s.Content, func(raw string, line, columnOffset int, err error) error {
+		fragment := Fragment{Raw: raw, StartLine: line, StartColumnOffset: columnOffset}
 		if len(s.Attributes) > 0 {
 			fragment.Attributes = make(map[string]string, len(s.Attributes))
 			maps.Copy(fragment.Attributes, s.Attributes)
@@ -68,84 +44,4 @@ func (s *Reader) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		}
 		return yield(fragment, nil)
 	})
-}
-
-// readerFragments contains the source-neutral mechanics shared by Reader and
-// File: buffered reads, safe chunk boundaries, and stream-relative line
-// tracking. The caller owns attributes and source-specific policy.
-func readerFragments(ctx context.Context, content io.Reader, buffer []byte, yield FragmentsFunc) error {
-	if len(buffer) == 0 {
-		return errors.New("reader buffer is empty")
-	}
-
-	reader := getReader(content)
-	defer putReader(reader)
-
-	nextLine := 1
-	nextColumnOffset := 0
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		n, readErr := reader.Read(buffer)
-		if n == 0 {
-			if readErr != nil && !errors.Is(readErr, io.EOF) {
-				return yield(Fragment{StartLine: nextLine}, readErr)
-			}
-			return nil
-		}
-
-		chunk := buffer[:n]
-
-		var boundaryErr error
-		if readErr == nil {
-			chunk, boundaryErr = readUntilSafeBoundary(reader, chunk, n, maxPeekSize)
-		}
-
-		fragment := Fragment{
-			Raw:               string(chunk),
-			StartLine:         nextLine,
-			StartColumnOffset: nextColumnOffset,
-		}
-		if err := yield(fragment, nil); err != nil {
-			return err
-		}
-
-		if errors.Is(boundaryErr, io.EOF) || errors.Is(readErr, io.EOF) {
-			return ctx.Err()
-		}
-		nextLine += strings.Count(fragment.Raw, "\n")
-		if lastNewline := strings.LastIndexByte(fragment.Raw, '\n'); lastNewline >= 0 {
-			nextColumnOffset = len(fragment.Raw) - lastNewline - 1
-		} else {
-			nextColumnOffset += len(fragment.Raw)
-		}
-		if boundaryErr != nil {
-			return yield(Fragment{StartLine: nextLine}, fmt.Errorf("could not read until safe boundary: %w", boundaryErr))
-		}
-		if readErr != nil {
-			return yield(Fragment{StartLine: nextLine}, readErr)
-		}
-	}
-}
-
-func getBuffer() []byte {
-	return *bufferPool.Get().(*[]byte)
-}
-
-func putBuffer(buffer []byte) {
-	buffer = buffer[:defaultBufferSize]
-	bufferPool.Put(&buffer)
-}
-
-func getReader(reader io.Reader) *bufio.Reader {
-	buffered := readerPool.Get().(*bufio.Reader)
-	buffered.Reset(reader)
-	return buffered
-}
-
-func putReader(reader *bufio.Reader) {
-	reader.Reset(nil)
-	readerPool.Put(reader)
 }

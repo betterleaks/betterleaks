@@ -33,6 +33,18 @@ func TestResolveConfigIgnoresImplicitAndLegacyConfigs(t *testing.T) {
 	assert.Equal(t, "default", resolved.source)
 }
 
+func TestConfigCheckBuiltin(t *testing.T) {
+	// Exercise the same command as CI, including filter evaluation with the
+	// placeholder finding, which need not match a rule's token format.
+	for _, engine := range []string{"re2", "stdlib"} {
+		t.Run(engine, func(t *testing.T) {
+			root, _ := newTestCLI(t)
+			root.SetArgs([]string{"--regex-engine", engine, "config", "check", "../config/betterleaks.toml"})
+			require.NoError(t, root.Execute())
+		})
+	}
+}
+
 func TestConfigHash(t *testing.T) {
 	t.Setenv("BETTERLEAKS_CONFIG", "")
 	t.Setenv("BETTERLEAKS_CONFIG_TOML", "")

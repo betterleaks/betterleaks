@@ -9,9 +9,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-var binaryRegexp = regexp.MustCompile(`^Binary files (/dev/null|a/(.+)|"a/(.+)") and (/dev/null|b/(.+)|"b/(.+)") differ\s*$`)
+var binaryRegexpOnce = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^Binary files (/dev/null|a/(.+)|"a/(.+)") and (/dev/null|b/(.+)|"b/(.+)") differ\s*$`)
+})
 
 func (p *parser) ParseBinaryFragments(f *File) (n int, err error) {
 	isBinary, hasData, err := p.ParseBinaryMarker()
@@ -61,7 +64,7 @@ func (p *parser) ParseBinaryMarker() (isBinary bool, hasData bool, err error) {
 	case line == "Files differ\n":
 	case strings.HasPrefix(line, "Binary files ") && strings.HasSuffix(line, "differ\n"):
 	default:
-		if !binaryRegexp.MatchString(p.Line(0)) {
+		if !binaryRegexpOnce().MatchString(p.Line(0)) {
 			return false, false, nil
 		}
 	}

@@ -1,5 +1,5 @@
 //nolint:exhaustruct // Test fixtures specify only the fields relevant to each scenario.
-package scm
+package gitclone
 
 import (
 	"bytes"

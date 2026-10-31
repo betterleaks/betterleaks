@@ -1,4 +1,4 @@
-package sources
+package filesystem
 
 import (
 	"context"
@@ -11,12 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mholt/archives"
-
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
+	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/internal/stream"
+	"github.com/mholt/archives"
 )
-
-const InnerPathSeparator = "!"
 
 type seekReaderAt interface {
 	io.ReaderAt
@@ -39,7 +38,7 @@ type File struct {
 	Symlink string
 	// Prefilter is a callback that decides whether to skip a file based on its
 	// attributes (e.g. path). If nil, no skipping is performed.
-	Prefilter PrefilterFunc
+	Prefilter sources.PrefilterFunc
 	// MaxArchiveDepth limits how deep the sources will explore nested archives
 	MaxArchiveDepth int
 	// DetectArchive also identifies archives by content, for downloads whose
@@ -62,7 +61,7 @@ type File struct {
 }
 
 // Fragments yields fragments for the this source
-func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
+func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -72,7 +71,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	// Archive walkers may log errors. Preserve callback errors for every caller.
 	var yieldErr error
 	emit := yield
-	yield = func(fragment Fragment, err error) error {
+	yield = func(fragment sources.Fragment, err error) error {
 		if yieldErr != nil {
 			return yieldErr
 		}
@@ -113,7 +112,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	}
 
 	if s.StrictArchives && err != nil && !errors.Is(err, archives.NoMatch) {
-		return yield(Fragment{}, fmt.Errorf("identify archive %q: %w", s.FullPath(), err))
+		return yield(sources.Fragment{}, fmt.Errorf("identify archive %q: %w", s.FullPath(), err))
 	}
 
 	// Process the file as an archive if there's no error && Identify returns
@@ -123,7 +122,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 	if err == nil && format != nil {
 		if s.archiveDepth+1 > s.MaxArchiveDepth {
 			if s.StrictArchives {
-				return yield(Fragment{}, fmt.Errorf("archive %q exceeds max archive depth %d", s.FullPath(), s.MaxArchiveDepth))
+				return yield(sources.Fragment{}, fmt.Errorf("archive %q exceeds max archive depth %d", s.FullPath(), s.MaxArchiveDepth))
 			}
 			// Warn if the feature is enabled; else emit a trace log.
 			if s.MaxArchiveDepth != 0 {
@@ -149,7 +148,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 		}
 		logging.OrDiscard(s.Logger).Warn("skipping unknown archive type", "path", s.FullPath())
 		if s.StrictArchives {
-			return yield(Fragment{}, fmt.Errorf("unsupported archive type at %q", s.FullPath()))
+			return yield(sources.Fragment{}, fmt.Errorf("unsupported archive type at %q", s.FullPath()))
 		}
 	}
 
@@ -158,7 +157,7 @@ func (s *File) Fragments(ctx context.Context, yield FragmentsFunc) (err error) {
 }
 
 // extractorFragments recursively crawls archives and yields fragments
-func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield FragmentsFunc) {
+func (s *File) extractorFragments(ctx context.Context, extractor archives.Extractor, reader io.Reader, yield sources.FragmentsFunc) {
 	// Malformed archives can make the extraction library panic (e.g. a tiny
 	// .rar whose block header encodes a bogus size). Recover here so a bad
 	// archive is skipped with a warning instead of killing the process. This
@@ -182,7 +181,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		}
 		var stopped error
 		emit := yield
-		yield = func(fragment Fragment, err error) error {
+		yield = func(fragment sources.Fragment, err error) error {
 			if stopped == nil {
 				stopped = emit(fragment, err)
 			}
@@ -243,7 +242,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 		defer innerReader.Close()
 
 		if s.Prefilter != nil && shouldSkipPath(func(attrs map[string]string) bool {
-			return s.Prefilter(s.attributes(attrs[AttrPath]))
+			return s.Prefilter(s.attributes(attrs[sources.AttrPath]))
 		}, path) {
 			logging.OrDiscard(s.Logger).Debug("skipping file: global prefilter", "path", s.FullPath())
 			return nil
@@ -274,7 +273,7 @@ func (s *File) extractorFragments(ctx context.Context, extractor archives.Extrac
 
 // decompressorFragments inspects each decoded stream for further archives or
 // compression. A compression-only wrapper consumes one archive-depth level.
-func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield FragmentsFunc) {
+func (s *File) decompressorFragments(ctx context.Context, decompressor archives.Decompressor, reader io.Reader, yield sources.FragmentsFunc) {
 	// Register recovery before cleanup so it runs last and can also catch a
 	// panic from closing a malformed decompressor reader.
 	defer func() {
@@ -333,21 +332,18 @@ func (r archiveDrainReader) Read(p []byte) (int, error) {
 	return r.reader.Read(p)
 }
 
-func (s *File) archiveFailure(yield FragmentsFunc, err error) error {
+func (s *File) archiveFailure(yield sources.FragmentsFunc, err error) error {
 	if s.StrictArchives {
 		// Fragments' wrapper retains callback errors, including errors returned
 		// inside the archive library's callback or panic recovery.
-		return yield(Fragment{}, fmt.Errorf("archive %q: %w", s.FullPath(), err))
+		return yield(sources.Fragment{}, fmt.Errorf("archive %q: %w", s.FullPath(), err))
 	}
 	return nil
 }
 
 // fileFragments adds filesystem policy and metadata to source-neutral reader
 // fragments.
-func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveContent bool, yield FragmentsFunc) error {
-	buffer := getBuffer()
-	defer putBuffer(buffer)
-
+func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveContent bool, yield sources.FragmentsFunc) error {
 	fullPath := s.FullPath()
 	fragmentPath := fullPath
 	if isWindows {
@@ -355,13 +351,14 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 	}
 	firstFragment := true
 
-	return readerFragments(ctx, content, buffer, func(fragment Fragment, readErr error) error {
+	return stream.Read(ctx, content, func(raw string, line, columnOffset int, readErr error) error {
+		fragment := sources.Fragment{Raw: raw, StartLine: line, StartColumnOffset: columnOffset}
 		first := "false"
 		if firstFragment {
 			first = "true"
 		}
 		fragment.Attributes = s.attributes(fragmentPath)
-		fragment.SetAttr(AttrFSFirstFragment, first)
+		fragment.SetAttr(sources.AttrFSFirstFragment, first)
 
 		if readErr != nil {
 			if isArchiveContent {
@@ -379,7 +376,7 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 			if isWindows {
 				symlink = filepath.ToSlash(symlink)
 			}
-			fragment.SetAttr(AttrFSSymlink, symlink)
+			fragment.SetAttr(sources.AttrFSSymlink, symlink)
 		}
 
 		firstFragment = false
@@ -391,9 +388,9 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 // Callers may override the resource type; the supplied path always takes precedence.
 func (s *File) attributes(path string) map[string]string {
 	attrs := make(map[string]string, len(s.Attributes)+2)
-	attrs[AttrResource] = ResourceFileContent
+	attrs[sources.AttrResource] = sources.ResourceFileContent
 	maps.Copy(attrs, s.Attributes)
-	attrs[AttrPath] = path
+	attrs[sources.AttrPath] = path
 	return attrs
 }
 
@@ -403,7 +400,7 @@ func (s *File) FullPath() string {
 		return strings.Join(
 			// outerPaths have already been normalized to slash
 			append(s.outerPaths, s.Path),
-			InnerPathSeparator,
+			sources.InnerPathSeparator,
 		)
 	}
 

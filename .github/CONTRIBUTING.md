@@ -68,39 +68,39 @@ If you want to add a new rule to the [default configuration](../config/betterlea
            Description: "Beamer API token",
 
            // Unique ID for the rule
-           RuleID:      "beamer-api-token",
+           ID:          "beamer-api-token",
+           Confidence:  "medium",
 
            // Regex used for detecting secrets. See regex section below for more details
-           Regex: GenerateSemiGenericRegex([]string{"beamer"}, `b_[a-z0-9=_\-]{44}`, true)
+           Regex: utils.GenerateSemiGenericRegex([]string{"beamer"}, `b_[a-z0-9=_\-]{44}`, true),
 
            // Keywords used for string matching on fragments (think of this as a prefilter)
            Keywords: []string{"beamer"},
        }
 
        // validate the keyword, regex, and filters work
-       tps := []string{
-           generateSampleSecret("beamer", "b_"+secrets.NewSecret(alphaNumericExtended("44"))),
-       }
+       tps := utils.GenerateSampleSecrets("beamer", "b_"+secrets.NewSecret(utils.AlphaNumericExtended("44")))
        fps := []string{
            `R21A-A-V010SP13RC181024R16900-CN-B_250K-Release-OTA-97B6C6C59241976086FABDC41472150C.bfu`,
        }
-       return validate(r, tps, fps)
+       return utils.Validate(r, tps, fps)
    }
    ```
 
    Feel free to use this example as a template when writing new rules.
    This file should be fairly self-explanatory except for a few items;
-   regex and secret generation. To help with maintence, _most_ rules should
+   regex and secret generation. To help with maintenance, _most_ rules should
    be uniform. The functions,
-   `GenerateSemiGenericRegex` and `GenerateUniqueTokenRegex` (in `cmd/generate/config/rules/rule.go`) will generate rules
+   `utils.GenerateSemiGenericRegex` and `utils.GenerateUniqueTokenRegex` (in
+   [`cmd/generate/config/utils/generate.go`](../cmd/generate/config/utils/generate.go)) generate regex patterns
    that follow defined patterns.
 
    The function signatures look like this:
 
    ```golang
-   func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseInsensitive bool) *regexp.Regexp
+   func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseInsensitive bool) string
 
-   func GenerateUniqueTokenRegex(secretRegex string, isCaseInsensitive bool) *regexp.Regexp
+   func GenerateUniqueTokenRegex(secretRegex string, isCaseInsensitive bool) string
    ```
 
    `GenerateSemiGenericRegex` accepts a list of identifiers, a regex, and a boolean indicating whether the pattern should be case-insensitive.
@@ -120,14 +120,14 @@ If you want to add a new rule to the [default configuration](../config/betterlea
    probably get away with using `GenerateUniqueTokenRegex`.
 
    Last thing you'll want to hit before we move on from this file is the
-   validation part. You can use `generateSampleSecret` to create a secret for the
-   true positives (`tps` in the example above) used in `validate`.
+   validation part. Use `utils.GenerateSampleSecrets` to create assignment
+   examples for the true positives (`tps` above) checked by `utils.Validate`.
    `secrets.NewSecret` and `secrets.NewSecretWithEntropy` use a fixed local seed,
    so their examples are repeatable and independent of rule generation order.
    Add literal fixtures for boundary characters and other important edge cases;
    regeneration does not provide randomized coverage.
 
-2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, set the rule's `Filter` field. For more information, check out the [config doc](/docs/config.md)
+2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, set the rule's `FilterExpr` field. For more information, check out the [config doc](/docs/config.md)
 Example simple `filter`:
 ```
 filter = '''

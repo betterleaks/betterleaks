@@ -16,11 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
 	"github.com/betterleaks/betterleaks/v2/internal/sigv4"
 	"github.com/betterleaks/betterleaks/v2/sources"
+	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -422,7 +422,7 @@ func (s *Source) scanObject(ctx context.Context, client *http.Client, target s3T
 	defer body.Close()
 
 	stampedYield := s.wrapYieldWithAttrs(attrs, yield)
-	file := &sources.File{
+	file := &filesystem.File{
 		Logger:          s.Logger,
 		Content:         body,
 		Path:            obj.Key,

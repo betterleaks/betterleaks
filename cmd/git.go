@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/scm"
 	"github.com/betterleaks/betterleaks/v2/sources/gogit"
-	"github.com/betterleaks/betterleaks/v2/sources/scm"
 )
 
 type GitCmd struct {

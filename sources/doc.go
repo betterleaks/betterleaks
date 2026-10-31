@@ -1,13 +1,15 @@
-// Package sources defines the scanning protocol and the Reader, File, Files,
-// and Git sources. A Source yields fragments of content with source attributes;
-// it does not depend on the detector or its rule configuration.
+// Package sources defines the scanning protocol and the Reader source.
+// A Source yields fragments of content with source attributes; it does not
+// depend on the scanner or its rule configuration. This package and its
+// dependencies use only the standard library and Betterleaks' internal code.
 //
-// Provider integrations live in separate packages:
-// github.com/betterleaks/betterleaks/v2/sources/github,
-// github.com/betterleaks/betterleaks/v2/sources/gitlab,
-// github.com/betterleaks/betterleaks/v2/sources/huggingface, and
-// github.com/betterleaks/betterleaks/v2/sources/s3.
-// Each provider's Source implements this package's Source interface.
+// Concrete sources live in subpackages: filesystem provides File and Files,
+// web provides URL, gitpatch provides GitDiff, and gogit reads Git repositories.
+// Provider integrations live in github, gitlab, huggingface, s3, and container.
+// Import the implementation needed and pass it to scan.Scanner or
+// pipeline.Pipeline. The auto package classifies targets without constructing
+// a source. The top-level scm package provides platform metadata; cloning is
+// implemented internally by Git-capable sources.
 //
 // Common, filesystem, and Git attribute constants live here. Provider-specific
 // attribute constants and resource values live with their providers. Their
