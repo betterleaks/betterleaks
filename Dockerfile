@@ -1,4 +1,4 @@
-FROM golang:1.26 AS build
+FROM golang:1.26.10 AS build
 WORKDIR /go/src/github.com/betterleaks/betterleaks/v2
 COPY . .
 ARG VERSION
