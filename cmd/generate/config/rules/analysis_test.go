@@ -381,6 +381,48 @@ func TestFastlyValidationUsesTokenIntrospection(t *testing.T) {
 	}
 }
 
+func TestRunwayMLValidation(t *testing.T) {
+	rule := RunwayMLAPIKey()
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		status     report.ValidationStatus
+	}{
+		{"valid", http.StatusOK, `{"creditBalance":100,"tier":{},"usage":{}}`, report.ValidationStatusValid},
+		{"zero balance", http.StatusOK, `{"creditBalance":0,"tier":{},"usage":{}}`, report.ValidationStatusValid},
+		{"missing balance", http.StatusOK, `{}`, report.ValidationStatusUnknown},
+		{"null balance", http.StatusOK, `{"creditBalance":null}`, report.ValidationStatusUnknown},
+		{"unrelated body", http.StatusOK, `{"message":"creditBalance"}`, report.ValidationStatusUnknown},
+		{"unauthorized", http.StatusUnauthorized, `{}`, report.ValidationStatusInvalid},
+		{"forbidden", http.StatusForbidden, `{}`, report.ValidationStatusInvalid},
+		{"rate limited", http.StatusTooManyRequests, `{}`, report.ValidationStatusUnknown},
+		{"server error", http.StatusInternalServerError, `{}`, report.ValidationStatusUnknown},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requests := 0
+			runtime, err := exprruntime.New(&http.Client{Transport: analysisFixtureTransport(func(request *http.Request) (*http.Response, error) {
+				requests++
+				assert.Equal(t, http.MethodGet, request.Method)
+				assert.Equal(t, "https://api.dev.runwayml.com/v1/organization", request.URL.String())
+				assert.Equal(t, "Bearer fixture-secret", request.Header.Get("Authorization"))
+				assert.Equal(t, "2024-11-06", request.Header.Get("X-Runway-Version"))
+				assert.Equal(t, "application/json", request.Header.Get("Accept"))
+				return &http.Response{StatusCode: test.statusCode, Body: io.NopCloser(strings.NewReader(test.body))}, nil
+			})})
+			require.NoError(t, err)
+			program, err := runtime.CompileValidation(rule.ValidateExpr)
+			require.NoError(t, err)
+			value, err := runtime.EvalValidation(t.Context(), program,
+				map[string]string{"rule_id": rule.ID, "secret": "fixture-secret"}, nil, nil, exprruntime.EvalOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, test.status, provider.ParseResult(value.Value).Status)
+			assert.Equal(t, 1, requests)
+		})
+	}
+}
+
 func TestCredentialAnalysisUnknownGrantsDoNotAddCapabilities(t *testing.T) {
 	result := evaluateProviderAnalysis(t, gitlabPatAnalyzeExpr, map[string]any{
 		"user_id": "42",
