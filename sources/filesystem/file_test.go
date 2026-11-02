@@ -11,6 +11,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/stream"
+	"github.com/klauspost/compress/gzip"
 	"github.com/mholt/archives"
 	"github.com/stretchr/testify/require"
 )
@@ -257,5 +258,126 @@ func TestFileLZ4StrictEndOfStream(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestFileDetectArchivePlainGzipNames(t *testing.T) {
+	const content = "auto\n/usr/share/man/man7/builtins.7.gz\n\n/usr/share/man/man7/bash-builtins.7.gz\n10\n"
+	readers := map[string]func(*testing.T) io.Reader{
+		"seekable": func(*testing.T) io.Reader {
+			return strings.NewReader(content)
+		},
+		"stream": func(*testing.T) io.Reader {
+			return io.LimitReader(strings.NewReader(content), int64(len(content)))
+		},
+		"tar member": func(t *testing.T) io.Reader {
+			var archive bytes.Buffer
+			writer := tar.NewWriter(&archive)
+			var header tar.Header
+			header.Name = "member"
+			header.Mode = 0600
+			header.Size = int64(len(content))
+			require.NoError(t, writer.WriteHeader(&header))
+			_, err := io.WriteString(writer, content)
+			require.NoError(t, err)
+			require.NoError(t, writer.Close())
+			reader := tar.NewReader(&archive)
+			_, err = reader.Next()
+			require.NoError(t, err)
+			return reader
+		},
+	}
+	for _, name := range []string{"builtins.7.gz", "plain.GZ", "plain.tgz", "plain.TGZ", "plain.tar.gz", "plain.txt"} {
+		for kind, reader := range readers {
+			t.Run(name+"/"+kind, func(t *testing.T) {
+				var source File
+				source.Content = reader(t)
+				source.Path = name
+				source.DetectArchive = true
+				source.StrictArchives = true
+				source.MaxArchiveDepth = 8
+				var output strings.Builder
+				err := source.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {
+					if err != nil {
+						return err
+					}
+					require.Equal(t, name, fragment.Attr(sources.AttrPath))
+					output.WriteString(fragment.Raw)
+					return nil
+				})
+				require.NoError(t, err)
+				require.Equal(t, content, output.String())
+			})
+		}
+	}
+}
+
+func TestFileDetectArchiveGzipIntegrity(t *testing.T) {
+	const content = "plain gzip test content\n"
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	_, err := io.WriteString(writer, content)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	checksum := bytes.Clone(compressed.Bytes())
+	checksum[len(checksum)-8] ^= 1
+	for _, tc := range []struct {
+		name    string
+		path    string
+		data    []byte
+		wantErr error
+	}{
+		{
+			name:    "valid gzip",
+			path:    "payload.gz",
+			data:    compressed.Bytes(),
+			wantErr: nil,
+		},
+		{
+			name:    "gzip without extension",
+			path:    "payload",
+			data:    compressed.Bytes(),
+			wantErr: nil,
+		},
+		{
+			name:    "invalid compression method",
+			path:    "payload.gz",
+			data:    []byte{0x1f, 0x8b, 0, 0, 0, 0, 0, 0, 0, 3},
+			wantErr: gzip.ErrHeader,
+		},
+		{
+			name:    "checksum failure",
+			path:    "payload.gz",
+			data:    checksum,
+			wantErr: gzip.ErrChecksum,
+		},
+		{
+			name:    "truncated gzip",
+			path:    "payload.gz",
+			data:    compressed.Bytes()[:compressed.Len()-4],
+			wantErr: io.ErrUnexpectedEOF,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var source File
+			source.Content = bytes.NewReader(tc.data)
+			source.Path = tc.path
+			source.DetectArchive = true
+			source.StrictArchives = true
+			source.MaxArchiveDepth = 8
+			var output strings.Builder
+			err := source.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {
+				if err == nil {
+					output.WriteString(fragment.Raw)
+				}
+				return err
+			})
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, content, output.String())
+		})
 	}
 }
