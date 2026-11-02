@@ -248,7 +248,9 @@ func shannonEntropy(s string) float64 {
 	return h
 }
 
-var newlineReplacer = strings.NewReplacer("\n", "", "\r", "")
+var newlineReplacerOnce = sync.OnceValue(func() *strings.Replacer {
+	return strings.NewReplacer("\n", "", "\r", "")
+})
 
 func (rt *runtimeBindings) tokenCounterInstance() *tokenizer.Counter {
 	if rt.tokenCounter == nil {
@@ -277,7 +279,7 @@ func (rt *runtimeBindings) tokenRatio(secret string) float64 {
 func calculateTokenRatio(counter *tokenizer.Counter, secret string) (string, float64, bool) {
 	analyzed := secret
 	if len(analyzed) < 20 && strings.ContainsAny(analyzed, "\n\r") {
-		analyzed = newlineReplacer.Replace(analyzed)
+		analyzed = newlineReplacerOnce().Replace(analyzed)
 	}
 	tokenCount := counter.Count(analyzed)
 	if tokenCount == 0 {
