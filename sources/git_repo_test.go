@@ -891,35 +891,35 @@ func TestGitIsolationEnvironment(t *testing.T) {
 func TestGitIsolationFailsClosed(t *testing.T) {
 	tests := []struct {
 		name   string
-		setup  func(f *gitFixture) string
+		setup  func(t *testing.T, f *gitFixture) string
 		staged bool
 		errMsg string
 	}{
-		{name: "not a repository", setup: func(*gitFixture) string { return t.TempDir() }, errMsg: "not a git repository"},
-		{name: "staged scan of a bare repository", staged: true, errMsg: "no working tree", setup: func(f *gitFixture) string {
+		{name: "not a repository", setup: func(t *testing.T, _ *gitFixture) string { return t.TempDir() }, errMsg: "not a git repository"},
+		{name: "staged scan of a bare repository", staged: true, errMsg: "no working tree", setup: func(t *testing.T, f *gitFixture) string {
 			bare := filepath.Join(t.TempDir(), "bare.git")
 			f.git("clone", "-q", "--bare", f.path, bare)
 			return bare
 		}},
-		{name: "partial clone", errMsg: "--trust-local-git-config", setup: func(f *gitFixture) string {
+		{name: "partial clone", errMsg: "--trust-local-git-config", setup: func(t *testing.T, f *gitFixture) string {
 			f.appendConfig("[core]\n\trepositoryformatversion = 1\n[extensions]\n\tpartialclone = origin\n")
 			return f.path
 		}},
-		{name: "unknown extension", errMsg: "unsupported repository extension", setup: func(f *gitFixture) string {
+		{name: "unknown extension", errMsg: "unsupported repository extension", setup: func(t *testing.T, f *gitFixture) string {
 			f.appendConfig("[core]\n\trepositoryformatversion = 1\n[extensions]\n\tfutureformat = true\n")
 			return f.path
 		}},
-		{name: "unknown format version", errMsg: "unsupported repository format version", setup: func(f *gitFixture) string {
+		{name: "unknown format version", errMsg: "unsupported repository format version", setup: func(t *testing.T, f *gitFixture) string {
 			f.appendConfig("[core]\n\trepositoryformatversion = 2\n")
 			return f.path
 		}},
-		{name: "main repository objects missing", errMsg: "missing object directory", setup: func(f *gitFixture) string {
+		{name: "main repository objects missing", errMsg: "missing object directory", setup: func(t *testing.T, f *gitFixture) string {
 			wt := filepath.Join(t.TempDir(), "wt")
 			f.git("worktree", "add", "-q", "-b", "wt", wt)
 			require.NoError(t, os.RemoveAll(filepath.Join(f.path, ".git", "objects")))
 			return wt
 		}},
-		{name: "symlinked ref", errMsg: "not a regular file", setup: func(f *gitFixture) string {
+		{name: "symlinked ref", errMsg: "not a regular file", setup: func(t *testing.T, f *gitFixture) string {
 			if runtime.GOOS == "windows" {
 				t.Skip("symbolic links need privileges on Windows")
 			}
@@ -932,7 +932,7 @@ func TestGitIsolationFailsClosed(t *testing.T) {
 			f := newGitFixture(t)
 			f.write("secret.txt", "SECRET\n")
 			f.commit("base")
-			path := tt.setup(f)
+			path := tt.setup(t, f)
 			temp := useTempDir(t)
 			var err error
 			if tt.staged {
@@ -943,6 +943,133 @@ func TestGitIsolationFailsClosed(t *testing.T) {
 			require.ErrorContains(t, err, tt.errMsg)
 			requireNoPrivateGitDirectories(t, temp)
 		})
+	}
+}
+
+func TestGitIsolationAlternateIndexPaths(t *testing.T) {
+	for _, linked := range []bool{false, true} {
+		for _, subdir := range []bool{false, true} {
+			for _, relative := range []bool{false, true} {
+				t.Run(fmt.Sprintf("linked=%t/subdir=%t/relative=%t", linked, subdir, relative), func(t *testing.T) {
+					f := newGitFixture(t)
+					f.write("sub/secret.txt", "BASE\n")
+					f.commit("base")
+					tree := f.path
+					if linked {
+						tree = filepath.Join(t.TempDir(), "linked")
+						f.git("worktree", "add", "-q", "-b", "linked", tree)
+					}
+					layout, err := findGitLayout(tree)
+					require.NoError(t, err)
+					index := filepath.Join(layout.gitDir, "alternate-index")
+					t.Setenv("GIT_INDEX_FILE", index)
+					f.gitIn(tree, "", "read-tree", "HEAD")
+					file := filepath.Join(tree, "sub", "secret.txt")
+					require.NoError(t, os.WriteFile(file, []byte("ALTERNATE_INDEX_SECRET\n"), 0o600))
+					f.gitIn(tree, "", "add", "sub/secret.txt")
+					require.NoError(t, os.WriteFile(file, []byte("BASE\n"), 0o600))
+					if relative {
+						index, err = filepath.Rel(layout.workTree, index)
+						require.NoError(t, err)
+						t.Setenv("GIT_INDEX_FILE", index)
+					}
+					source := tree
+					if subdir {
+						source = filepath.Join(tree, "sub")
+					}
+					for _, mode := range []string{"staged", "worktree"} {
+						want := scanGit(t, source, mode, "", GitOptions{TrustLocalGitConfig: true})
+						require.NotEmpty(t, want)
+						if mode == "staged" {
+							require.Contains(t, strings.Join(want, "\n"), "ALTERNATE_INDEX_SECRET")
+						}
+						require.Equal(t, want, scanGit(t, source, mode, "", GitOptions{}))
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestGitIsolationCommonDirectoryOverride(t *testing.T) {
+	for _, linked := range []bool{false, true} {
+		for _, relative := range []bool{false, true} {
+			t.Run(fmt.Sprintf("linked=%t/relative=%t", linked, relative), func(t *testing.T) {
+				f := newGitFixture(t)
+				f.write("sub/secret.txt", "HISTORY_SECRET\n")
+				f.commit("base")
+				tree := f.path
+				if linked {
+					tree = filepath.Join(t.TempDir(), "linked")
+					f.git("worktree", "add", "-q", "-b", "linked", tree)
+				}
+				source := filepath.Join(tree, "sub")
+				layout, err := findGitLayout(source)
+				require.NoError(t, err)
+				dir := layout.commonDir
+				if relative {
+					dir, err = filepath.Rel(layout.source, dir)
+					require.NoError(t, err)
+				}
+				t.Setenv("GIT_COMMON_DIR", dir)
+				if relative {
+					_, err := openGitRepo(t.Context(), source, GitOptions{}, false)
+					require.ErrorContains(t, err, "relative GIT_COMMON_DIR is not supported")
+					return
+				}
+				want := scanGit(t, source, "history", "--all", GitOptions{TrustLocalGitConfig: true})
+				require.NotEmpty(t, want)
+				require.Equal(t, want, scanGit(t, source, "history", "--all", GitOptions{}))
+				t.Setenv("GIT_COMMON_DIR", t.TempDir())
+				temp := useTempDir(t)
+				_, err = openGitRepo(t.Context(), source, GitOptions{}, false)
+				require.ErrorContains(t, err, "GIT_COMMON_DIR selects a different shared directory")
+				requireNoPrivateGitDirectories(t, temp)
+			})
+		}
+	}
+}
+
+func TestGitIsolationMetadataLimitsCleanUp(t *testing.T) {
+	f := newGitFixture(t)
+	f.write("secret.txt", "BASE\n")
+	f.commit("base")
+	require.NoError(t, os.Truncate(filepath.Join(f.path, ".git", "logs", "HEAD"), gitMetadataMaxFile+1))
+	temp := useTempDir(t)
+	_, err := openGitRepo(t.Context(), f.path, GitOptions{}, false)
+	require.ErrorContains(t, err, "Git metadata byte limit exceeded")
+	requireNoPrivateGitDirectories(t, temp)
+}
+
+func TestGitRemoteURLWorktreeConfig(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, setting := range []string{"branch remote", "remote URL", "URL rewrite"} {
+			t.Run(fmt.Sprintf("enabled=%t/%s", enabled, setting), func(t *testing.T) {
+				f := newGitFixture(t)
+				f.write("secret.txt", "BASE\n")
+				f.commit("base")
+				f.git("config", "extensions.worktreeConfig", "true")
+				f.git("remote", "add", "origin", "https://example.com/common.git")
+				worktree := filepath.Join(t.TempDir(), "linked")
+				f.git("worktree", "add", "-q", "-b", "linked", worktree)
+				switch setting {
+				case "branch remote":
+					f.gitIn(worktree, "", "config", "--worktree", "remote.local.url", "https://example.com/linked.git")
+					f.gitIn(worktree, "", "config", "--worktree", "branch.linked.remote", "local")
+				case "remote URL":
+					f.gitIn(worktree, "", "config", "--worktree", "remote.origin.url", "https://example.com/linked.git")
+				case "URL rewrite":
+					f.gitIn(worktree, "", "config", "--worktree", "url.https://linked.example/.insteadOf", "https://example.com/")
+				}
+				if !enabled {
+					f.git("config", "extensions.worktreeConfig", "false")
+				}
+				want := f.gitIn(worktree, "", "ls-remote", "--get-url")
+				got, err := gitRemoteURL(t.Context(), worktree)
+				require.NoError(t, err)
+				require.Equal(t, want, got)
+			})
+		}
 	}
 }
 

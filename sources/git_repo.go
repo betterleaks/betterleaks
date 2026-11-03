@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -116,6 +115,8 @@ func openGitRepo(ctx context.Context, source string, opts GitOptions, withWorkTr
 
 // populate fills the private Git directory from the source repository.
 func (r *gitRepo) populate(ctx context.Context, layout gitLayout, config string, withIndex bool) error {
+	copier := newGitMetadataCopier()
+	defer copier.Close()
 	objects := filepath.Join(layout.commonDir, "objects")
 	if info, err := os.Stat(objects); err != nil || !info.IsDir() {
 		return fmt.Errorf("missing object directory %s", objects)
@@ -126,7 +127,7 @@ func (r *gitRepo) populate(ctx context.Context, layout gitLayout, config string,
 	if err := os.WriteFile(filepath.Join(r.tempDir, "config"), []byte(config), 0o600); err != nil {
 		return err
 	}
-	if err := copyGitRefs(ctx, layout.commonDir, r.tempDir); err != nil {
+	if err := copier.copyRefs(ctx, layout.commonDir, r.tempDir); err != nil {
 		return err
 	}
 	if !withIndex && layout.workTree != "" {
@@ -139,7 +140,7 @@ func (r *gitRepo) populate(ctx context.Context, layout gitLayout, config string,
 			return err
 		}
 		if err == nil && info.Mode().IsRegular() {
-			if err := copyGitFile(ctx, mailmap, filepath.Join(r.workTree, ".mailmap")); err != nil {
+			if err := copier.copyFile(ctx, mailmap, filepath.Join(r.workTree, ".mailmap")); err != nil {
 				return err
 			}
 		}
@@ -148,20 +149,20 @@ func (r *gitRepo) populate(ctx context.Context, layout gitLayout, config string,
 	// Copy every linked worktree's HEAD and refs, since --all includes them,
 	// and use the scanned worktree's copy as the Git directory.
 	worktrees := filepath.Join(layout.commonDir, "worktrees")
-	entries, err := os.ReadDir(worktrees)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	commonRoot, err := copier.root(layout.commonDir)
+	if err != nil {
 		return err
 	}
-	for _, entry := range entries {
+	if err := copier.forEachEntry(ctx, commonRoot, "worktrees", func(entry fs.DirEntry) error {
 		if !entry.IsDir() {
-			continue
+			return nil
 		}
 		src := filepath.Join(worktrees, entry.Name())
 		dst := filepath.Join(r.tempDir, "worktrees", entry.Name())
-		if err := copyGitRefs(ctx, src, dst); err != nil {
+		if err := copier.copyRefs(ctx, src, dst); err != nil {
 			return err
 		}
-		if err := copyGitFile(ctx, filepath.Join(src, "gitdir"), filepath.Join(dst, "gitdir")); err != nil {
+		if err := copier.copyFile(ctx, filepath.Join(src, "gitdir"), filepath.Join(dst, "gitdir")); err != nil {
 			return err
 		}
 		if err := os.WriteFile(filepath.Join(dst, "commondir"), []byte("../..\n"), 0o600); err != nil {
@@ -170,6 +171,9 @@ func (r *gitRepo) populate(ctx context.Context, layout gitLayout, config string,
 		if samePath(src, layout.gitDir) {
 			r.gitDir = dst
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if !samePath(layout.gitDir, layout.commonDir) && r.gitDir == r.tempDir {
 		return fmt.Errorf("unsupported worktree layout %s", layout.gitDir)
@@ -200,27 +204,28 @@ func (r *gitRepo) populate(ctx context.Context, layout gitLayout, config string,
 		// Git may refresh the index while diffing; it only ever writes this copy.
 		index := filepath.Join(layout.gitDir, "index")
 		if file := os.Getenv("GIT_INDEX_FILE"); file != "" {
-			index = gitPath(layout.source, file)
+			index = gitPath(layout.workTree, file)
 		}
-		if err := copyGitFile(ctx, index, filepath.Join(r.gitDir, "index")); err != nil {
+		if err := copier.copyFile(ctx, index, filepath.Join(r.gitDir, "index")); err != nil {
 			return err
 		}
 		// Sparse indexes need the worktree's patterns as well as its settings.
 		// These are path patterns, not executable attributes or configuration.
-		if err := copyGitFile(ctx, filepath.Join(layout.gitDir, "info", "sparse-checkout"), filepath.Join(r.gitDir, "info", "sparse-checkout")); err != nil {
+		if err := copier.copyFile(ctx, filepath.Join(layout.gitDir, "info", "sparse-checkout"), filepath.Join(r.gitDir, "info", "sparse-checkout")); err != nil {
 			return err
 		}
 		// A split index keeps most entries in a shared index file.
-		entries, err := os.ReadDir(layout.gitDir)
+		gitRoot, err := copier.root(layout.gitDir)
 		if err != nil {
 			return err
 		}
-		for _, entry := range entries {
+		if err := copier.forEachEntry(ctx, gitRoot, ".", func(entry fs.DirEntry) error {
 			if strings.HasPrefix(entry.Name(), "sharedindex.") {
-				if err := copyGitFile(ctx, filepath.Join(layout.gitDir, entry.Name()), filepath.Join(r.gitDir, entry.Name())); err != nil {
-					return err
-				}
+				return copier.copyFileFromRoot(ctx, gitRoot, entry.Name(), filepath.Join(r.gitDir, entry.Name()))
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 
@@ -442,10 +447,15 @@ func (c gitConfig) last(key string) (string, bool) {
 // the unusable GIT_DIR stops Git from discovering and configuring itself from
 // a repository.
 func readGitConfig(ctx context.Context, path string) (gitConfig, error) {
-	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+	data, err := readGitFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
-	cmd := exec.CommandContext(ctx, "git", "config", "--file", path, "--no-includes", "--null", "--list")
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, "git", "config", "--file", "-", "--no-includes", "--null", "--list")
+	cmd.Stdin = bytes.NewReader(data)
 	cmd.Dir = os.TempDir()
 	cmd.Env = append(isolatedGitEnv(), "GIT_DIR=/dev/null")
 	out, err := cmd.Output()
@@ -480,6 +490,22 @@ func gitRemoteURL(ctx context.Context, source string) (string, error) {
 	cfg, err := readGitConfig(ctx, filepath.Join(layout.commonDir, "config"))
 	if err != nil {
 		return "", err
+	}
+
+	if value, ok := cfg.last("extensions.worktreeconfig"); ok {
+		enabled, err := parseGitBool(value)
+		if err != nil {
+			return "", fmt.Errorf("extensions.worktreeConfig: %w", err)
+		}
+		if enabled {
+			worktreeCfg, err := readGitConfig(ctx, filepath.Join(layout.gitDir, "config.worktree"))
+			if err != nil {
+				return "", err
+			}
+			// This configuration is used only to resolve metadata, never to
+			// configure a scanning command. Includes remain disabled.
+			cfg = append(cfg, worktreeCfg...)
+		}
 	}
 
 	// Like Git: the current branch's remote, else the only remote, else origin.
@@ -644,6 +670,17 @@ func findGitLayout(source string) (gitLayout, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return gitLayout{}, err
 	}
+	if dir := os.Getenv("GIT_COMMON_DIR"); dir != "" {
+		// Preserve ordinary and linked worktrees when callers explicitly name
+		// their common directory. Other overrides require a different division
+		// of shared and per-worktree metadata; never silently ignore them.
+		if !filepath.IsAbs(dir) {
+			return gitLayout{}, errors.New("relative GIT_COMMON_DIR is not supported by isolated scans; use the absolute path of the discovered common directory")
+		}
+		if !samePath(l.commonDir, dir) {
+			return gitLayout{}, errors.New("GIT_COMMON_DIR selects a different shared directory; this layout is not supported by isolated scans")
+		}
+	}
 	return l, nil
 }
 
@@ -696,117 +733,6 @@ func samePath(a, b string) bool {
 	}
 	bi, err := os.Stat(b)
 	return err == nil && os.SameFile(ai, bi)
-}
-
-// readGitFile reads a small metadata file such as HEAD or a gitfile.
-func readGitFile(path string) ([]byte, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
-		return nil, fmt.Errorf("invalid Git metadata file: %s", path)
-	}
-	return os.ReadFile(path)
-}
-
-// Files and directories holding a repository's HEAD, refs, and reflogs. Both
-// the common directory and each worktree's directory can contain them.
-var (
-	gitRefFiles = []string{"HEAD", "packed-refs", "shallow", "ORIG_HEAD", "FETCH_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_HEAD", "REBASE_HEAD", "AUTO_MERGE"}
-	gitRefDirs  = []string{"refs", "logs", "reftable"}
-)
-
-func copyGitRefs(ctx context.Context, src, dst string) error {
-	for _, name := range gitRefFiles {
-		if err := copyGitFile(ctx, filepath.Join(src, name), filepath.Join(dst, name)); err != nil {
-			return err
-		}
-	}
-	for _, name := range gitRefDirs {
-		if err := copyGitTree(ctx, filepath.Join(src, name), filepath.Join(dst, name)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func copyGitTree(ctx context.Context, src, dst string) error {
-	return filepath.WalkDir(src, func(path string, entry fs.DirEntry, err error) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err != nil {
-			if path == src && errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return os.MkdirAll(filepath.Join(dst, rel), 0o700)
-		}
-		if strings.HasSuffix(entry.Name(), ".lock") {
-			return nil // an update in progress
-		}
-		return copyGitFile(ctx, path, filepath.Join(dst, rel))
-	})
-}
-
-var gitCopyBuffers = sync.Pool{New: func() any {
-	buffer := make([]byte, 32*1024)
-	return &buffer
-}}
-
-// copyGitFile copies a regular file. A missing file is skipped; anything else,
-// including a symbolic link, is an error.
-func copyGitFile(ctx context.Context, src, dst string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	info, err := os.Lstat(src)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("not a regular file: %s", src)
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-		return err
-	}
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	buffer := gitCopyBuffers.Get().(*[]byte)
-	defer gitCopyBuffers.Put(buffer)
-	// Hide File.ReadFrom so CopyBuffer reuses the buffer across small refs.
-	_, err = io.CopyBuffer(struct{ io.Writer }{out}, gitContextReader{ctx, in}, *buffer)
-	return errors.Join(err, out.Close())
-}
-
-// gitContextReader bounds cancellation latency while copying large indexes or reflogs.
-type gitContextReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (r gitContextReader) Read(p []byte) (int, error) {
-	if err := r.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return r.reader.Read(p)
 }
 
 // quoteGitPath C-quotes a path for objects/info/alternates when Git would

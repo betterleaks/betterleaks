@@ -114,13 +114,18 @@ including after resolving symlinks. Staged and working-tree scans fail if this
 check fails or the directory is missing. To select an external working tree,
 set `GIT_WORK_TREE` explicitly in the caller's environment.
 
+An explicit `GIT_COMMON_DIR` must be absolute and identify the discovered common
+directory. Relative values and overrides selecting a different shared directory
+produce an error in isolated scans.
+
 History scans can read saved Git directories without their checkouts. If the
 configured working tree is missing or outside the discovered checkout, history
 scans use the discovered checkout's path scope, if any, and do not read the
 configured directory's `.mailmap`.
 
 Staged and working-tree scans use a private copy of the index, including split
-indexes and sparse-checkout patterns. Permitted settings from `config.worktree`
+indexes and sparse-checkout patterns. A relative `GIT_INDEX_FILE` is resolved
+against the working-tree root. Permitted settings from `config.worktree`
 override the common configuration when `extensions.worktreeConfig` is enabled.
 These scans read the original working files and attributes, but do not enter
 submodules or load repository-selected helpers. The source repository's
@@ -130,6 +135,11 @@ The temporary directory is removed after the scan, including cancellation by
 Ctrl-C or `--timeout`. A second interrupt forces termination and may leave
 temporary files behind. Setup cost depends on the copied refs, reflogs, and
 index, rather than the size of the object database.
+
+Setup allows up to 512 MiB of copied metadata, 256 MiB per copied file, 100,000
+metadata entries, and 64 directory levels within each metadata tree.
+Configuration and small layout files are limited to 1 MiB each. Exceeding a
+limit stops the scan and removes its temporary directory.
 
 Differences from running Git directly in the repository:
 
