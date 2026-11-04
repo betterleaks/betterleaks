@@ -90,6 +90,10 @@ Single-process and parallel history scans use the same Git source. A value of
 the selected commits across workers. Workers share one prepared repository,
 which remains available until archive reads and fragment processing finish.
 
+Explicit `--log-opts` uses one Git history process, even when `--git-workers`
+is greater than one. This preserves custom filtering, patch formatting, and
+reflog traversal. Finding detection still uses its configured concurrency.
+
 ### Local Git configuration
 
 A repository's `.git/config` and hooks can make Git run programs, for example
@@ -149,12 +153,24 @@ Differences from running Git directly in the repository:
   text. A temporary working directory preserves relative pathspecs, globs, and
   exclusions. Put path filters after `--` in `--log-opts`, as in the example
   above; paths cannot be inferred from files in that temporary directory.
+- Files Git detects as binary are skipped unless they are recognized archives.
+  A `diff` attribute in `.gitattributes` or `.git/info/attributes` can make Git
+  treat NUL-containing files as text, but isolated history scans do not load
+  those attributes. Secrets in such files can therefore be absent from the
+  default history scan even when ordinary Git emits a text patch.
 - Settings from the repository's configuration do not apply, apart from the
   repository format and, for staged and working-tree scans, validated line-ending,
   file-mode, filesystem, and sparse-checkout settings. Configuration includes,
   custom diff/filter drivers, and `.git/info/attributes` are not loaded.
 - Partial clones, and repositories using extensions Betterleaks does not
   recognize, produce an error.
+
+To scan selected binary files as text without loading repository attributes,
+pass `--text` and a path filter:
+
+```sh
+betterleaks git . --log-opts='--all --text -- "*.bin"'
+```
 
 If isolation fails, the scan fails; it never falls back to running Git in the
 repository. For a repository whose `.git` directory you trust, you can opt out:
