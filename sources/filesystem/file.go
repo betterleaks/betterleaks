@@ -102,7 +102,9 @@ func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) (err 
 	// inspection because their compression is not always reflected in the name.
 	if s.DetectArchive {
 		format, stream, err = archives.Identify(ctx, "", stream)
-		if errors.Is(err, archives.NoMatch) && !s.decompressed {
+		// Plain package-manager state files can have gzip suffixes.
+		if errors.Is(err, archives.NoMatch) && !s.decompressed &&
+			!strings.EqualFold(filepath.Ext(archiveName), ".gz") {
 			format, _, err = archives.Identify(ctx, archiveName, nil)
 		}
 	} else if filepath.Ext(s.Path) == ".tar" {

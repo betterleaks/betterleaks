@@ -30,6 +30,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -1404,4 +1407,62 @@ func TestDaemonPodmanConnections(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "override.json"), []byte(`{`), 0600))
 	_, err = s.daemonHost(t.Context())
 	require.ErrorContains(t, err, "invalid Podman connections")
+}
+
+func TestPlainGzipSuffixesKeepContainerFindingsAndLayerProvenance(t *testing.T) {
+	const marker = "SYNTHETIC_ARCHIVE_TEST_MARKER"
+
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	item, err := w.Create("plain.tgz")
+	require.NoError(t, err)
+	_, err = item.Write([]byte(marker))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+
+	var plain, nested tarEntry
+	plain.name = "var/lib/dpkg/alternatives/builtins.7.gz"
+	plain.content = marker
+	nested.name = "nested.zip"
+	nested.content = buf.String()
+	layer := tarBytes(t, plain, nested)
+	f := newFixture(t)
+	d := f.image("amd64", [][]byte{layer}, "gzip")
+	f.setIndex(d)
+	var manifest v1.Manifest
+	require.NoError(t, json.Unmarshal(f.blobs[d.Digest.String()], &manifest))
+	require.Equal(t, 1, len(manifest.Layers))
+
+	var rule config.Rule
+	rule.ID = "synthetic-archive-marker"
+	rule.Regex = marker
+	var cfg config.Config
+	cfg.Rules = []config.Rule{rule}
+	scanner, err := scan.New(&cfg)
+	require.NoError(t, err)
+	var source Source
+	source.Layouts = []string{f.directory()}
+	source.MaxArchiveDepth = 8
+	var findings []report.Finding
+	summary, err := scanner.Scan(t.Context(), &source, func(finding report.Finding) error {
+		findings = append(findings, finding)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, summary.Findings)
+	require.Equal(t, 2, len(findings))
+
+	paths := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		require.True(t, finding.Match.Value == marker, "unexpected detection match")
+		require.Equal(t, "synthetic-archive-marker", finding.RuleID)
+		require.Equal(t, ResourceFile, finding.Attr(sources.AttrResource))
+		require.Equal(t, manifest.Layers[0].Digest.String(), finding.Attr(AttrLayerDigest))
+		require.Equal(t, sum(layer).String(), finding.Attr(AttrDiffID))
+		paths = append(paths, finding.Location.Path)
+	}
+	require.ElementsMatch(t, []string{
+		"/var/lib/dpkg/alternatives/builtins.7.gz",
+		"/nested.zip!plain.tgz",
+	}, paths)
 }
