@@ -95,6 +95,20 @@ func TestRunRetainsFindings(t *testing.T) {
 	require.NotContains(t, findings[0].Attributes, sources.AttrFSFirstFragment)
 }
 
+func TestRunReportsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	detector := NewDetectorContext(ctx, loadTestConfig(t, "simple"), ValidationOptions{})
+	cancel()
+	var scanErrors []error
+	for result := range detector.Run(ctx, &sources.Stdin{Content: strings.NewReader("")}) {
+		if result.Err != nil {
+			scanErrors = append(scanErrors, result.Err)
+		}
+	}
+	require.Len(t, scanErrors, 1)
+	require.ErrorIs(t, scanErrors[0], context.Canceled)
+}
+
 func TestDetectSourceRetainsFindingsWithoutInternalAttributes(t *testing.T) {
 	detector := NewDetector(loadTestConfig(t, "simple"))
 	findings, err := detector.DetectSource(t.Context(), &sources.Stdin{

@@ -64,6 +64,9 @@ betterleaks git . --git-workers 8
 # custom git log scope
 betterleaks git . --log-opts="--all --since='90 days ago'"
 
+# history of paths relative to the requested directory
+betterleaks git ./src --log-opts="--all -- '*.go' ':(exclude)generated/*'"
+
 # current working tree diff
 betterleaks git . --pre-commit
 
@@ -81,6 +84,100 @@ Merge commits are scanned against their first parent by default, while history
 traversal still includes all parents. This catches secrets introduced during a
 merge or conflict resolution, including secrets later deleted. A secret can be
 reported again when merged into another branch.
+
+Single-process and parallel history scans use the same Git source. A value of
+`0` or `1` for `--git-workers` runs one history process; larger values partition
+the selected commits across workers. Workers share one prepared repository,
+which remains available until archive reads and fragment processing finish.
+
+Explicit `--log-opts` uses one Git history process, even when `--git-workers`
+is greater than one. This preserves custom filtering, patch formatting, and
+reflog traversal. Finding detection still uses its configured concurrency.
+
+### Local Git configuration
+
+A repository's `.git/config` and hooks can make Git run programs, for example
+diff `textconv` helpers, clean filters, `core.fsmonitor`, or `gpg.program` when
+`log.showSignature` is set. Scanning a checkout whose `.git` directory came from
+someone else (an extracted archive, a copied directory, a shared volume) could
+otherwise run their code. Cloning does not copy configuration or hooks.
+
+By default, `git`, `detect`, and `protect` use a private Git directory in a
+temporary location. Betterleaks parses the source's configuration as data,
+without following includes, and writes a new configuration containing only
+validated repository-format and working-tree settings. It copies HEAD, refs,
+and reflogs, then reads the original object database in place. Object files are
+not cloned or copied.
+
+Repository discovery follows symlinks in the requested directory. The working
+tree is resolved from `core.worktree` (including enabled `config.worktree`
+overrides), with `GIT_WORK_TREE` taking precedence. Relative `core.worktree`
+paths are resolved against the original Git directory before isolation.
+Repository-configured working trees must stay within the discovered checkout,
+including after resolving symlinks. Staged and working-tree scans fail if this
+check fails or the directory is missing. To select an external working tree,
+set `GIT_WORK_TREE` explicitly in the caller's environment.
+
+An explicit `GIT_COMMON_DIR` must be absolute and identify the discovered common
+directory. Relative values and overrides selecting a different shared directory
+produce an error in isolated scans.
+
+History scans can read saved Git directories without their checkouts. If the
+configured working tree is missing or outside the discovered checkout, history
+scans use the discovered checkout's path scope, if any, and do not read the
+configured directory's `.mailmap`.
+
+Staged and working-tree scans use a private copy of the index, including split
+indexes and sparse-checkout patterns. A relative `GIT_INDEX_FILE` is resolved
+against the working-tree root. Permitted settings from `config.worktree`
+override the common configuration when `extensions.worktreeConfig` is enabled.
+These scans read the original working files and attributes, but do not enter
+submodules or load repository-selected helpers. The source repository's
+configuration, hooks, refs, and index are not modified.
+
+The temporary directory is removed after the scan, including cancellation by
+Ctrl-C or `--timeout`. A second interrupt forces termination and may leave
+temporary files behind. Setup cost depends on the copied refs, reflogs, and
+index, rather than the size of the object database.
+
+Setup allows up to 512 MiB of copied metadata, 256 MiB per copied file, 100,000
+metadata entries, and 64 directory levels within each metadata tree.
+Configuration and small layout files are limited to 1 MiB each. Exceeding a
+limit stops the scan and removes its temporary directory.
+
+Differences from running Git directly in the repository:
+
+- History scans copy only a regular `.mailmap` file from the working tree to
+  preserve author identities. Working-tree `.gitattributes` do not apply. Files
+  marked `-diff` or `binary` there are scanned as text when Git detects them as
+  text. A temporary working directory preserves relative pathspecs, globs, and
+  exclusions. Put path filters after `--` in `--log-opts`, as in the example
+  above; paths cannot be inferred from files in that temporary directory.
+- Files Git detects as binary are skipped unless they are recognized archives.
+  A `diff` attribute in `.gitattributes` or `.git/info/attributes` can make Git
+  treat NUL-containing files as text, but isolated history scans do not load
+  those attributes. Secrets in such files can therefore be absent from the
+  default history scan even when ordinary Git emits a text patch.
+- Settings from the repository's configuration do not apply, apart from the
+  repository format and, for staged and working-tree scans, validated line-ending,
+  file-mode, filesystem, and sparse-checkout settings. Configuration includes,
+  custom diff/filter drivers, and `.git/info/attributes` are not loaded.
+- Partial clones, and repositories using extensions Betterleaks does not
+  recognize, produce an error.
+
+To scan selected binary files as text without loading repository attributes,
+pass `--text` and a path filter:
+
+```sh
+betterleaks git . --log-opts='--all --text -- "*.bin"'
+```
+
+If isolation fails, the scan fails; it never falls back to running Git in the
+repository. For a repository whose `.git` directory you trust, you can opt out:
+
+```sh
+betterleaks git . --trust-local-git-config
+```
 
 ---
 
