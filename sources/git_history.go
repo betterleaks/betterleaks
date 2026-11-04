@@ -98,7 +98,7 @@ func (s *Git) runWorkerCommits(ctx context.Context, repo *gitRepo, yield Fragmen
 
 // newGitLogCmd constructs a full git log -p command (no partitioning).
 func newGitLogCmd(ctx context.Context, repo *gitRepo, logOpts string) (*GitCmd, error) {
-	args := []string{"log", "-p", "-U0", "--diff-merges=first-parent"}
+	args := []string{"log", "-p", "-U0"}
 
 	if logOpts != "" {
 		userArgs, err := splitGitLogOpts(logOpts)
@@ -117,7 +117,7 @@ func newGitLogCmd(ctx context.Context, repo *gitRepo, logOpts string) (*GitCmd, 
 // set of commits via --no-walk --stdin. This avoids non-deterministic ordering
 // issues with --skip/--max-count on repos with timestamp ties.
 func newGitLogCommitsCmd(ctx context.Context, repo *gitRepo, commits []string) (*GitCmd, error) {
-	args := []string{"log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
+	args := []string{"log", "-p", "-U0", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
 	return startGitCmd(ctx, repo, args, strings.NewReader(strings.Join(commits, "\n")+"\n"))
 }
 

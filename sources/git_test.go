@@ -199,10 +199,23 @@ func TestGitMergeSecrets(t *testing.T) {
 			git("branch", "-D", "side")
 
 			for _, workers := range []int{0, 1, 4} {
-				for _, opts := range []string{"", "--all", mergeSHA + "^.." + mergeSHA, "--all --diff-merges=off"} {
-					t.Run(fmt.Sprintf("workers=%d/opts=%s", workers, opts), func(t *testing.T) {
+				for _, tc := range []struct {
+					opts       string
+					wantMerges bool
+				}{
+					{},
+					{opts: "--all"},
+					{opts: mergeSHA + "^.." + mergeSHA},
+					{opts: "--all --diff-merges=off"},
+					{opts: "--diff-merges=first-parent", wantMerges: true},
+					{opts: "--all --diff-merges=first-parent", wantMerges: true},
+					{opts: "--diff-merges=first-parent " + mergeSHA + "^.." + mergeSHA, wantMerges: true},
+					{opts: "--all --diff-merges=first-parent -- secret.txt side.txt", wantMerges: true},
+					{opts: "--all --diff-merges=first-parent --no-merges"},
+				} {
+					t.Run(fmt.Sprintf("workers=%d/opts=%s", workers, tc.opts), func(t *testing.T) {
 						sema := semgroup.NewGroup(context.Background(), 4)
-						source := &Git{RepoPath: repo, LogOpts: opts, Workers: workers, Sema: sema}
+						source := &Git{RepoPath: repo, LogOpts: tc.opts, Workers: workers, Sema: sema}
 						var mu sync.Mutex
 						var fragments []Fragment
 						require.NoError(t, source.Fragments(t.Context(), func(f Fragment, err error) error {
@@ -214,6 +227,9 @@ func TestGitMergeSecrets(t *testing.T) {
 						require.NoError(t, sema.Wait())
 						var merges, sides int
 						for _, f := range fragments {
+							if !tc.wantMerges {
+								require.NotEqual(t, mergeSHA, f.Attr(AttrGitSHA))
+							}
 							if strings.Contains(f.Raw, "MERGE_ONLY_SECRET") {
 								merges++
 								require.Equal(t, mergeSHA, f.Attr(AttrGitSHA))
@@ -225,10 +241,10 @@ func TestGitMergeSecrets(t *testing.T) {
 								require.Equal(t, sideSHA, f.Attr(AttrGitSHA))
 							}
 						}
-						if opts == "--all --diff-merges=off" {
-							require.Zero(t, merges)
-						} else {
+						if tc.wantMerges {
 							require.Equal(t, 1, merges)
+						} else {
+							require.Zero(t, merges)
 						}
 						require.Equal(t, 1, sides, "history must still traverse the merged branch")
 					})
