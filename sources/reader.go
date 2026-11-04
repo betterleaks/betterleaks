@@ -29,8 +29,8 @@ func (s *Reader) Fragments(ctx context.Context, yield FragmentsFunc) error {
 		return errors.New("reader content is nil")
 	}
 
-	return stream.Read(ctx, s.Content, func(raw string, line int, err error) error {
-		fragment := Fragment{Raw: raw, StartLine: line}
+	return stream.Read(ctx, s.Content, func(raw string, line, columnOffset int, err error) error {
+		fragment := Fragment{Raw: raw, StartLine: line, StartColumnOffset: columnOffset}
 		if len(s.Attributes) > 0 {
 			fragment.Attributes = make(map[string]string, len(s.Attributes))
 			maps.Copy(fragment.Attributes, s.Attributes)

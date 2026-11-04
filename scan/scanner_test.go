@@ -1627,7 +1627,7 @@ func TestComponentProximity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			window, err := contextwindow.Parse(tt.within)
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, withinProximity(tt.raw, computeLineOffsets(tt.raw), tt.fragmentStartLine, tt.primary, tt.component, window))
+			assert.Equal(t, tt.want, withinProximity(tt.raw, computeLineOffsets(tt.raw), tt.fragmentStartLine, 0, tt.primary, tt.component, window))
 		})
 	}
 }
@@ -4225,5 +4225,86 @@ func BenchmarkNewDefaultConfig(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestFileChunkFindingColumns(t *testing.T) {
+	const token = "TOKEN123456"
+	raw := strings.Repeat("log: "+strings.Repeat("x", 126_000)+" "+token+"\n", 4)
+	scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: token}}})
+	findings, err := collectSourceFindings(t.Context(), scanner, &filesystem.File{Content: strings.NewReader(raw), Path: "large.log"})
+	require.NoError(t, err)
+	var want []report.Location
+	for offset := 0; offset < len(raw); {
+		index := strings.Index(raw[offset:], token)
+		if index < 0 {
+			break
+		}
+		start := offset + index
+		line := strings.Count(raw[:start], "\n") + 1
+		column := start - strings.LastIndex(raw[:start], "\n")
+		want = append(want, report.Location{Path: "large.log", StartLine: line, EndLine: line, StartColumn: column, EndColumn: column + len(token) - 1})
+		offset = start + len(token)
+	}
+	var got []report.Location
+	for _, finding := range findings {
+		got = append(got, finding.Location)
+	}
+	assert.ElementsMatch(t, want, got)
+}
+
+func TestFragmentFirstLineColumnOffset(t *testing.T) {
+	for _, tt := range []struct {
+		name, raw, regex string
+		want             report.Location
+	}{
+		{"first line", "é TOKEN", "TOKEN", report.Location{StartLine: 7, EndLine: 7, StartColumn: 104, EndColumn: 108}},
+		{"later line", "prefix\r\né TOKEN", "TOKEN", report.Location{StartLine: 8, EndLine: 8, StartColumn: 4, EndColumn: 8}},
+		{"multiline", "é TOKEN\nEND", "TOKEN\\nEND", report.Location{StartLine: 7, EndLine: 8, StartColumn: 104, EndColumn: 3}},
+		{"decoded", base64.StdEncoding.EncodeToString([]byte("TOKEN12345678901234567890")), "TOKEN12345678901234567890", report.Location{StartLine: 7, EndLine: 7, StartColumn: 101, EndColumn: 136}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			scanner := mustNew(t, &config.Config{Rules: []config.Rule{{ID: "token", Regex: tt.regex}}}, WithMaxDecodeDepth(1))
+			findings, err := collectSourceFindings(t.Context(), scanner, fragmentSource{fragments: []sources.Fragment{{Raw: tt.raw, StartLine: 7, StartColumnOffset: 100}}})
+			require.NoError(t, err)
+			require.Len(t, findings, 1)
+			assert.Equal(t, tt.want, findings[0].Location)
+		})
+	}
+}
+
+func TestComponentColumnOffsetProximity(t *testing.T) {
+	const raw = "PART TOKEN\nPART"
+	for _, within := range []string{"5C", "4C"} {
+		scanner := mustNew(t, &config.Config{Rules: []config.Rule{
+			{ID: "token", Regex: "TOKEN", Components: []config.Component{{RuleID: "part", Within: within}}},
+			{ID: "part", Regex: "PART", SkipReport: true},
+		}})
+		findings, err := collectSourceFindings(t.Context(), scanner, fragmentSource{fragments: []sources.Fragment{{Raw: raw, StartLine: 7, StartColumnOffset: 100}}})
+		require.NoError(t, err)
+		require.Len(t, findings, 1)
+		primary := findings[0]
+		assert.Equal(t, report.Location{StartLine: 7, EndLine: 7, StartColumn: 106, EndColumn: 110}, primary.Location)
+		window, err := contextwindow.Parse(within)
+		require.NoError(t, err)
+		locations := []report.Location{
+			{StartLine: 7, EndLine: 7, StartColumn: 101, EndColumn: 104},
+			{StartLine: 8, EndLine: 8, StartColumn: 1, EndColumn: 4},
+		}
+		var want []report.Location
+		for i, loc := range locations {
+			accepted := i == 1 || within == "5C"
+			assert.Equal(t, accepted, withinProximity(raw, computeLineOffsets(raw), 7, 100, primary, report.Finding{Location: loc}, window))
+			if accepted {
+				want = append(want, loc)
+			}
+		}
+		var got []report.Location
+		for _, set := range primary.ComponentSets {
+			for _, component := range set.Components {
+				got = append(got, component.Location)
+			}
+		}
+		assert.ElementsMatch(t, want, got)
 	}
 }

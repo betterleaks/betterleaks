@@ -351,8 +351,8 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 	}
 	firstFragment := true
 
-	return stream.Read(ctx, content, func(raw string, line int, readErr error) error {
-		fragment := sources.Fragment{Raw: raw, StartLine: line}
+	return stream.Read(ctx, content, func(raw string, line, columnOffset int, readErr error) error {
+		fragment := sources.Fragment{Raw: raw, StartLine: line, StartColumnOffset: columnOffset}
 		first := "false"
 		if firstFragment {
 			first = "true"

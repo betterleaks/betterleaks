@@ -11,6 +11,10 @@ type Fragment struct {
 	// StartLine is the line number this fragment starts on (SetDefaults sets it to 1 if unset)
 	StartLine int
 
+	// StartColumnOffset is the zero-based byte offset of the fragment on its first
+	// source line. Zero means the fragment starts at the beginning of that line.
+	StartColumnOffset int
+
 	// Attributes holds source metadata, including the optional path at AttrPath.
 	Attributes map[string]string
 }

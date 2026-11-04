@@ -515,6 +515,11 @@ func (p *prettyRenderer) finding(f Finding, noColor bool, redact uint) {
 	}
 
 	work := f
+	// Location.StartColumn counts from the start of the source line, while
+	// Match.Line may begin partway through it.
+	if off := work.Match.LineColumnOffset; off > 0 && work.Location.StartColumn > off {
+		work.Location.StartColumn -= off
+	}
 	decoded := len(f.Encodings) > 0
 	if decoded {
 		// Source coordinates refer to the encoded bytes. Use the decoded match
