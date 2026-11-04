@@ -103,8 +103,12 @@ func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) (err 
 	if s.DetectArchive || s.MaxArchiveDepth > 0 {
 		format, stream, err = archives.Identify(ctx, "", stream)
 		// Preserve named malformed-archive recovery in permissive mode. Strict
-		// callers must still receive the original identification error.
-		if err != nil && !s.decompressed && (errors.Is(err, archives.NoMatch) || !s.StrictArchives) {
+		// callers must still receive the original identification error. Plain
+		// package-manager state files can have gzip suffixes, so a .gz name
+		// whose content matches no format stays a plain file.
+		noMatch := errors.Is(err, archives.NoMatch)
+		plainGzip := noMatch && strings.EqualFold(filepath.Ext(archiveName), ".gz")
+		if err != nil && !s.decompressed && !plainGzip && (noMatch || !s.StrictArchives) {
 			format, _, err = archives.Identify(ctx, archiveName, nil)
 		}
 	} else if filepath.Ext(s.Path) == ".tar" {
@@ -353,8 +357,8 @@ func (s *File) fileFragments(ctx context.Context, content io.Reader, isArchiveCo
 	}
 	firstFragment := true
 
-	return stream.Read(ctx, content, func(raw string, line int, readErr error) error {
-		fragment := sources.Fragment{Raw: raw, StartLine: line}
+	return stream.Read(ctx, content, func(raw string, line, columnOffset int, readErr error) error {
+		fragment := sources.Fragment{Raw: raw, StartLine: line, StartColumnOffset: columnOffset}
 		first := "false"
 		if firstFragment {
 			first = "true"

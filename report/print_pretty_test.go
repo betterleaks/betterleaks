@@ -70,6 +70,33 @@ func TestWritePrettyBinarySnippet(t *testing.T) {
 	assert.Equal(t, original, f)
 }
 
+func TestWritePrettyChunkedLineHighlightsOwnOccurrence(t *testing.T) {
+	const secret = "token-example"
+	line := "a=" + secret + " b=" + secret
+	f := Finding{
+		RuleID: "test",
+		Match:  Match{Full: secret, Value: secret, Line: line, LineColumnOffset: 1000},
+		// The first occurrence, as a column in the full source line.
+		Location: Location{StartLine: 1, StartColumn: 1000 + 3},
+	}
+	var out bytes.Buffer
+	require.NoError(t, WritePretty(&out, f, PrettyOptions{NoColor: true}))
+	rows := strings.Split(out.String(), "\n")
+	caret := -1
+	for i, row := range rows {
+		if strings.Contains(row, "^") {
+			caret = i
+			break
+		}
+	}
+	require.Positive(t, caret, out.String())
+	text := rows[caret-1]
+	first := strings.Index(text, secret)
+	require.GreaterOrEqual(t, first, 0, out.String())
+	assert.Equal(t, displayWidth(text[:first]), displayWidth(rows[caret][:strings.Index(rows[caret], "^")]),
+		"caret must point at the first occurrence")
+}
+
 func TestWritePrettyDecodedValue(t *testing.T) {
 	for _, line := range []string{"unrelated binary prefix\x00dG9rZW4=", "token also appears elsewhere"} {
 		f := Finding{

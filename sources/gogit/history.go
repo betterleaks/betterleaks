@@ -18,11 +18,12 @@ import (
 // IDs and timestamps instead. Decoded commits (and their retained pack readers)
 // live only while a worker needs them.
 type history struct {
-	r        *repository
-	store    *objectStorage
-	seen     map[gitobj.Hash]struct{}
-	frontier commitHeap
-	sequence uint64
+	r           *repository
+	store       *objectStorage
+	seen        map[gitobj.Hash]struct{}
+	frontier    commitHeap
+	sequence    uint64
+	skipParents bool
 }
 
 type commitPosition struct {
@@ -55,8 +56,25 @@ func newWalk(r *repository) *history {
 
 // history starts at Revision when set, otherwise at HEAD and every ref except
 // notes. A range A..B starts at B and excludes everything reachable from A.
+// Commits, when set, are the only commits visited.
 func (s *Source) history(ctx context.Context, r *repository) (*history, error) {
 	h := newWalk(r)
+	if s.Commits != nil {
+		h.skipParents = true
+		for _, id := range s.Commits {
+			c, err := h.peel(ctx, gitobj.NewHash(id))
+			if err != nil {
+				return nil, err
+			}
+			if c == nil {
+				return nil, fmt.Errorf("%s is not a commit", id)
+			}
+			if _, ok := h.seen[c.Hash]; !ok {
+				h.enqueue(c)
+			}
+		}
+		return h, nil
+	}
 	if s.Revision == "" {
 		return h, h.refs(ctx)
 	}
@@ -214,6 +232,9 @@ func (h *history) next(ctx context.Context) (*gitobj.Commit, error) {
 	c, err := h.r.CommitObject(p.id)
 	if err != nil {
 		return nil, err
+	}
+	if h.skipParents {
+		return c, nil
 	}
 	for _, id := range h.store.parents(c) {
 		if err := ctx.Err(); err != nil {

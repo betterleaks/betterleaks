@@ -33,16 +33,17 @@ var (
 	}
 )
 
-// Read yields owned text chunks and one-based starting lines. Read failures are
+// Read yields owned text chunks, one-based starting lines, and the zero-based
+// byte offset of each chunk on its first line. Read failures are
 // yielded after any final bytes; a callback error stops reading immediately.
 // The caller owns content and must interrupt any blocked Read itself.
-func Read(ctx context.Context, content io.Reader, yield func(string, int, error) error) error {
+func Read(ctx context.Context, content io.Reader, yield func(string, int, int, error) error) error {
 	buffer := getBuffer()
 	defer putBuffer(buffer)
 	return read(ctx, content, buffer, yield)
 }
 
-func read(ctx context.Context, content io.Reader, buffer []byte, yield func(string, int, error) error) error {
+func read(ctx context.Context, content io.Reader, buffer []byte, yield func(string, int, int, error) error) error {
 	if len(buffer) == 0 {
 		return errors.New("reader buffer is empty")
 	}
@@ -51,6 +52,7 @@ func read(ctx context.Context, content io.Reader, buffer []byte, yield func(stri
 	defer putReader(reader)
 
 	nextLine := 1
+	nextColumnOffset := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -59,7 +61,7 @@ func read(ctx context.Context, content io.Reader, buffer []byte, yield func(stri
 		n, readErr := reader.Read(buffer)
 		if n == 0 {
 			if readErr != nil && !errors.Is(readErr, io.EOF) {
-				return yield("", nextLine, readErr)
+				return yield("", nextLine, 0, readErr)
 			}
 			return nil
 		}
@@ -72,7 +74,7 @@ func read(ctx context.Context, content io.Reader, buffer []byte, yield func(stri
 		}
 
 		raw := string(chunk)
-		if err := yield(raw, nextLine, nil); err != nil {
+		if err := yield(raw, nextLine, nextColumnOffset, nil); err != nil {
 			return err
 		}
 
@@ -80,11 +82,16 @@ func read(ctx context.Context, content io.Reader, buffer []byte, yield func(stri
 			return ctx.Err()
 		}
 		nextLine += strings.Count(raw, "\n")
+		if lastNewline := strings.LastIndexByte(raw, '\n'); lastNewline >= 0 {
+			nextColumnOffset = len(raw) - lastNewline - 1
+		} else {
+			nextColumnOffset += len(raw)
+		}
 		if boundaryErr != nil {
-			return yield("", nextLine, fmt.Errorf("could not read until safe boundary: %w", boundaryErr))
+			return yield("", nextLine, 0, fmt.Errorf("could not read until safe boundary: %w", boundaryErr))
 		}
 		if readErr != nil {
-			return yield("", nextLine, readErr)
+			return yield("", nextLine, 0, readErr)
 		}
 	}
 }

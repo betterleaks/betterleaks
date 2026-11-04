@@ -381,8 +381,9 @@ array; `report.WriteJSONL` writes finding envelopes. Neither adds CLI scan metad
 
 ## Go SDK changes
 
-Update all imports to `/v2` and use Go 1.26 or newer. The Git source uses stable
-go-git v5; the module's Go version requirement remains unchanged:
+Update all imports to `/v2` and use Go 1.26.0 or newer. Official release binaries
+are built with the latest stable Go release. For source builds, use a current
+patched Go release to receive security fixes. The Git source uses stable go-git v5:
 
 ```sh
 go get github.com/betterleaks/betterleaks/v2@v2.0.0-rc.1
