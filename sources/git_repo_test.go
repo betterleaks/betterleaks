@@ -243,6 +243,14 @@ func TestGitIsolationBlocksRepositoryPrograms(t *testing.T) {
 			require.NoFileExists(t, marker)
 		})
 	}
+	for _, mode := range []string{"history", "parallel"} {
+		t.Run(mode+" forced text", func(t *testing.T) {
+			got := scanGit(t, f.path, mode, "--all --text -- secret.txt", GitOptions{})
+			require.Contains(t, strings.Join(got, "\n"), "HISTORY_SECRET_ONE")
+			require.Contains(t, strings.Join(got, "\n"), "HISTORY_SECRET_TWO")
+			require.NoFileExists(t, marker)
+		})
+	}
 	for name, data := range original {
 		current, err := os.ReadFile(filepath.Join(f.path, ".git", name))
 		require.NoError(t, err)
@@ -831,6 +839,35 @@ func TestGitIsolationHistoryIgnoresWorkTreeAttributes(t *testing.T) {
 
 	require.NotContains(t, strings.Join(scanGit(t, f.path, "history", "", GitOptions{TrustLocalGitConfig: true}), "\n"), "HIDDEN_BY_ATTRIBUTES")
 	require.Contains(t, strings.Join(scanGit(t, f.path, "history", "", GitOptions{}), "\n"), "HIDDEN_BY_ATTRIBUTES")
+}
+
+func TestGitIsolationHistoryBinaryAttributes(t *testing.T) {
+	for _, attributes := range []string{".git/info/attributes", ".gitattributes"} {
+		t.Run(attributes, func(t *testing.T) {
+			f := newGitFixture(t)
+			f.write(attributes, "*.bin diff\n")
+			f.write("secret.bin", "BINARY_SECRET_ONE\x00tail\n")
+			f.commit("binary content forced to text by attributes")
+			f.write("secret.bin", "BINARY_SECRET_TWO\x00tail\n")
+			f.write("other.txt", "SECOND_COMMIT\n")
+			f.commit("exercise multiple history workers")
+
+			trusted := scanGit(t, f.path, "history", "", GitOptions{TrustLocalGitConfig: true})
+			require.Contains(t, strings.Join(trusted, "\n"), "BINARY_SECRET")
+			for _, mode := range []string{"history", "single-worker", "parallel", "legacy-parallel", "legacy-auto"} {
+				t.Run(mode, func(t *testing.T) {
+					// Isolation deliberately leaves binary classification to Git.
+					got := scanGit(t, f.path, mode, "", GitOptions{})
+					require.NotContains(t, strings.Join(got, "\n"), "BINARY_SECRET")
+					// A caller can include these files without trusting attributes.
+					got = scanGit(t, f.path, mode, "--all --text -- secret.bin", GitOptions{})
+					require.Len(t, got, 2)
+					require.Contains(t, strings.Join(got, "\n"), "BINARY_SECRET_ONE\x00tail")
+					require.Contains(t, strings.Join(got, "\n"), "BINARY_SECRET_TWO\x00tail")
+				})
+			}
+		})
+	}
 }
 
 func TestGitIsolationEnvironment(t *testing.T) {

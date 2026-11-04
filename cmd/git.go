@@ -28,7 +28,7 @@ func init() {
 	gitCmd.Flags().Bool("staged", false, "scan staged commits (good for pre-commit)")
 	gitCmd.Flags().Bool("pre-commit", false, "scan using git diff")
 	gitCmd.Flags().String("log-opts", "", "git log options")
-	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process)")
+	gitCmd.Flags().Int("git-workers", 0, "number of parallel git log workers (0 = single process; custom --log-opts uses one worker)")
 	gitCmd.Flags().Bool("trust-local-git-config", false, "trust the repository's local Git configuration and hooks, which can execute programs; use only for trusted repositories")
 }
 

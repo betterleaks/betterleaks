@@ -12,8 +12,8 @@ import (
 	"github.com/betterleaks/betterleaks/logging"
 )
 
-// historyFragments opens the repository once. Parallel scans enumerate commits
-// once, then partition those SHAs into non-overlapping git log workers.
+// historyFragments opens the repository once. Default parallel scans enumerate
+// commits once, then partition those SHAs into non-overlapping git log workers.
 func (s *Git) historyFragments(ctx context.Context, yield FragmentsFunc) error {
 	source := s.RepoPath
 	if source == "" {
@@ -29,8 +29,14 @@ func (s *Git) historyFragments(ctx context.Context, yield FragmentsFunc) error {
 	if s.Workers <= 1 {
 		return s.runSingleWorker(ctx, repo, yield)
 	}
+	if s.LogOpts != "" {
+		// Custom options can affect both traversal and patch rendering. Keep
+		// their semantics together in one Git process, including reflog walks.
+		logging.Info().Msg("using a single Git history worker for custom --log-opts")
+		return s.runSingleWorker(ctx, repo, yield)
+	}
 
-	commits, err := listCommits(ctx, repo, s.LogOpts)
+	commits, err := listCommits(ctx, repo)
 	if err != nil {
 		return fmt.Errorf("list commits: %w", err)
 	}
@@ -68,8 +74,8 @@ func (s *Git) historyFragments(ctx context.Context, yield FragmentsFunc) error {
 	return g.Wait()
 }
 
-// runSingleWorker runs a full git log (no partitioning) for small repos or
-// single-worker mode.
+// runSingleWorker runs a full git log for small repos, custom log options,
+// or single-worker mode.
 func (s *Git) runSingleWorker(ctx context.Context, repo *gitRepo, yield FragmentsFunc) error {
 	gitCmd, err := newGitLogCmd(ctx, repo, s.LogOpts)
 	if err != nil {
@@ -82,7 +88,7 @@ func (s *Git) runSingleWorker(ctx context.Context, repo *gitRepo, yield Fragment
 // runWorkerCommits runs a git log process for a specific set of commit SHAs,
 // piped via stdin with --no-walk.
 func (s *Git) runWorkerCommits(ctx context.Context, repo *gitRepo, yield FragmentsFunc, commits []string) error {
-	gitCmd, err := newGitLogCommitsCmd(ctx, repo, commits, s.LogOpts)
+	gitCmd, err := newGitLogCommitsCmd(ctx, repo, commits)
 	if err != nil {
 		return err
 	}
@@ -110,20 +116,8 @@ func newGitLogCmd(ctx context.Context, repo *gitRepo, logOpts string) (*GitCmd, 
 // newGitLogCommitsCmd constructs a git log -p command that processes a specific
 // set of commits via --no-walk --stdin. This avoids non-deterministic ordering
 // issues with --skip/--max-count on repos with timestamp ties.
-func newGitLogCommitsCmd(ctx context.Context, repo *gitRepo, commits []string, logOpts string) (*GitCmd, error) {
+func newGitLogCommitsCmd(ctx context.Context, repo *gitRepo, commits []string) (*GitCmd, error) {
 	args := []string{"log", "-p", "-U0", "--diff-merges=first-parent", "--no-walk", "--stdin", "--diff-filter=tuxdb"}
-	userArgs, err := splitGitLogOpts(logOpts)
-	if err != nil {
-		return nil, fmt.Errorf("invalid --log-opts: %w", err)
-	}
-	for i, arg := range userArgs {
-		if arg == "--" {
-			// rev-list filters commits; workers must also filter their patches.
-			args = append(args, userArgs[i:]...)
-			break
-		}
-	}
-
 	return startGitCmd(ctx, repo, args, strings.NewReader(strings.Join(commits, "\n")+"\n"))
 }
 
@@ -170,24 +164,10 @@ func startGitCmd(ctx context.Context, repo *gitRepo, args []string, stdin io.Rea
 	}, nil
 }
 
-// listCommits returns all commit SHAs matching the given log options.
-// The order is deterministic for a given repo state (reverse chronological
-// from a single rev-list invocation), which is critical for correct
-// partitioning across workers.
-func listCommits(ctx context.Context, repo *gitRepo, logOpts string) ([]string, error) {
-	args := []string{"rev-list"}
-
-	if logOpts != "" {
-		userArgs, err := splitGitLogOpts(logOpts)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --log-opts: %w", err)
-		}
-		args = append(args, userArgs...)
-	} else {
-		args = append(args, "--all")
-	}
-
-	out, err := repo.command(ctx, args...).Output()
+// listCommits enumerates the default history in one rev-list invocation,
+// fixing the commit order for deterministic partitioning across workers.
+func listCommits(ctx context.Context, repo *gitRepo) ([]string, error) {
+	out, err := repo.command(ctx, "rev-list", "--all").Output()
 	if err != nil {
 		return nil, fmt.Errorf("git rev-list: %w", err)
 	}

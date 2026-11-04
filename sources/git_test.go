@@ -47,7 +47,13 @@ func TestGitHistoryWorkerParity(t *testing.T) {
 		f.commit(fmt.Sprintf("commit %d", i))
 	}
 	for _, trusted := range []bool{false, true} {
-		for _, opts := range []string{"", "--all", "HEAD~3..HEAD", "HEAD..HEAD", "--all -- sub", "--all -- sub ':(exclude)*.zip'"} {
+		for _, opts := range []string{
+			"", "--all", "HEAD~3..HEAD", "HEAD..HEAD",
+			"--all -- sub", "--all -- sub ':(exclude)*.zip'",
+			"--all --diff-filter=A", "--all --max-count=2",
+			"--all -SSECRET_2 -- sub/secret.txt",
+			"--all --text -- sub/secret.txt",
+		} {
 			t.Run(fmt.Sprintf("trusted=%t/opts=%s", trusted, opts), func(t *testing.T) {
 				options := GitOptions{TrustLocalGitConfig: trusted}
 				want := scanGit(t, f.path, "command", opts, options)
@@ -193,7 +199,7 @@ func TestGitMergeSecrets(t *testing.T) {
 			git("branch", "-D", "side")
 
 			for _, workers := range []int{0, 1, 4} {
-				for _, opts := range []string{"", "--all", mergeSHA + "^.." + mergeSHA} {
+				for _, opts := range []string{"", "--all", mergeSHA + "^.." + mergeSHA, "--all --diff-merges=off"} {
 					t.Run(fmt.Sprintf("workers=%d/opts=%s", workers, opts), func(t *testing.T) {
 						sema := semgroup.NewGroup(context.Background(), 4)
 						source := &Git{RepoPath: repo, LogOpts: opts, Workers: workers, Sema: sema}
@@ -219,7 +225,11 @@ func TestGitMergeSecrets(t *testing.T) {
 								require.Equal(t, sideSHA, f.Attr(AttrGitSHA))
 							}
 						}
-						require.Equal(t, 1, merges)
+						if opts == "--all --diff-merges=off" {
+							require.Zero(t, merges)
+						} else {
+							require.Equal(t, 1, merges)
+						}
 						require.Equal(t, 1, sides, "history must still traverse the merged branch")
 					})
 				}

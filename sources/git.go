@@ -366,8 +366,8 @@ type Git struct {
 	// supports staged/worktree diffs and existing callers of NewGitLogCmd.
 	Cmd      *GitCmd
 	RepoPath string
-	LogOpts  string
-	Workers  int // 0 or 1 uses a single Git process
+	LogOpts  string // custom options use a single history process
+	Workers  int    // 0 or 1 uses a single Git process
 	// TrustLocalGitConfig applies when opening RepoPath; see GitOptions.
 	TrustLocalGitConfig bool
 	ShouldSkip          SkipFunc
