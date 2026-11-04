@@ -159,6 +159,12 @@ func (r *gitRepo) populate(ctx context.Context, layout gitLayout, config string,
 		}
 		src := filepath.Join(worktrees, entry.Name())
 		dst := filepath.Join(r.tempDir, "worktrees", entry.Name())
+		current := samePath(src, layout.gitDir)
+		if !current {
+			// Only the scanned worktree needs to stay pinned for later index
+			// reads. Release other roots before advancing to the next worktree.
+			defer copier.releaseRoot(src)
+		}
 		if err := copier.copyRefs(ctx, src, dst); err != nil {
 			return err
 		}
@@ -168,7 +174,7 @@ func (r *gitRepo) populate(ctx context.Context, layout gitLayout, config string,
 		if err := os.WriteFile(filepath.Join(dst, "commondir"), []byte("../..\n"), 0o600); err != nil {
 			return err
 		}
-		if samePath(src, layout.gitDir) {
+		if current {
 			r.gitDir = dst
 		}
 		return nil
@@ -480,8 +486,8 @@ func readGitConfig(ctx context.Context, path string) (gitConfig, error) {
 	return cfg, nil
 }
 
-// gitRemoteURL returns the URL `git ls-remote --get-url` would print,
-// reading the repository's configuration as data.
+// gitRemoteURL resolves the fetch URL using Git's remote selection and URL
+// rewrite rules, reading the repository's configuration as data.
 func gitRemoteURL(ctx context.Context, source string) (string, error) {
 	layout, err := findGitLayout(source)
 	if err != nil {
@@ -530,11 +536,14 @@ func gitRemoteURL(ctx context.Context, source string) (string, error) {
 		}
 	}
 
+	// Git fetches from the first URL, but an empty value clears the list.
+	// Keep reading so a later reset can discard a previously selected URL.
 	remoteURL := ""
 	for _, e := range cfg {
 		if e.key == "remote."+name+".url" {
-			remoteURL = e.value
-			break
+			if e.value == "" || remoteURL == "" {
+				remoteURL = e.value
+			}
 		}
 	}
 	if remoteURL == "" {

@@ -1118,6 +1118,10 @@ func TestGitRemoteURL(t *testing.T) {
 		config [][2]string
 	}{
 		{name: "origin", config: [][2]string{{"remote.origin.url", "git@github.com:org/repo.git"}}},
+		{name: "first URL", config: [][2]string{
+			{"remote.origin.url", "https://example.com/first.git"},
+			{"remote.origin.url", "https://example.com/second.git"},
+		}},
 		{name: "branch remote", config: [][2]string{
 			{"remote.origin.url", "https://example.com/origin.git"},
 			{"remote.upstream.url", "https://example.com/upstream.git"},
@@ -1139,7 +1143,7 @@ func TestGitRemoteURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newGitFixture(t)
 			for _, kv := range tt.config {
-				f.git("config", kv[0], kv[1])
+				f.git("config", "--add", kv[0], kv[1])
 			}
 			got, err := gitRemoteURL(t.Context(), f.path)
 			cmd := exec.Command("git", "-C", f.path, "ls-remote", "--get-url")
@@ -1152,6 +1156,52 @@ func TestGitRemoteURL(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, string(bytes.TrimSpace(want)), got)
 		})
+	}
+}
+
+func TestGitRemoteURLResets(t *testing.T) {
+	const (
+		oldURL   = "https://example.com/old.git"
+		firstURL = "https://example.com/first.git"
+		lastURL  = "https://example.com/last.git"
+	)
+	// Older Git releases treat empty URLs differently. Assert the documented
+	// reset semantics independently of the installed Git version.
+	tests := []struct {
+		name string
+		urls []string
+		want string
+	}{
+		{name: "initial empty URL", urls: []string{"", firstURL}, want: firstURL},
+		{name: "first URL after reset", urls: []string{oldURL, "", firstURL, lastURL}, want: firstURL},
+		{name: "repeated reset", urls: []string{oldURL, "", firstURL, "", lastURL}, want: lastURL},
+		{name: "cleared URLs", urls: []string{oldURL, ""}},
+	}
+	for _, linked := range []bool{false, true} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("linked=%t/%s", linked, tt.name), func(t *testing.T) {
+				f := newGitFixture(t)
+				f.git("config", "remote.origin.url", tt.urls[0])
+				source, scope := f.path, "--local"
+				if linked {
+					f.write("file.txt", "BASE\n")
+					f.commit("base")
+					f.git("config", "extensions.worktreeConfig", "true")
+					source, scope = filepath.Join(t.TempDir(), "linked"), "--worktree"
+					f.git("worktree", "add", "-q", "-b", "linked", source)
+				}
+				for _, url := range tt.urls[1:] {
+					f.gitIn(source, "", "config", scope, "--add", "remote.origin.url", url)
+				}
+				got, err := gitRemoteURL(t.Context(), source)
+				if tt.want == "" {
+					require.ErrorIs(t, err, errNoGitRemote)
+				} else {
+					require.NoError(t, err)
+				}
+				require.Equal(t, tt.want, got)
+			})
+		}
 	}
 }
 

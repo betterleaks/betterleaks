@@ -39,12 +39,20 @@ func newGitMetadataCopier() *gitMetadataCopier {
 }
 
 func (c *gitMetadataCopier) Close() {
-	for _, root := range c.roots {
-		_ = root.Close()
+	for dir := range c.roots {
+		c.releaseRoot(dir)
 	}
 }
 
-// Pin source directories for the lifetime of setup. Descendant roots are opened
+func (c *gitMetadataCopier) releaseRoot(dir string) {
+	dir = filepath.Clean(dir)
+	if root := c.roots[dir]; root != nil {
+		_ = root.Close()
+		delete(c.roots, dir)
+	}
+}
+
+// Pin source directories while their metadata is in use. Open descendant roots
 // through the existing handle, so replacing a directory with a symlink cannot
 // redirect later reads outside the original tree.
 func (c *gitMetadataCopier) root(dir string) (*os.Root, error) {
