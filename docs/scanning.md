@@ -61,6 +61,9 @@ betterleaks git .
 # parallel history scan
 betterleaks git . --git-workers 8
 
+# include merge patches across all refs
+betterleaks git . --log-opts="--all --diff-merges=first-parent"
+
 # custom git log scope
 betterleaks git . --log-opts="--all --since='90 days ago'"
 
@@ -80,10 +83,11 @@ betterleaks git . --platform github
 betterleaks git . --git-workers 8 --report-path findings.json --report-format json
 ```
 
-Merge commits are scanned against their first parent by default, while history
-traversal still includes all parents. This catches secrets introduced during a
-merge or conflict resolution, including secrets later deleted. A secret can be
-reported again when merged into another branch.
+Merge patches are not scanned by default, while the individual commits from
+merged branches are still scanned. Pass `--diff-merges=first-parent` through
+`--log-opts` to scan merges against their first parent. This catches secrets
+introduced during a merge or conflict resolution, including secrets later
+deleted. A secret can be reported again when merged into another branch.
 
 Single-process and parallel history scans use the same Git source. A value of
 `0` or `1` for `--git-workers` runs one history process; larger values partition
@@ -93,6 +97,9 @@ which remains available until archive reads and fragment processing finish.
 Explicit `--log-opts` uses one Git history process, even when `--git-workers`
 is greater than one. This preserves custom filtering, patch formatting, and
 reflog traversal. Finding detection still uses its configured concurrency.
+Custom options replace the default `--full-history --all --diff-filter=tuxdb`
+options; include those explicitly to retain the default history scope and
+file-change filtering.
 
 ### Local Git configuration
 
