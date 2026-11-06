@@ -35,6 +35,15 @@ func TestFile_ArchiveDiscovery(t *testing.T) {
 		require.NoError(t, w.Close())
 		return b.Bytes()
 	}
+	compressBrotli := func(data []byte) []byte {
+		var b bytes.Buffer
+		w, err := (archives.Brotli{}).OpenWriter(&b)
+		require.NoError(t, err)
+		_, err = w.Write(data)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		return b.Bytes()
+	}
 	for _, tc := range []struct {
 		name string
 		data []byte
@@ -43,6 +52,8 @@ func TestFile_ArchiveDiscovery(t *testing.T) {
 		{"nested.gz", compress(compress([]byte(content)))},
 		{"archive.tar.gz", compress(archive.Bytes())},
 		{"plain.txt.gz", compress([]byte(content))},
+		{"plain.txt.br", compressBrotli([]byte(content))},
+		{"archive.tar.br", compressBrotli(archive.Bytes())},
 	} {
 		for _, detect := range []bool{false, true} {
 			mode := "directory"
