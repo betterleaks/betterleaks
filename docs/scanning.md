@@ -562,6 +562,11 @@ betterleaks filesystem . --output findings.json
 betterleaks filesystem . --output findings.jsonl
 ```
 
+When `--max-archive-depth` is positive, filesystem, Git, and S3 scans identify
+archives by content, including unfamiliar or missing extensions such as `.jar`,
+`.apk`, `.gem`, and `.crate`. These names use existing archive decoders. Nested
+archives obey the same depth limit; the default depth remains unchanged.
+
 ---
 
 ## `url`

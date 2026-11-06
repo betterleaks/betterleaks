@@ -238,7 +238,7 @@ func TestFilesPrefilterStillAppliesToArchiveEntries(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.NoError(t, writer.Close())
-	path := filepath.Join(t.TempDir(), "bundle.zip")
+	path := filepath.Join(t.TempDir(), "bundle.jar")
 	require.NoError(t, os.WriteFile(path, archive.Bytes(), 0o600))
 	source := &Files{Path: path, MaxArchiveDepth: 1, Prefilter: func(attrs map[string]string) bool {
 		return strings.HasSuffix(attrs[sources.AttrPath], "!skip.txt")
