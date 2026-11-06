@@ -47,7 +47,7 @@ func structuredFieldPattern(names string) string {
 
 func GenericCredential() *config.Rule {
 	const identifiers = `access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token`
-	const token = `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`
+	const token = `[\w.=-]{10,150}|[a-z0-9+/][a-z0-9+/]{11,}={0,3}`
 	// Recognize labels such as S3_API_KEY without consuming a long, unbroken
 	// token assigned directly to "key" as a record label.
 	recordLabel := jsonRecordSpace + `"(?:[a-z0-9]{0,16}[_.-]){0,4}(?:` + identifiers + `)[a-z0-9_.-]{0,20}"` + jsonRecordSpace + `(?:,` + jsonRecordValue + `|value[ \t]*=|>)`
@@ -158,6 +158,10 @@ let _ = setConfidence(level);
 		`"client_secret" : "6da89121079f83b2eb6acccf8219ea982c3d79bccc3e9c6a85856480661f8fde",`,
 		`mySecretString=`+newPlausibleSecret(`[a-zA-Z0-9]{30}`),
 		`todo_secret_do_not_commit = `+newPlausibleSecret(`[a-zA-Z0-9]{30}`),
+		// Standard base64 values whose first character is + or /; the alphabet
+		// allows both in the lead position.
+		`cookie_key = "+`+newPlausibleSecret(`[a-zA-Z0-9]{58}`)+`"`,
+		`"signing_secret": "/`+newPlausibleSecret(`[a-zA-Z0-9]{58}`)+`"`,
 
 		// Token
 		` utils.GetEnvOrDefault("api_token", "dafa7817-e246-48f3-91a7-e87653d587b8")`,
