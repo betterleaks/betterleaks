@@ -314,6 +314,7 @@ func TestConfigShowIDsBuiltinRevocation(t *testing.T) {
 	require.NoError(t, root.Execute())
 	want := []string{
 		"buildkite-user-access-token",
+		"composio-org-api-key", "composio-project-api-key", "composio-user-api-key",
 		"github-fine-grained-pat", "github-oauth", "github-pat", "github-refresh-token",
 		"gitlab-pat", "gitlab-pat-routable", "gitlab-pat-routable-versioned",
 		"huggingface-access-token", "huggingface-organization-api-token",
