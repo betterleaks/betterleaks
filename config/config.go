@@ -164,8 +164,8 @@ func validateMinVersion(logger *slog.Logger, minVersion, configPath string) erro
 	if err != nil {
 		return fmt.Errorf("invalid minVersion %q: %w", minVersion, err)
 	}
-	if version.Version == version.DefaultMsg {
-		logger.Debug("dev build, skipping minVersion comparison", "required", minVersion)
+	if version.IsDevelopment() {
+		logger.Debug("dev build, skipping minVersion comparison", "required", minVersion, "version", version.Version)
 		return nil
 	}
 	current, err := gv.NewSemver(version.Version)
