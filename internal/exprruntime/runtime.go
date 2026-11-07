@@ -140,9 +140,9 @@ type Runtime struct {
 
 type bindings = map[string]any
 
-// DefaultHTTPClient returns an HTTP client with reasonable timeouts.
+// DefaultHTTPClient returns an HTTP client with a timeout and provider User-Agent.
 func DefaultHTTPClient() *http.Client {
-	return &http.Client{Timeout: 10 * time.Second}
+	return &http.Client{Timeout: 10 * time.Second, Transport: wrapUserAgentTransport(nil)}
 }
 
 func (e *Runtime) SetHTTPClient(c *http.Client) {
@@ -176,7 +176,7 @@ func NewWithRegexEngine(httpClient *http.Client, engine blregexp.Engine) (*Runti
 		httpClient = DefaultHTTPClient()
 	}
 	return &Runtime{
-		client:      httpClient,
+		client:      wrapValidationLimitClient(httpClient, nil),
 		regexEngine: engine,
 		cache:       make(map[string]Program),
 	}, nil

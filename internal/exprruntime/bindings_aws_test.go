@@ -29,6 +29,7 @@ func TestAWSValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.NotEmpty(t, r.Header.Get("Authorization"))
+				assert.Equal(t, "Betterleaks", r.UserAgent())
 				assert.Equal(t, http.MethodPost, r.Method)
 				w.WriteHeader(tc.status)
 				fmt.Fprint(w, tc.body)

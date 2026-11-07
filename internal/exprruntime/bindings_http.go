@@ -68,7 +68,7 @@ func (rt *runtimeBindings) captureDebug(method, rawURL, reqBody string, req *htt
 		rt.debug.addDebug("req_body", truncateDebugString(reqBody))
 	}
 	if req != nil {
-		for k, vals := range req.Header {
+		for k, vals := range withDefaultUserAgent(req).Header {
 			rt.debug.addDebug("req_header_"+strings.ToLower(k), debugHeaderValue(k, strings.Join(vals, ",")))
 		}
 	}

@@ -406,6 +406,7 @@ func wrapValidationLimitClient(client *http.Client, limiter *validationRequestLi
 			requestTimeout = current.requestTimeout
 		}
 	}
+	base = wrapUserAgentTransport(base)
 	clone.Transport = base
 	if limiter != nil {
 		// http.Client.Timeout starts before RoundTrip, so leaving it here would

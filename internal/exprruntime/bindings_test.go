@@ -112,6 +112,7 @@ func TestEvalValidationDebugMetadata(t *testing.T) {
 	}
 
 	withDebug, err := env.EvalValidation(nil, prg, nil, nil, nil, EvalOptions{Debug: true})
+	require.Equal(t, "Betterleaks", withDebug.Debug["req_header_user-agent"])
 	if err != nil {
 		t.Fatalf("eval with debug: %v", err)
 	}
