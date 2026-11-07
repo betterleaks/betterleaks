@@ -16,6 +16,9 @@ import (
 
 func TestGCPValidateExprBinding_ServiceAccountValid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != "Betterleaks" {
+			t.Errorf("User-Agent = %q, want Betterleaks", got)
+		}
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}

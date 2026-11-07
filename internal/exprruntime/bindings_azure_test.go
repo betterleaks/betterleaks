@@ -13,6 +13,9 @@ const testAzureKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 
 func TestAzureValidateStorageExprBindingValid(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.UserAgent(); got != "Betterleaks" {
+			t.Errorf("User-Agent = %q, want Betterleaks", got)
+		}
 		if got := r.URL.RawQuery; got != "comp=list" {
 			t.Errorf("unexpected query %q", got)
 		}
