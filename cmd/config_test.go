@@ -170,6 +170,33 @@ func TestRenderConfigTOMLRoundTrip(t *testing.T) {
 	require.Equal(t, defaults.Hash(), parsed.Hash(), "export preserves the complete built-in ruleset")
 }
 
+func TestConfigShowFixturesWithControlCharacters(t *testing.T) {
+	var source strings.Builder
+	source.WriteString("[[rules]]\nid = 'token'\nregex = '(?s)(?P<value>TOKEN.*)'\n")
+	// Start from valid escaped TOML. Exercise every ASCII control byte alongside
+	// a newline, which previously bypassed the exporter's control-byte check.
+	for control := 0; control <= 0x7f; control++ {
+		if control >= 0x20 && control != 0x7f {
+			continue
+		}
+		value := fmt.Sprintf(`"TOKEN\n\u%04x"`, control)
+		fmt.Fprintf(&source, "\n[[rules.tests]]\nname = 'control-%02x'\ninput = %s\nattributes = {path = %s}\nexpect = [{secret = %s, captures = {value = %s}}]\n",
+			control, value, value, value, value)
+	}
+	// Literal multiline TOML normalizes CRLF; fixtures must retain exact bytes.
+	source.WriteString("\n[[rules.tests]]\nname = 'CRLF'\ninput = \"TOKEN\\r\\nnext\"\nexpect = []\n")
+	path := writeTestConfig(t, source.String())
+	want, err := configpkg.LoadFile(path)
+	require.NoError(t, err)
+
+	root, stdout := newTestCLI(t)
+	root.SetArgs([]string{"config", "show", path})
+	require.NoError(t, root.Execute())
+	got, err := configpkg.ParseTOML(stdout.Bytes(), path)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
 func TestConfigRevokeRoundTripAndCompile(t *testing.T) {
 	const expression = `let response = http.delete("https://example.test/self", {}); response.status == 204 ? {"result": "revoked"} : revoke.unknown(response)`
 	cfg := &configpkg.Config{Rules: []configpkg.Rule{{ID: "token", Regex: "unused", RevokeExpr: expression}}}

@@ -666,7 +666,14 @@ func writeBool(b *strings.Builder, key string, value bool) {
 
 func tomlString(s string) string {
 	if strings.Contains(s, "\n") && !strings.Contains(s, "'''") {
-		return "'''\n" + s + "'''"
+		// Multiline literals allow tabs and newlines. Escape other controls,
+		// including CR so TOML newline normalization cannot change fixture bytes.
+		needsEscaping := strings.ContainsFunc(s, func(r rune) bool {
+			return (r < 0x20 && r != '\n' && r != '\t') || r == 0x7f
+		})
+		if !needsEscaping {
+			return "'''\n" + s + "'''"
+		}
 	}
 	if strings.ContainsAny(s, `'\`) && !strings.Contains(s, "'''") && !hasControlChar(s) {
 		return "'''" + s + "'''"
