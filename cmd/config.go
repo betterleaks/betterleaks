@@ -1,8 +1,16 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 
 	ahocorasick "github.com/rrethy/ahocorasick"
@@ -10,6 +18,9 @@ import (
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
 	"github.com/betterleaks/betterleaks/v2/regexp"
+	"github.com/betterleaks/betterleaks/v2/report"
+	"github.com/betterleaks/betterleaks/v2/scan"
+	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 type resolvedConfig struct {
@@ -18,7 +29,7 @@ type resolvedConfig struct {
 }
 
 type ConfigCmd struct {
-	Check ConfigCheckCmd `cmd:"" help:"Validate a betterleaks config."`
+	Check ConfigCheckCmd `cmd:"" help:"Validate configs and run embedded rule tests."`
 	Show  ConfigShowCmd  `cmd:"" help:"Print the resolved betterleaks config."`
 	Path  ConfigPathCmd  `cmd:"" help:"Print the selected config source."`
 	Hash  ConfigHashCmd  `cmd:"" help:"Print the hash of the resolved config or one rule."`
@@ -48,21 +59,221 @@ func (cmd *ConfigHashCmd) Run(cli *CLI, runtime *commandRuntime) error {
 }
 
 type ConfigCheckCmd struct {
-	Path string `arg:"" optional:"" name:"config-path" help:"Config file to validate."`
+	Path string `arg:"" optional:"" name:"config-path" help:"Config file or directory of TOML files to validate and test."`
 }
 
 func (cmd *ConfigCheckCmd) Run(cli *CLI, runtime *commandRuntime) error {
-	resolved, err := resolveConfig(runtime, cli.Config, cmd.Path)
-	if err != nil {
+	path := cmd.Path
+	if path == "" {
+		path = cli.Config
+	}
+	if path == "" {
+		path = os.Getenv("BETTERLEAKS_CONFIG")
+	}
+	paths := []string{path}
+	directory := false
+	if path != "" {
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			directory = true
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				return err
+			}
+			paths = nil
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".toml") {
+					paths = append(paths, filepath.Join(path, entry.Name()))
+				}
+			}
+			if len(paths) == 0 {
+				return fmt.Errorf("no TOML config files in %q", path)
+			}
+		}
+	}
+
+	var failures []error
+	total, failed := 0, 0
+	for _, path := range paths {
+		if err := runtime.logContext().Err(); err != nil {
+			return err
+		}
+		resolved, err := resolveConfig(runtime, cli.Config, path)
+		if err == nil {
+			err = validateConfig(resolved.cfg, runtime.regexEngine())
+		}
+		if err != nil {
+			failures = append(failures, fmt.Errorf("config %q: %w", path, err))
+			continue
+		}
+		run, bad, err := runConfigRuleTests(runtime, resolved)
+		total += run
+		failed += bad
+		if err != nil {
+			return err
+		}
+		if bad != 0 {
+			continue
+		}
+		withValidation, withoutValidation := countValidationRules(resolved.cfg)
+		prefix := ""
+		if directory {
+			prefix = resolved.source + ": "
+		}
+		if _, err := fmt.Fprintf(runtime.stdout, "%sOK: %d rules (%d with validation, %d without validation); %d rule tests passed\n",
+			prefix, len(resolved.cfg.Rules), withValidation, withoutValidation, run); err != nil {
+			return err
+		}
+	}
+	if failed > 0 {
+		failures = append(failures, fmt.Errorf("%d of %d rule tests failed", failed, total))
+	}
+	if len(failures) > 0 {
+		return errors.Join(failures...)
+	}
+	if directory {
+		_, err := fmt.Fprintf(runtime.stdout, "OK: %d rule tests passed across %d config files\n", total, len(paths))
 		return err
 	}
-	if err := validateConfig(resolved.cfg, runtime.regexEngine()); err != nil {
-		return err
-	}
-	withValidation, withoutValidation := countValidationRules(resolved.cfg)
-	_, _ = fmt.Fprintf(runtime.stdout, "OK: %d rules (%d with validation, %d without validation)\n",
-		len(resolved.cfg.Rules), withValidation, withoutValidation)
 	return nil
+}
+
+// Rule fixtures isolate their owner and its required/optional components. This
+// keeps unrelated specificity/overlap from hiding failures in a provider rule.
+// Global policy still applies. Provider operations are compiled by validateConfig
+// but are never executed by this detection-only runner.
+func runConfigRuleTests(runtime *commandRuntime, resolved *resolvedConfig) (total, failed int, err error) {
+	cfg := resolved.cfg
+	local := exprruntime.NewLocal(runtime.regexEngine())
+	var prefilter exprruntime.Program
+	if cfg.PrefilterExpr != "" {
+		prefilter, err = local.CompilePrefilter(cfg.PrefilterExpr)
+		if err != nil {
+			return total, failed, err
+		}
+	}
+	for _, rule := range cfg.Rules {
+		if len(rule.Tests) == 0 {
+			continue
+		}
+		var diagnostics bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&diagnostics, &slog.HandlerOptions{Level: slog.LevelWarn}))
+		scanners := make(map[bool]*scan.Scanner, 2)
+		for _, test := range rule.Tests {
+			if err := runtime.logContext().Err(); err != nil {
+				return total, failed, err
+			}
+			total++
+			diagnostics.Reset()
+			match := test.Mode == "match"
+			scanner := scanners[match]
+			if scanner == nil {
+				probe := *cfg
+				owner := rule
+				owner.Tests = nil
+				if match {
+					owner.SkipReport = false
+				}
+				probe.Rules = []configpkg.Rule{owner}
+				for _, component := range owner.Components {
+					dependency, _ := cfg.Rule(component.RuleID) // cfg.Validate checked references.
+					dependency.Tests = nil
+					probe.Rules = append(probe.Rules, dependency)
+				}
+				scanner, err = scan.New(&probe, scan.WithRegexEngine(runtime.regexEngine()),
+					scan.WithPrecompile(), scan.WithWorkers(1), scan.WithLogger(logger))
+				if err != nil {
+					return total, failed, fmt.Errorf("%s: rule %q: %w", resolved.source, rule.ID, err)
+				}
+				scanners[match] = scanner
+			}
+			var skip bool
+			var testErr error
+			if prefilter != nil {
+				skip, testErr = local.EvalPrefilter(prefilter, test.Attributes)
+			}
+			var actual []string
+			if testErr == nil && !skip {
+				_, testErr = scanner.Scan(runtime.logContext(), ruleTestSource{test}, func(f report.Finding) error {
+					if f.RuleID != rule.ID {
+						return nil
+					}
+					if f.ComponentSetsTruncated {
+						return errors.New("component combinations were truncated")
+					}
+					value := configpkg.ExpectedFinding{Rule: f.RuleID, Secret: f.Match.Value, Captures: f.Match.Captures}
+					for _, set := range f.ComponentSets {
+						components := make(map[string]string, len(set.Components))
+						for _, component := range set.Components {
+							components[component.RuleID] = component.Match.Value
+						}
+						value.ComponentSets = append(value.ComponentSets, components)
+					}
+					actual = append(actual, canonicalTestFinding(value))
+					return nil
+				})
+			}
+			if testErr == nil && diagnostics.Len() > 0 {
+				// Scans keep findings on filter evaluation errors. A test must not
+				// silently pass just because its filter failed open.
+				testErr = fmt.Errorf("scanner diagnostics: %s", strings.TrimSpace(diagnostics.String()))
+			}
+			if testErr == nil {
+				expected := make([]string, 0, len(test.Expect))
+				for _, value := range test.Expect {
+					value.Rule = rule.ID
+					expected = append(expected, canonicalTestFinding(value))
+				}
+				slices.Sort(expected)
+				slices.Sort(actual)
+				if !slices.Equal(expected, actual) {
+					testErr = fmt.Errorf("findings differ\n  want: %v\n   got: %v", expected, actual)
+				}
+			}
+			if testErr != nil {
+				if err := runtime.logContext().Err(); err != nil {
+					return total, failed, err
+				}
+				failed++
+				if _, err := fmt.Fprintf(runtime.stderr, "FAIL: %s: rule %q test %q: %v\n", resolved.source, rule.ID, test.Name, testErr); err != nil {
+					return total, failed, err
+				}
+			}
+		}
+	}
+	return total, failed, nil
+}
+
+// Yield empty content too, so path-only rules can be tested without file I/O.
+type ruleTestSource struct{ test configpkg.RuleTest }
+
+func (s ruleTestSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return yield(sources.Fragment{Raw: s.test.Input, Attributes: s.test.Attributes, StartLine: 1}, nil)
+}
+
+func canonicalTestFinding(value configpkg.ExpectedFinding) string {
+	sets := make([]string, 0, len(value.ComponentSets))
+	for _, set := range value.ComponentSets {
+		data, _ := json.Marshal(set)
+		sets = append(sets, string(data))
+	}
+	slices.Sort(sets)
+	if len(value.Captures) == 0 {
+		value.Captures = nil
+	}
+	data, _ := json.Marshal(struct {
+		Rule     string
+		Secret   string
+		Captures map[string]string
+		Sets     []string
+	}{value.Rule, value.Secret, value.Captures, sets})
+	return string(data)
 }
 
 type ConfigShowCmd struct {
@@ -149,32 +360,23 @@ func validateConfig(cfg *configpkg.Config, engine regexp.Engine) error {
 		return err
 	}
 	if cfg.PrefilterExpr != "" {
-		prg, err := rt.CompilePrefilter(cfg.PrefilterExpr)
+		_, err := rt.CompilePrefilter(cfg.PrefilterExpr)
 		if err != nil {
 			return fmt.Errorf("compiling global prefilter: %w", err)
 		}
-		if _, err := rt.EvalPrefilter(prg, fakeAttributes()); err != nil {
-			return fmt.Errorf("evaluating global prefilter: %w", err)
-		}
 	}
 	if cfg.FilterExpr != "" {
-		prg, err := rt.CompileFilter(cfg.FilterExpr, nil)
+		_, err := rt.CompileFilter(cfg.FilterExpr, nil)
 		if err != nil {
 			return fmt.Errorf("compiling global filter: %w", err)
-		}
-		if _, err := rt.EvalFilter(prg, fakeFinding(), fakeAttributes()); err != nil {
-			return fmt.Errorf("evaluating global filter: %w", err)
 		}
 	}
 	for _, rule := range cfg.Rules {
 		id := rule.ID
 		if rule.FilterExpr != "" {
-			prg, err := rt.CompileFilter(rule.FilterExpr, nil)
+			_, err := rt.CompileFilter(rule.FilterExpr, nil)
 			if err != nil {
 				return fmt.Errorf("compiling rule %s filter: %w", id, err)
-			}
-			if _, err := rt.EvalFilter(prg, fakeFinding(), fakeAttributes()); err != nil {
-				return fmt.Errorf("evaluating rule %s filter: %w", id, err)
 			}
 		}
 		if rule.ValidateExpr != "" {
@@ -194,34 +396,6 @@ func validateConfig(cfg *configpkg.Config, engine regexp.Engine) error {
 		}
 	}
 	return nil
-}
-
-func fakeFinding() map[string]any {
-	raw := "betterleaks-check-line"
-	return map[string]any{
-		"secret":               "betterleaks-check-secret",
-		"match":                "betterleaks-check-match",
-		"line":                 raw,
-		"rule_id":              "betterleaks-check-rule",
-		"description":          "betterleaks check rule",
-		"fragment_raw":         raw,
-		"match_start_idx":      0,
-		"match_end_idx":        len(raw),
-		"match_line_start_idx": 0,
-		"match_line_end_idx":   len(raw),
-	}
-}
-
-func fakeAttributes() map[string]string {
-	return map[string]string{
-		"path":       "betterleaks/check.txt",
-		"file":       "betterleaks/check.txt",
-		"commit":     "0000000000000000000000000000000000000000",
-		"git.sha":    "0000000000000000000000000000000000000000",
-		"author":     "betterleaks",
-		"email":      "betterleaks@example.com",
-		"repository": "betterleaks",
-	}
 }
 
 func countValidationRules(cfg *configpkg.Config) (int, int) {
@@ -268,6 +442,7 @@ func compileRuleRegexps(cfg *configpkg.Config, engine regexp.Engine) error {
 
 type configView struct {
 	Title       string     `toml:"title,omitempty"`
+	Provider    string     `toml:"provider,omitempty"`
 	Description string     `toml:"description,omitempty"`
 	MinVersion  string     `toml:"minVersion,omitempty"`
 	Prefilter   string     `toml:"prefilter,omitempty"`
@@ -276,21 +451,22 @@ type configView struct {
 }
 
 type ruleView struct {
-	ID          string          `toml:"id"`
-	Description string          `toml:"description,omitempty"`
-	Path        string          `toml:"path,omitempty"`
-	Regex       string          `toml:"regex,omitempty"`
-	ValueGroup  int             `toml:"valueGroup,omitempty"`
-	Keywords    []string        `toml:"keywords,omitempty"`
-	Tags        []string        `toml:"tags,omitempty"`
-	Specificity int             `toml:"specificity,omitempty"`
-	Confidence  string          `toml:"confidence,omitempty"`
-	Components  []componentView `toml:"components,omitempty"`
-	Validate    string          `toml:"validate,omitempty"`
-	Analyze     string          `toml:"analyze,omitempty"`
-	Revoke      string          `toml:"revoke,omitempty"`
-	SkipReport  bool            `toml:"skipReport,omitempty"`
-	Filter      string          `toml:"filter,omitempty"`
+	ID          string               `toml:"id"`
+	Description string               `toml:"description,omitempty"`
+	Path        string               `toml:"path,omitempty"`
+	Regex       string               `toml:"regex,omitempty"`
+	ValueGroup  int                  `toml:"valueGroup,omitempty"`
+	Keywords    []string             `toml:"keywords,omitempty"`
+	Tags        []string             `toml:"tags,omitempty"`
+	Specificity int                  `toml:"specificity,omitempty"`
+	Confidence  string               `toml:"confidence,omitempty"`
+	Components  []componentView      `toml:"components,omitempty"`
+	Validate    string               `toml:"validate,omitempty"`
+	Analyze     string               `toml:"analyze,omitempty"`
+	Revoke      string               `toml:"revoke,omitempty"`
+	SkipReport  bool                 `toml:"skipReport,omitempty"`
+	Filter      string               `toml:"filter,omitempty"`
+	Tests       []configpkg.RuleTest `toml:"tests,omitempty"`
 }
 
 type componentView struct {
@@ -302,6 +478,7 @@ type componentView struct {
 func renderConfig(cfg *configpkg.Config) configView {
 	view := configView{
 		Title:       cfg.Title,
+		Provider:    cfg.Provider,
 		Description: cfg.Description,
 		MinVersion:  cfg.MinVersion,
 		Prefilter:   cfg.PrefilterExpr,
@@ -323,6 +500,7 @@ func renderConfig(cfg *configpkg.Config) configView {
 			Revoke:      rule.RevokeExpr,
 			SkipReport:  rule.SkipReport,
 			Filter:      rule.FilterExpr,
+			Tests:       rule.Tests,
 		}
 		for _, component := range rule.Components {
 			rv.Components = append(rv.Components, componentView{
@@ -340,6 +518,7 @@ func renderConfigTOML(view configView) string {
 	var b strings.Builder
 
 	writeString(&b, "title", view.Title)
+	writeString(&b, "provider", view.Provider)
 	writeString(&b, "description", view.Description)
 	writeString(&b, "minVersion", view.MinVersion)
 	writeString(&b, "prefilter", view.Prefilter)
@@ -365,9 +544,61 @@ func renderConfigTOML(view configView) string {
 		writeBool(&b, "skipReport", rule.SkipReport)
 		writeString(&b, "filter", rule.Filter)
 		writeComponents(&b, rule.Components)
+		writeRuleTests(&b, rule.Tests)
 	}
 
 	return b.String()
+}
+
+func writeRuleTests(b *strings.Builder, tests []configpkg.RuleTest) {
+	for _, test := range tests {
+		b.WriteString("\n[[rules.tests]]\n")
+		writeString(b, "name", test.Name)
+		writeString(b, "mode", test.Mode)
+		// Empty input and empty expectations are meaningful, so always emit them.
+		fmt.Fprintf(b, "input = %s\n", tomlString(test.Input))
+		if len(test.Attributes) > 0 {
+			fmt.Fprintf(b, "attributes = %s\n", tomlStringMap(test.Attributes))
+		}
+		b.WriteString("expect = [")
+		for i, expected := range test.Expect {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(b, "{ secret = %s", tomlString(expected.Secret))
+			if expected.Rule != "" {
+				fmt.Fprintf(b, ", rule = %s", tomlString(expected.Rule))
+			}
+			if len(expected.Captures) > 0 {
+				fmt.Fprintf(b, ", captures = %s", tomlStringMap(expected.Captures))
+			}
+			if len(expected.ComponentSets) > 0 {
+				b.WriteString(", componentSets = [")
+				for j, set := range expected.ComponentSets {
+					if j > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(tomlStringMap(set))
+				}
+				b.WriteString("]")
+			}
+			b.WriteString(" }")
+		}
+		b.WriteString("]\n")
+	}
+}
+
+func tomlStringMap(values map[string]string) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	fields := make([]string, 0, len(keys))
+	for _, key := range keys {
+		fields = append(fields, tomlString(key)+" = "+tomlString(values[key]))
+	}
+	return "{ " + strings.Join(fields, ", ") + " }"
 }
 
 func writeComponents(b *strings.Builder, components []componentView) {
@@ -435,7 +666,14 @@ func writeBool(b *strings.Builder, key string, value bool) {
 
 func tomlString(s string) string {
 	if strings.Contains(s, "\n") && !strings.Contains(s, "'''") {
-		return "'''\n" + s + "'''"
+		// Multiline literals allow tabs and newlines. Escape other controls,
+		// including CR so TOML newline normalization cannot change fixture bytes.
+		needsEscaping := strings.ContainsFunc(s, func(r rune) bool {
+			return (r < 0x20 && r != '\n' && r != '\t') || r == 0x7f
+		})
+		if !needsEscaping {
+			return "'''\n" + s + "'''"
+		}
 	}
 	if strings.ContainsAny(s, `'\`) && !strings.Contains(s, "'''") && !hasControlChar(s) {
 		return "'''" + s + "'''"

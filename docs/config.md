@@ -40,6 +40,89 @@ requests. It uses the same config resolution as `config show`, including
 precedence over `--config`. Use the listed IDs with `validate --rule` or
 `analyze --rule`, or `revoke --rule`.
 
+## Check a config and its rule tests
+
+```sh
+# Check the selected config, including embedded defaults when none is selected
+betterleaks config check
+
+# Check one config or every .toml file directly inside a directory
+betterleaks config check path/to/config.toml
+betterleaks config check path/to/configs
+
+# Exercise the same tests with the standard library regex backend
+betterleaks --regex-engine stdlib config check path/to/config.toml
+```
+
+`config check` validates configuration, compiles regexes and all expressions,
+and executes `[[rules.tests]]` using the scanner. It reports failing tests by
+file, rule ID, and test name, with expected and actual results, and returns a
+nonzero exit status if any test or configuration fails. It runs all fixtures
+after an assertion failure. Configs without tests still receive compilation
+checks and report zero tests. Validation, analysis, and revocation expressions
+are compiled but never executed; tests make no provider requests.
+
+Provider files may include a top-level `provider` string. Each directory entry
+is an independent config, so its component definitions must be in that file or
+inherited through `[extend]`. Directory checks are not recursive. Pack manifests
+containing `providers = [...]` or rule-ID selections are not resolved by this
+command; pass config files containing rule definitions.
+
+Put examples below their owning rule:
+
+```toml
+provider = "example"
+
+[[rules]]
+id = "example-key"
+regex = '''\bexample_([A-Za-z0-9]{16})\b'''
+keywords = ["example_"]
+
+[[rules.tests]]
+name = "environment assignment"
+input = "EXAMPLE_KEY=example_aB3dE5fG7hI9jK1m"
+attributes = { path = "local.env" }
+expect = [{ secret = "aB3dE5fG7hI9jK1m" }]
+
+[[rules.tests]]
+name = "too short"
+input = "example_short"
+expect = []
+```
+
+Each test has a nonempty name unique within its rule, an `input` string (empty
+is allowed), optional source `attributes`, and an explicit `expect` array.
+Use `expect = []` for a negative case. Each expected finding specifies the
+extracted `secret`, optional named `captures`, and optional `componentSets`:
+
+```toml
+expect = [
+  { secret = "synthetic-key", captures = { token = "synthetic-key" }, componentSets = [{ "account-id" = "acct_123" }] },
+]
+```
+
+Assertions compare exact finding counts, values, captures, and component
+combinations. Finding and component-set order does not matter; duplicates are
+counted. Omitting captures or component sets asserts that none are present.
+An optional `rule` in an expected finding must equal the owning rule's ID.
+
+Rule tests isolate the owning rule and its required and optional components,
+so unrelated rules cannot suppress it through specificity. Only the owning
+rule's findings are asserted. Keywords, extraction, path restrictions, global
+and rule filters, component proximity, and allow comments use scanner behavior.
+Global prefilters also apply. Filter evaluation errors fail the test. Tests
+describe a single fragment and do not enable recursive decoding.
+
+The default `mode = "finding"` respects `skipReport`. Use `mode = "match"`
+only on a `skipReport = true` leaf rule to expose its standalone match for
+testing. This bypasses reporting suppression while preserving matching and
+filtering. It cannot remove a primary rule's component requirements. Also add
+a normal finding-mode negative case to check that a hidden component stays hidden.
+
+`config show` preserves provider metadata and tests. They do not affect detection
+hashes and are never executed during ordinary scans. Inherited rules keep their
+tests; replacing or disabling a rule replaces or removes its tests too.
+
 ## Inspect configuration hashes
 
 ```sh
@@ -93,7 +176,8 @@ Changing a component definition also changes its parent's rule hash. Provider
 expressions participate even in detection-only scans; runtime flags do not change
 what the hash identifies.
 Only the overall hash includes the global `filter` and `prefilter` and the order
-of rules. Config title, description, file path, and minimum version are excluded.
+of rules. Config title, description, file path, minimum version, provider metadata,
+and rule tests are excluded.
 
 Hashes describe current configuration data, not an existing scanner's snapshot.
 Compute them from the same state used to construct your scanner and source
@@ -121,6 +205,7 @@ of configuration.
 Every config can use these fields:
 
 - `title`, `description`: optional descriptive text.
+- `provider`: optional authoring metadata identifying a provider; does not affect detection.
 
 - `prefilter`: global Expr expression that skips entire files, commits, or other source fragments before regex matching.
 - `filter`: global Expr expression that discards specific findings after regex matching.
@@ -191,6 +276,7 @@ Each `[[rules]]` entry can use:
 - `analyze`: Expr expression to enrich a valid credential with identity and capabilities.
 - `revoke`: optional Expr expression executed only by the `revoke` command to invalidate a credential. Scans never execute it.
 - `components`: required or optional component rules used to build multipart findings.
+- `tests`: detection fixtures in `[[rules.tests]]` tables, executed by `config check`.
 
 `keywords` are strongly recommended. Betterleaks checks them with an
 Aho-Corasick trie before running the heavier regex.
