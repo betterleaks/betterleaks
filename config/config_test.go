@@ -94,6 +94,10 @@ func TestHashes(t *testing.T) {
 		{"config metadata", func(c *Config) {
 			c.Title, c.Description, c.Path, c.MinVersion = "new", "new", "/elsewhere/config.toml", "v99.0.0"
 		}, true, true},
+		{"authoring metadata", func(c *Config) {
+			c.Provider = "example"
+			c.Rules[0].Tests = []RuleTest{{Name: "negative", Input: "ordinary text", Expect: []ExpectedFinding{}}}
+		}, true, true},
 		{"nil and empty slices", func(c *Config) {
 			c.Rules[0].Keywords, c.Rules[0].Tags, c.Rules[1].Components = []string{}, []string{}, []Component{}
 		}, true, true},
@@ -1050,4 +1054,45 @@ func TestMinVersionEnforcement(t *testing.T) {
 		require.ErrorContains(t, err, "requires Betterleaks v9.0.0")
 		require.ErrorContains(t, err, fmt.Sprintf("%q", path))
 	})
+}
+
+func TestRuleTestsFollowExtensionReplacementAndDisabling(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "base.toml")
+	require.NoError(t, os.WriteFile(base, []byte(`
+[[rules]]
+id = 'inherited'
+regex = 'TOKEN'
+[[rules.tests]]
+name = 'inherited fixture'
+input = 'TOKEN'
+expect = [{secret='TOKEN'}]
+[[rules]]
+id = 'replaced'
+regex = 'OLD'
+[[rules.tests]]
+name = 'old fixture'
+expect = []
+[[rules]]
+id = 'disabled'
+regex = 'OLD'
+[[rules.tests]]
+name = 'disabled fixture'
+expect = []
+`), 0o600))
+	cfg, err := ParseTOMLString(fmt.Sprintf(`
+[extend]
+path = '%s'
+disabledRules = ['disabled']
+[[rules]]
+id = 'replaced'
+regex = 'NEW'
+[[rules.tests]]
+name = 'new fixture'
+input = 'NEW'
+expect = [{secret='NEW'}]
+`, filepath.ToSlash(base)), "")
+	require.NoError(t, err)
+	require.Len(t, cfg.Rules, 2)
+	require.Equal(t, "inherited fixture", cfg.Rules[0].Tests[0].Name)
+	require.Equal(t, "new fixture", cfg.Rules[1].Tests[0].Name)
 }

@@ -133,3 +133,33 @@ regex = "valid"
 		})
 	}
 }
+
+func TestRuleTestSchema(t *testing.T) {
+	const rule = "provider='example'\n[[rules]]\nid='key'\nregex='TOKEN'\n"
+	for _, tc := range []struct{ name, ruleFields, test, want string }{
+		{"negative", "", "name='negative'\ninput=''\nexpect=[]", ""},
+		{"positive", "", "name='positive'\ninput='TOKEN'\nexpect=[{secret='TOKEN'}]", ""},
+		{"missing name", "", "expect=[]", "nonempty and unique"},
+		{"blank name", "", "name=' '\nexpect=[]", "nonempty and unique"},
+		{"duplicate name", "", "name='same'\nexpect=[]\n[[rules.tests]]\nname='same'\nexpect=[]", "nonempty and unique"},
+		{"missing expect", "", "name='missing'", "expect is required"},
+		{"unknown mode", "", "name='mode'\nmode='regex'\nexpect=[]", "unknown mode"},
+		{"visible match", "", "name='mode'\nmode='match'\nexpect=[]", "skipReport leaf"},
+		{"hidden match", "skipReport=true\n", "name='mode'\nmode='match'\nexpect=[]", ""},
+		{"different rule", "", "name='owner'\nexpect=[{rule='other',secret='TOKEN'}]", "expected rule must be"},
+		{"unknown component", "", "name='component'\nexpect=[{secret='TOKEN',componentSets=[{other='VALUE'}]}]", "unknown expected component"},
+		{"unknown field", "", "name='typo'\nexpect=[]\ninpt='TOKEN'", "rules.tests.inpt"},
+		{"unknown expected field", "", "name='typo'\nexpect=[{secrt='TOKEN'}]", "rules.tests.expect.secrt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := ParseTOMLString(rule+tc.ruleFields+"[[rules.tests]]\n"+tc.test, "fixtures.toml")
+			if tc.want != "" {
+				require.ErrorContains(t, err, tc.want)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "example", cfg.Provider)
+			require.NotNil(t, cfg.Rules[0].Tests[0].Expect)
+		})
+	}
+}

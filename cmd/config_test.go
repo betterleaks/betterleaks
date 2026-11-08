@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -34,8 +36,7 @@ func TestResolveConfigIgnoresImplicitAndLegacyConfigs(t *testing.T) {
 }
 
 func TestConfigCheckBuiltin(t *testing.T) {
-	// Exercise the same command as CI, including filter evaluation with the
-	// placeholder finding, which need not match a rule's token format.
+	// Exercise the same expression and regex compilation as CI.
 	for _, engine := range []string{"re2", "stdlib"} {
 		t.Run(engine, func(t *testing.T) {
 			root, _ := newTestCLI(t)
@@ -351,4 +352,275 @@ func TestConfigShowPreservesTOMLForms(t *testing.T) {
 			require.Contains(t, stdout.String(), "id = 'test-token'")
 		})
 	}
+}
+
+const ruleTestConfig = `
+provider = 'example'
+prefilter = 'attributes["path"] == "ignored.env"'
+filter = 'finding["secret"] == "filtered"'
+
+[[rules]]
+id = 'key'
+regex = 'key_(?P<value>[a-z]+)'
+path = '\.env$'
+keywords = ['KEY_']
+filter = 'finding.captures.value == "placeholder"'
+components = [{id='account',within='2L'}, {id='region',optional=true,within='3L'}]
+[[rules.tests]]
+name = 'complete credential'
+input = "key_abcdef\nacct_123\nregion_us"
+attributes = {path='local.env'}
+expect = [{secret='abcdef',captures={value='abcdef'},componentSets=[{account='acct_123',region='region_us'}]}]
+[[rules.tests]]
+name = 'optional component absent'
+input = "key_abcdef\nacct_123"
+attributes = {path='local.env'}
+expect = [{secret='abcdef',captures={value='abcdef'},componentSets=[{account='acct_123'}]}]
+[[rules.tests]]
+name = 'multiple combinations are unordered'
+input = "key_abcdef\nacct_123 acct_456"
+attributes = {path='local.env'}
+expect = [{secret='abcdef',captures={value='abcdef'},componentSets=[{account='acct_456'},{account='acct_123'}]}]
+[[rules.tests]]
+name = 'missing required component'
+input = 'key_abcdef'
+attributes = {path='local.env'}
+expect = []
+[[rules.tests]]
+name = 'path constraint'
+input = "key_abcdef\nacct_123"
+attributes = {path='local.txt'}
+expect = []
+[[rules.tests]]
+name = 'prefilter'
+input = "key_abcdef\nacct_123"
+attributes = {path='ignored.env'}
+expect = []
+[[rules.tests]]
+name = 'global filter'
+input = "key_filtered\nacct_123"
+attributes = {path='local.env'}
+expect = []
+[[rules.tests]]
+name = 'named capture filter'
+input = "key_placeholder\nacct_123"
+attributes = {path='local.env'}
+expect = []
+[[rules.tests]]
+name = 'distant component'
+input = "key_abcdef\n\n\n\nacct_123"
+attributes = {path='local.env'}
+expect = []
+
+[[rules]]
+id = 'account'
+regex = 'acct_[0-9]+'
+keywords = ['acct_']
+skipReport = true
+[[rules.tests]]
+name = 'hidden leaf match'
+mode = 'match'
+input = 'acct_123'
+expect = [{secret='acct_123'}]
+[[rules.tests]]
+name = 'hidden in findings'
+mode = 'finding'
+input = 'acct_123'
+expect = []
+
+[[rules]]
+id = 'region'
+regex = 'region_[a-z]+'
+skipReport = true
+
+[[rules]]
+id = 'bundle'
+path = '\.p12$'
+[[rules.tests]]
+name = 'empty path-only input'
+input = ''
+attributes = {path='keys.p12'}
+expect = [{secret=''}]
+
+# Rule tests must isolate their owner even when another rule would suppress it.
+[[rules]]
+id = 'competitor'
+regex = 'key_[a-z]+'
+specificity = 100
+`
+
+func TestConfigCheckRuleTests(t *testing.T) {
+	path := writeTestConfig(t, ruleTestConfig)
+	for _, engine := range []string{"re2", "stdlib"} {
+		t.Run(engine, func(t *testing.T) {
+			root, stdout := newTestCLI(t)
+			var stderr bytes.Buffer
+			root.runtime.stderr = &stderr
+			root.SetArgs([]string{"--regex-engine", engine, "config", "check", path})
+			require.NoError(t, root.Execute(), stderr.String())
+			require.Contains(t, stdout.String(), "12 rule tests passed")
+			require.Empty(t, stderr.String())
+		})
+	}
+	// Exporting and reloading preserves authoring metadata and negative cases.
+	cfg, err := configpkg.LoadFile(path)
+	require.NoError(t, err)
+	rendered := renderConfigTOML(renderConfig(cfg))
+	parsed, err := configpkg.ParseTOMLString(rendered, path)
+	require.NoError(t, err)
+	require.Equal(t, cfg, parsed)
+}
+
+func TestConfigCheckReportsAllRuleTestFailures(t *testing.T) {
+	path := writeTestConfig(t, `
+[[rules]]
+id = 'key'
+regex = 'key_([a-z]+)'
+keywords = ['key_']
+[[rules.tests]]
+name = 'wrong extraction'
+input = 'key_abcdef'
+expect = [{secret='key_abcdef'}]
+[[rules.tests]]
+name = 'unexpected extra finding'
+input = 'key_abcdef key_ghijkl'
+expect = [{secret='abcdef'}]
+[[rules.tests]]
+name = 'wrong negative'
+input = 'key_abcdef'
+expect = []
+[[rules.tests]]
+name = 'missing duplicate'
+input = 'key_abcdef'
+expect = [{secret='abcdef'},{secret='abcdef'}]
+[[rules.tests]]
+name = 'ordered differently'
+input = 'key_abcdef key_ghijkl'
+expect = [{secret='ghijkl'},{secret='abcdef'}]
+[[rules.tests]]
+name = 'true negative'
+input = 'ordinary text'
+expect = []
+`)
+	root, stdout := newTestCLI(t)
+	var stderr bytes.Buffer
+	root.runtime.stderr = &stderr
+	root.SetArgs([]string{"config", "check", path})
+	require.ErrorContains(t, root.Execute(), "4 of 6 rule tests failed")
+	require.Empty(t, stdout.String())
+	require.Equal(t, 4, strings.Count(stderr.String(), "FAIL:"))
+	for _, name := range []string{"wrong extraction", "unexpected extra finding", "wrong negative", "missing duplicate"} {
+		require.Contains(t, stderr.String(), fmt.Sprintf("rule %q test %q", "key", name))
+	}
+	require.Contains(t, stderr.String(), path)
+	require.Contains(t, stderr.String(), "want:")
+	require.Contains(t, stderr.String(), "got:")
+}
+
+func TestConfigCheckTestsExerciseDetectionPolicy(t *testing.T) {
+	for _, tc := range []struct{ name, before, after, diagnostic string }{
+		{"keywords", "keywords = ['KEY_']", "keywords = ['missing']", "findings differ"},
+		{"capture assertion", "captures={value='abcdef'}", "captures={value='wrong'}", "findings differ"},
+		{"component assertion", "region='region_us'", "region='region_eu'", "findings differ"},
+		{"rule filter error", `finding.captures.value == "placeholder"`, `int(finding.captures.value) > 0`, "rule filter eval error"},
+		{"prefilter error", `attributes["path"] == "ignored.env"`, `int(attributes["path"]) > 0`, "invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTestConfig(t, strings.ReplaceAll(ruleTestConfig, tc.before, tc.after))
+			root, _ := newTestCLI(t)
+			var stderr bytes.Buffer
+			root.runtime.stderr = &stderr
+			root.SetArgs([]string{"config", "check", path})
+			require.ErrorContains(t, root.Execute(), "rule tests failed")
+			require.Contains(t, stderr.String(), tc.diagnostic)
+		})
+	}
+}
+
+func TestConfigCheckDirectoryAndConfigSelection(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.toml", "b.toml"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(ruleTestConfig), 0o600))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("not TOML"), 0o600))
+	for _, tc := range []struct {
+		name, envPath, envTOML string
+		args                   []string
+		want                   string
+	}{
+		{"directory", "", "", []string{dir}, "24 rule tests passed across 2 config files"},
+		{"flag directory", "", "", []string{"--config", dir}, "24 rule tests passed across 2 config files"},
+		{"env directory", dir, "", nil, "24 rule tests passed across 2 config files"},
+		{"env content", "", ruleTestConfig, nil, "12 rule tests passed"},
+		{"positional wins", "nonexistent.toml", "", []string{"--config", "nonexistent.toml", dir}, "24 rule tests passed across 2 config files"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BETTERLEAKS_CONFIG", tc.envPath)
+			t.Setenv("BETTERLEAKS_CONFIG_TOML", tc.envTOML)
+			root, stdout := newTestCLI(t)
+			root.SetArgs(append([]string{"config", "check"}, tc.args...))
+			require.NoError(t, root.Execute())
+			require.Contains(t, stdout.String(), tc.want)
+		})
+	}
+	// A bad file must fail the command without stopping checks of other files.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.toml"), []byte("unknown=true"), 0o600))
+	root, stdout := newTestCLI(t)
+	root.SetArgs([]string{"config", "check", dir})
+	require.ErrorContains(t, root.Execute(), "a.toml")
+	require.Contains(t, stdout.String(), "b.toml: OK:")
+	require.NotContains(t, stdout.String(), "across")
+	root.SetArgs([]string{"config", "check", t.TempDir()})
+	require.ErrorContains(t, root.Execute(), "no TOML config files")
+}
+
+func TestConfigCheckRuleTestsNeverExecuteProviderOperations(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		fmt.Fprint(w, `{}`)
+	}))
+	defer server.Close()
+	text := fmt.Sprintf(`
+[[rules]]
+id = 'token'
+regex = 'TOKEN'
+validate = 'let r = http.get("%s", {}); {"result":"valid"}'
+analyze = 'let r = http.get("%s", {}); {"identity":{"id":"test"}}'
+revoke = 'let r = http.delete("%s", {}); {"result":"revoked"}'
+[[rules.tests]]
+name = 'detected'
+input = 'TOKEN'
+expect = [{secret='TOKEN'}]
+`, server.URL, server.URL, server.URL)
+	root, stdout := newTestCLI(t)
+	root.SetArgs([]string{"config", "check", writeTestConfig(t, text)})
+	require.NoError(t, root.Execute())
+	require.Contains(t, stdout.String(), "1 rule tests passed")
+	require.Zero(t, requests.Load())
+	for _, field := range []string{"validate", "analyze", "revoke"} {
+		invalid := strings.Replace(text, field+" = 'let r =", field+" = 'undefinedFunction(); let r =", 1)
+		root.SetArgs([]string{"config", "check", writeTestConfig(t, invalid)})
+		require.ErrorContains(t, root.Execute(), "undefinedFunction")
+	}
+	require.Zero(t, requests.Load())
+}
+
+func TestConfigCheckRuleTestsCancellationAndOutputErrors(t *testing.T) {
+	path := writeTestConfig(t, ruleTestConfig)
+	t.Run("cancelled", func(t *testing.T) {
+		root, _ := newTestCLI(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		root.runtime.Context = ctx
+		root.SetArgs([]string{"config", "check", path})
+		require.ErrorIs(t, root.Execute(), context.Canceled)
+	})
+	t.Run("disconnected stdout", func(t *testing.T) {
+		root, _ := newTestCLI(t)
+		err := errors.New("output disconnected")
+		root.runtime.stdout = testErrorWriter{err: err}
+		root.SetArgs([]string{"config", "check", path})
+		require.ErrorIs(t, root.Execute(), err)
+	})
 }
