@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -493,12 +495,8 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	reportPath := mustGetStringFlag(cmd, "report-path")
 	if reportPath != "" {
 		if reportPath != report.StdoutReportPath {
-			// Ensure the path is writable.
-			if f, err := os.Create(reportPath); err != nil {
+			if err := checkReportPathWritable(reportPath); err != nil {
 				logging.Fatal().Err(err).Msgf("Report path is not writable: %s", reportPath)
-			} else {
-				_ = f.Close()
-				_ = os.Remove(reportPath)
 			}
 		}
 
@@ -680,4 +678,20 @@ func FormatDuration(d time.Duration) string {
 		scale = scale / 10
 	}
 	return d.Round(scale / 100).String()
+}
+
+func checkReportPathWritable(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+	if err == nil {
+		_ = f.Close()
+		return os.Remove(path)
+	}
+	if !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	f, err = os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
