@@ -681,17 +681,39 @@ func FormatDuration(d time.Duration) string {
 }
 
 func checkReportPathWritable(path string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+	info, err := os.Stat(path)
 	if err == nil {
-		_ = f.Close()
-		return os.Remove(path)
+		if info.Mode()&fs.ModeNamedPipe != 0 {
+			return nil
+		}
+		f, err := os.OpenFile(path, os.O_RDWR, 0)
+		if err != nil {
+			return err
+		}
+		return f.Close()
 	}
-	if !errors.Is(err, fs.ErrExist) {
+	if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	f, err = os.OpenFile(path, os.O_WRONLY, 0)
+	path = symlinkTarget(path)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
 	if err != nil {
 		return err
 	}
-	return f.Close()
+	_ = f.Close()
+	return os.Remove(path)
+}
+
+func symlinkTarget(path string) string {
+	for range 255 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return path
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(path), target)
+		}
+		path = target
+	}
+	return path
 }

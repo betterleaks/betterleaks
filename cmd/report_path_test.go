@@ -3,13 +3,25 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestCheckReportPathWritableKeepsExistingPath(t *testing.T) {
+func TestCheckReportPathWritableKeepsDevice(t *testing.T) {
+	require.NoError(t, checkReportPathWritable(os.DevNull))
+
+	info, err := os.Stat(os.DevNull)
+	require.NoError(t, err)
+	assert.NotZero(t, info.Mode()&os.ModeDevice)
+}
+
+func TestCheckReportPathWritableKeepsSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation can require privileges on Windows")
+	}
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target.json")
 	require.NoError(t, os.WriteFile(target, []byte("kept"), 0o644))
@@ -17,7 +29,6 @@ func TestCheckReportPathWritableKeepsExistingPath(t *testing.T) {
 	require.NoError(t, os.Symlink(target, link))
 
 	require.NoError(t, checkReportPathWritable(link))
-	require.NoError(t, checkReportPathWritable(os.DevNull))
 
 	info, err := os.Lstat(link)
 	require.NoError(t, err)
@@ -25,9 +36,23 @@ func TestCheckReportPathWritableKeepsExistingPath(t *testing.T) {
 	content, err := os.ReadFile(target)
 	require.NoError(t, err)
 	assert.Equal(t, "kept", string(content))
-	info, err = os.Stat(os.DevNull)
+}
+
+func TestCheckReportPathWritableAcceptsSymlinkToNewFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation can require privileges on Windows")
+	}
+	dir := t.TempDir()
+	link := filepath.Join(dir, "link.json")
+	require.NoError(t, os.Symlink("target.json", link))
+
+	require.NoError(t, checkReportPathWritable(link))
+
+	info, err := os.Lstat(link)
 	require.NoError(t, err)
-	assert.NotZero(t, info.Mode()&os.ModeDevice)
+	assert.Equal(t, os.ModeSymlink, info.Mode().Type())
+	_, err = os.Lstat(filepath.Join(dir, "target.json"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestCheckReportPathWritableLeavesNoNewFile(t *testing.T) {
