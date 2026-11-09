@@ -2309,6 +2309,192 @@ entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# composio-org-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "composio-org-api-key"
+description = "Detected a Composio organization API key, which may expose every project in the organization."
+regex = '''\b(oak_[A-Za-z0-9_-]{20})(?:$|[^A-Za-z0-9_-])'''
+confidence = "high"
+keywords = ["oak_"]
+validate = '''
+let r = http.get("https://backend.composio.dev/api/v3/org/owner/project/list?limit=1", {
+    "x-org-api-key": finding["secret"],
+    "Accept": "application/json"
+  });
+let slug = r.json?.error?.slug ?? "";
+let message = r.json?.error?.message ?? "";
+r.status == 200 ? {
+  "result": "valid"
+} : r.status == 401 && (
+    slug in ["APIKey_InvalidAPIKey", "APIKey_APIKeyExpired", "UserApiKey_Unauthorized"] ||
+    (slug == "HTTP_Unauthorized" && startsWithAny(message, ["Invalid x-org-api-key"]))
+  ) ? {
+  "result": "invalid",
+  "reason": "Composio rejected the key"
+} : r.status == 401 && slug == "Auth_Unauthorized" && containsAny(message, ["IP allowlist"]) ? {
+  "result": "valid",
+  "reason": "Key authenticates but calls are restricted to an IP allowlist",
+  "metadata": {"restriction": "ip_allowlist"}
+} : r.status == 403 && startsWithAny(slug, ["APIKey_", "UserApiKey_", "Auth_", "HTTP_"]) && r.json?.error?.code != nil ? {
+  "result": "valid",
+  "reason": "Key authenticates but the request was forbidden",
+  "metadata": {"restriction": slug}
+} : validate.unknown(r)
+'''
+revoke = '''
+let posted = http.post("https://backend.composio.dev/api/v3.1/api_key_revocation", {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"api_keys\":[" + toJSON(finding["secret"]) + "]}");
+posted.status != 200 ? revoke.unknown(posted) : (
+  let r = http.get("https://backend.composio.dev/api/v3/org/owner/project/list?limit=1", {
+      "x-org-api-key": finding["secret"],
+      "Accept": "application/json"
+    });
+  let slug = r.json?.error?.slug ?? "";
+  let message = r.json?.error?.message ?? "";
+  r.status == 401 && (
+    slug in ["APIKey_InvalidAPIKey", "APIKey_APIKeyExpired", "UserApiKey_Unauthorized"] ||
+    (slug == "HTTP_Unauthorized" && startsWithAny(message, ["Invalid x-org-api-key"]))
+  ) ? {
+    "result": "revoked",
+    "reason": "Composio rejected the key after revocation"
+  } : r.status == 200 ? {
+    "result": "unknown",
+    "reason": "Composio accepted the revocation but the key still authenticates"
+  } : revoke.unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# composio-project-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "composio-project-api-key"
+description = "Detected a Composio project API key, which may expose a project's tools, connected accounts and triggers."
+regex = '''\b(ak_[A-Za-z0-9_-]{20})(?:$|[^A-Za-z0-9_-])'''
+confidence = "high"
+keywords = ["ak_"]
+validate = '''
+let r = http.get("https://backend.composio.dev/api/v3/toolkits/categories", {
+    "x-api-key": finding["secret"],
+    "Accept": "application/json"
+  });
+let slug = r.json?.error?.slug ?? "";
+let message = r.json?.error?.message ?? "";
+r.status == 200 ? {
+  "result": "valid"
+} : r.status == 401 && (
+    slug in ["APIKey_InvalidAPIKey", "APIKey_APIKeyExpired", "UserApiKey_Unauthorized"] ||
+    (slug == "HTTP_Unauthorized" && startsWithAny(message, ["Invalid x-org-api-key"]))
+  ) ? {
+  "result": "invalid",
+  "reason": "Composio rejected the key"
+} : r.status == 401 && slug == "Auth_Unauthorized" && containsAny(message, ["IP allowlist"]) ? {
+  "result": "valid",
+  "reason": "Key authenticates but calls are restricted to an IP allowlist",
+  "metadata": {"restriction": "ip_allowlist"}
+} : r.status == 403 && startsWithAny(slug, ["APIKey_", "UserApiKey_", "Auth_", "HTTP_"]) && r.json?.error?.code != nil ? {
+  "result": "valid",
+  "reason": "Key authenticates but the request was forbidden",
+  "metadata": {"restriction": slug}
+} : validate.unknown(r)
+'''
+revoke = '''
+let posted = http.post("https://backend.composio.dev/api/v3.1/api_key_revocation", {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"api_keys\":[" + toJSON(finding["secret"]) + "]}");
+posted.status != 200 ? revoke.unknown(posted) : (
+  let r = http.get("https://backend.composio.dev/api/v3/toolkits/categories", {
+      "x-api-key": finding["secret"],
+      "Accept": "application/json"
+    });
+  let slug = r.json?.error?.slug ?? "";
+  let message = r.json?.error?.message ?? "";
+  r.status == 401 && (
+    slug in ["APIKey_InvalidAPIKey", "APIKey_APIKeyExpired", "UserApiKey_Unauthorized"] ||
+    (slug == "HTTP_Unauthorized" && startsWithAny(message, ["Invalid x-org-api-key"]))
+  ) ? {
+    "result": "revoked",
+    "reason": "Composio rejected the key after revocation"
+  } : r.status == 200 ? {
+    "result": "unknown",
+    "reason": "Composio accepted the revocation but the key still authenticates"
+  } : revoke.unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# composio-user-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "composio-user-api-key"
+description = "Detected a Composio user API key, which may expose the organizations and projects the user can reach."
+regex = '''\b(uak_[A-Za-z0-9_-]{43})(?:$|[^A-Za-z0-9_-])'''
+confidence = "high"
+keywords = ["uak_"]
+validate = '''
+let r = http.get("https://backend.composio.dev/api/v3/org/list?limit=1", {
+    "x-user-api-key": finding["secret"],
+    "Accept": "application/json"
+  });
+let slug = r.json?.error?.slug ?? "";
+let message = r.json?.error?.message ?? "";
+r.status == 200 ? {
+  "result": "valid"
+} : r.status == 401 && (
+    slug in ["APIKey_InvalidAPIKey", "APIKey_APIKeyExpired", "UserApiKey_Unauthorized"] ||
+    (slug == "HTTP_Unauthorized" && startsWithAny(message, ["Invalid x-org-api-key"]))
+  ) ? {
+  "result": "invalid",
+  "reason": "Composio rejected the key"
+} : r.status == 401 && slug == "Auth_Unauthorized" && containsAny(message, ["IP allowlist"]) ? {
+  "result": "valid",
+  "reason": "Key authenticates but calls are restricted to an IP allowlist",
+  "metadata": {"restriction": "ip_allowlist"}
+} : r.status == 403 && startsWithAny(slug, ["APIKey_", "UserApiKey_", "Auth_", "HTTP_"]) && r.json?.error?.code != nil ? {
+  "result": "valid",
+  "reason": "Key authenticates but the request was forbidden",
+  "metadata": {"restriction": slug}
+} : validate.unknown(r)
+'''
+revoke = '''
+let posted = http.post("https://backend.composio.dev/api/v3.1/api_key_revocation", {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  }, "{\"api_keys\":[" + toJSON(finding["secret"]) + "]}");
+posted.status != 200 ? revoke.unknown(posted) : (
+  let r = http.get("https://backend.composio.dev/api/v3/org/list?limit=1", {
+      "x-user-api-key": finding["secret"],
+      "Accept": "application/json"
+    });
+  let slug = r.json?.error?.slug ?? "";
+  let message = r.json?.error?.message ?? "";
+  r.status == 401 && (
+    slug in ["APIKey_InvalidAPIKey", "APIKey_APIKeyExpired", "UserApiKey_Unauthorized"] ||
+    (slug == "HTTP_Unauthorized" && startsWithAny(message, ["Invalid x-org-api-key"]))
+  ) ? {
+    "result": "revoked",
+    "reason": "Composio rejected the key after revocation"
+  } : r.status == 200 ? {
+    "result": "unknown",
+    "reason": "Composio accepted the revocation but the key still authenticates"
+  } : revoke.unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # configcat-sdk-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
