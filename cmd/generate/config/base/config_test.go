@@ -44,6 +44,7 @@ var globalFilterTests = map[string]struct {
 		invalid: []string{
 			`true`, `True`, `false`, `False`, `null`, `NULL`,
 		},
+		valid: []string{`trueAlias9`, `prefixFALSEsuffix`, `x7Qp2null`},
 	},
 	"general placeholders - repeated characters": {
 		invalid: []string{
