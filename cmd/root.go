@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -493,12 +495,8 @@ func Detector(cmd *cobra.Command, cfg *config.Config, source string) *detect.Det
 	reportPath := mustGetStringFlag(cmd, "report-path")
 	if reportPath != "" {
 		if reportPath != report.StdoutReportPath {
-			// Ensure the path is writable.
-			if f, err := os.Create(reportPath); err != nil {
+			if err := checkReportPathWritable(reportPath); err != nil {
 				logging.Fatal().Err(err).Msgf("Report path is not writable: %s", reportPath)
-			} else {
-				_ = f.Close()
-				_ = os.Remove(reportPath)
 			}
 		}
 
@@ -680,4 +678,42 @@ func FormatDuration(d time.Duration) string {
 		scale = scale / 10
 	}
 	return d.Round(scale / 100).String()
+}
+
+func checkReportPathWritable(path string) error {
+	info, err := os.Stat(path)
+	if err == nil {
+		if info.Mode()&fs.ModeNamedPipe != 0 {
+			return nil
+		}
+		f, err := os.OpenFile(path, os.O_RDWR, 0)
+		if err != nil {
+			return err
+		}
+		return f.Close()
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	path = symlinkTarget(path)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
+	if err != nil {
+		return err
+	}
+	_ = f.Close()
+	return os.Remove(path)
+}
+
+func symlinkTarget(path string) string {
+	for range 255 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return path
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(path), target)
+		}
+		path = target
+	}
+	return path
 }
