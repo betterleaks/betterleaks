@@ -154,6 +154,20 @@ func TestObjectDirectoriesFromEnv(t *testing.T) {
 		require.ErrorIs(t, err, ErrExternalStore)
 		require.Equal(t, map[string]string{"TOKEN_CONFINE\n": "file:1"}, textOccurrences(collect(t, &Source{RepoPath: repo, AllowExternalObjects: true})))
 	})
+	t.Run("relative-internal", func(t *testing.T) {
+		// A relative GIT_OBJECT_DIRECTORY resolves against the working
+		// directory. When it names a directory inside the repository it is
+		// internal storage and needs no external-objects opt-in.
+		repo := initRepo(t)
+		commitFile(t, repo, "file", "TOKEN_RELATIVE\n", "initial")
+		pool := filepath.Join(repo, ".git", "pool")
+		require.NoError(t, os.Rename(filepath.Join(repo, ".git", "objects"), pool))
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git", "objects", "info"), 0700))
+		t.Chdir(repo)
+		t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join(".git", "pool"))
+		require.Equal(t, map[string]string{"TOKEN_RELATIVE\n": "file:1"},
+			textOccurrences(collect(t, &Source{RepoPath: repo})))
+	})
 }
 
 func TestMissingConfig(t *testing.T) {

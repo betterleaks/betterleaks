@@ -1028,11 +1028,25 @@ done | betterleaks stdin --git-diff --redact
 
 The SDK can instead read the quarantine in-process, without invoking Git: within
 the hook, `GIT_OBJECT_DIRECTORY` and `GIT_ALTERNATE_OBJECT_DIRECTORIES` name the
-quarantine objects, and a `gogit.Source` with `AllowExternalObjects` reads them:
+quarantine objects, and a `gogit.Source` with `AllowExternalObjects` reads them.
+`Revision` takes a single revision or an `old..new` range, so scan a ref update
+as `old..new`; add `Include: []string{"merges"}` to scan conflict-resolution
+patches, matching `--diff-merges=first-parent`:
 
 ```go
-src := &gogit.Source{RepoPath: ".", Revision: old + ".." + new, AllowExternalObjects: true}
+// old, new, ref come from a line of the pre-receive stdin.
+src := &gogit.Source{
+    RepoPath:             ".",
+    Revision:             old + ".." + new, // an existing-ref update
+    Include:              []string{"merges"},
+    AllowExternalObjects: true,
+}
 ```
+
+Deleted refs (`new` all zeros) have nothing to scan. A created ref (`old` all
+zeros) has no `old` to bound the range; `Revision` cannot exclude every existing
+ref, so scan the new tip (`Revision: new`) or use the `stdin --git-diff` loop
+above, whose `--not --all` selects only commits on no existing ref.
 
 ---
 

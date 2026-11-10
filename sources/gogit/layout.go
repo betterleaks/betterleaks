@@ -166,26 +166,136 @@ func (l layout) alternates() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(objectDirsFromEnv(), fromFile...), nil
+	fromEnv, err := objectDirsFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return append(fromEnv, fromFile...), nil
 }
 
-// objectDirsFromEnv returns the object directories named by the environment.
-// GIT_OBJECT_DIRECTORY names one directory; GIT_ALTERNATE_OBJECT_DIRECTORIES
-// names a platform-separated list. Git resolves relative paths against the
-// working directory, which the process shares, so they are cleaned here.
-func objectDirsFromEnv() []string {
+// objectDirsFromEnv returns the object directories named by the environment, as
+// absolute paths. GIT_OBJECT_DIRECTORY names one directory; it is taken
+// literally, as Git does. GIT_ALTERNATE_OBJECT_DIRECTORIES names a list
+// separated by filepath.ListSeparator, where an entry beginning with '"' is a
+// C-quoted path that may itself contain the separator; other entries are
+// literal, including surrounding whitespace. Git resolves relative paths
+// against the working directory, which the process shares, so each path is made
+// absolute here for the confinement check.
+func objectDirsFromEnv() ([]string, error) {
 	var dirs []string
-	for _, path := range append([]string{os.Getenv("GIT_OBJECT_DIRECTORY")}, strings.Split(os.Getenv("GIT_ALTERNATE_OBJECT_DIRECTORIES"), string(filepath.ListSeparator))...) {
+	add := func(path string) error {
 		if path == "" {
-			continue
+			return nil
 		}
-		path = strings.TrimSpace(path)
-		if path == "" {
-			continue
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return err
 		}
-		dirs = append(dirs, filepath.Clean(path))
+		dirs = append(dirs, abs)
+		return nil
 	}
-	return dirs
+	if err := add(os.Getenv("GIT_OBJECT_DIRECTORY")); err != nil {
+		return nil, err
+	}
+	entries, err := splitAlternateList(os.Getenv("GIT_ALTERNATE_OBJECT_DIRECTORIES"))
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if err := add(entry); err != nil {
+			return nil, err
+		}
+	}
+	return dirs, nil
+}
+
+// splitAlternateList parses GIT_ALTERNATE_OBJECT_DIRECTORIES with Git's grammar:
+// entries are separated by filepath.ListSeparator; an entry beginning with '"'
+// is C-quoted and may contain the separator inside the quotes; other entries
+// are literal. Empty entries are dropped. Git does not trim unquoted entries.
+func splitAlternateList(value string) ([]string, error) {
+	sep := byte(filepath.ListSeparator)
+	var entries []string
+	for i := 0; i < len(value); {
+		if value[i] == '"' {
+			unquoted, next, err := unquoteCStyle(value, i)
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, unquoted)
+			i = next
+			// A separator must follow a quoted entry; skip it.
+			if i < len(value) && value[i] == sep {
+				i++
+			}
+			continue
+		}
+		j := i
+		for j < len(value) && value[j] != sep {
+			j++
+		}
+		if entry := value[i:j]; entry != "" {
+			entries = append(entries, entry)
+		}
+		i = j
+		if i < len(value) {
+			i++ // skip separator
+		}
+	}
+	return entries, nil
+}
+
+// unquoteCStyle decodes a C-quoted path beginning at value[start] (which is a
+// '"') the way Git's unquote_c_style does, returning the decoded path and the
+// index just past the closing quote.
+func unquoteCStyle(value string, start int) (string, int, error) {
+	var b strings.Builder
+	i := start + 1 // past opening quote
+	for i < len(value) {
+		c := value[i]
+		i++
+		switch c {
+		case '"':
+			return b.String(), i, nil
+		case '\\':
+			if i >= len(value) {
+				return "", 0, errors.New("unterminated escape in GIT_ALTERNATE_OBJECT_DIRECTORIES")
+			}
+			e := value[i]
+			i++
+			switch e {
+			case 'a':
+				b.WriteByte('\a')
+			case 'b':
+				b.WriteByte('\b')
+			case 'f':
+				b.WriteByte('\f')
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case 't':
+				b.WriteByte('\t')
+			case 'v':
+				b.WriteByte('\v')
+			case '\\', '"':
+				b.WriteByte(e)
+			case '0', '1', '2', '3', '4', '5', '6', '7':
+				// Up to three octal digits, Git-style.
+				oct := e - '0'
+				for k := 0; k < 2 && i < len(value) && value[i] >= '0' && value[i] <= '7'; k++ {
+					oct = oct*8 + (value[i] - '0')
+					i++
+				}
+				b.WriteByte(oct)
+			default:
+				return "", 0, fmt.Errorf("unsupported escape %q in GIT_ALTERNATE_OBJECT_DIRECTORIES", e)
+			}
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return "", 0, errors.New("unterminated quote in GIT_ALTERNATE_OBJECT_DIRECTORIES")
 }
 
 func readAlternates(fs readOnlyFS) ([]string, error) {
