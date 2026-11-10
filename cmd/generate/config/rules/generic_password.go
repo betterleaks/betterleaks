@@ -7,20 +7,21 @@ import (
 
 func GenericPassword() *config.Rule {
 	quotedPassword := `"((?:\\.|[^"\\\r\n]){5,250})"`
+	bracedPassword := `\{((?:\\.|[^{}\\\r\n]){5,250})\}`
 	// Newline/container padding is only for quoted literals. Applying it to
 	// unquoted values would turn YAML child fields into passwords.
-	passwordLiteral := structuredValuePrefix + `(?:` + quotedPassword + `|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60)|[ \t]{0,5}([^:=\s'"\x60,;][^\s'"\x60,;]{4,249})`
-	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:` + passwordLiteral + `)|,` + jsonRecordValue + quotedPassword + `)(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])`
+	passwordLiteral := structuredValuePrefix + `(?:` + quotedPassword + `|'((?:\\.|[^'\\\r\n]){5,250})'|\x60((?:\\.|[^\x60\\\r\n]){5,250})\x60|` + bracedPassword + `)|[ \t]{0,5}([^:=\s'"\x60,;][^\s'"\x60,;]{4,249})`
+	passwordAssignmentRegex := `(?:passw(?:or)?d|psw|pwd|[_.-]pw)\b[ \t'"\\]{0,3}(?:(?:=>|:=|=|:)(?:` + passwordLiteral + `)|,` + jsonRecordValue + quotedPassword + `)(?:[ \t]*[,;)}\]\r\n]|[ \t]+(?:#|//|/\*|--)|[ \t]*$|\\[nr])`
 	// Require an opening tag as well as a closing tag, so URLs ending in
 	// "password>" cannot lend context to HTML link text.
 	// Allow one padding line break on each side of CDATA. Without a line break,
 	// spaces remain part of the literal, preserving existing inline passwords.
 	cdataPadding := `(?:[ \t]*\r?\n[ \t]*)?`
-	xmlPasswordRegex := `<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b` + xmlOpeningTagEnd + structuredValuePrefix + `(?:<!\[CDATA\[` + cdataPadding + `([^\r\n]{5,250}?)` + cdataPadding + `\]\]>|([^<\r\n]{5,250}?))` + jsonRecordSpace + xmlClosingTag
+	xmlPasswordRegex := `<[\w.:-]{0,64}(?:passw(?:or)?d|psw|pwd|[_.-]pw)\b` + xmlOpeningTagEnd + structuredValuePrefix + `(?:<!\[CDATA\[` + cdataPadding + `([^\r\n]{5,250}?)` + cdataPadding + `\]\]>|([^<\r\n]{5,250}?))` + jsonRecordSpace + xmlClosingTag
 	authArgumentRegex := `\b(?:login|log_in|authenticate)\b[ \t]*\([ \t]*[^,()\r\n]{1,250}[ \t]*,[ \t]*(?:"((?:\\.|[^"\\\r\n]){4,250})"|'((?:\\.|[^'\\\r\n]){4,250})'|\x60((?:\\.|[^\x60\\\r\n]){4,250})\x60)[ \t]*\)`
 	metadataField := structuredFieldPattern(`type|returnType|asyncCallableType|shape|c2jName|name|description|documentation|title|ref|reference|id|guid|version|format|pattern|allowedPattern`)
 	// Start at the assignment, so JSON-like password text and CDATA remain literals.
-	metadataPrefix := `(?i)^(?:(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|[_.-]pw)\b` + xmlOpeningTagEnd + `)` + structuredValuePrefix
+	metadataPrefix := `(?i)^(?:(?:passw(?:or)?d|psw|pwd|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)|<[\w.:-]{0,64}(?:passw(?:or)?d|psw|pwd|[_.-]pw)\b` + xmlOpeningTagEnd + `)` + structuredValuePrefix
 	metadataAssignment := metadataPrefix + metadataField
 	timingAssignment := metadataPrefix + structuredFieldPattern(`elapsed|duration|average`)
 	const phpType = `\??(?:bool|false|true|int|float|string|non-empty-string|array|resource|object|mixed|void|null|never|[A-Z][\w\\]*)(?:\[\])?`
@@ -31,7 +32,7 @@ func GenericPassword() *config.Rule {
 		Description: "Detected a potential hardcoded password literal, which may expose account credentials.",
 		Regex:       `(?i)(?:` + passwordAssignmentRegex + `|` + authArgumentRegex + `|` + xmlPasswordRegex + `)`,
 		Keywords: []string{
-			"passw", "psw", "_pw", "-pw", ".pw",
+			"passw", "psw", "pwd", "_pw", "-pw", ".pw",
 			"login(", "login (",
 			"log_in(", "log_in (",
 			"authenticate(", "authenticate (",
@@ -102,9 +103,9 @@ let isCodeFile = matchesAny(attributes["path"], [
   ` + "`(?i)\\.(?:c|cc|cpp|cxx|h|hh|hpp|cs|dart|ex|exs|fs|fsx|go|gemspec|groovy|java|js|jsx|mjs|cjs|kt|kts|lua|m|mm|php|pl|pm|py|pyw|r|rake|rb|rs|scala|sql|swift|tf|tfvars|ts|tsx|vb|vue)(?:\\.(?:example|sample|template))?$`" + `
 ]);
 let isUnquotedAssignment = matchesAny(finding["match"], [
-  ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*[^\\x22\\x27\\x60 \\t\\r\\n]`" + `
+  ` + "`^(?i:passw(?:or)?d|psw|pwd|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*[^\\x22\\x27\\x60 \\t\\r\\n]`" + `
 ]) && !matchesAny(finding["match"], [
-  ` + "`" + `^(?i:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)` + structuredValuePrefix + `[\x22\x27\x60]` + "`" + `
+  ` + "`" + `^(?i:passw(?:or)?d|psw|pwd|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)` + structuredValuePrefix + `[\x22\x27\x60]` + "`" + `
 ]);
 let isUnquotedCodeValue = isCodeFile && isUnquotedAssignment;
 let isUnquotedExpression = isUnquotedAssignment && matchesAny(finding["secret"], [
@@ -116,7 +117,7 @@ let hasNonPlaintextPasswordContext = matchesAny(linePrefix + finding["match"], [
   ` + "`(?i)(?:^|[^a-z0-9])password[_.-]?(?:cipher(?:text)?|hash|digest|algorithm|scheme|encoding|format)\\b`" + `
 ]);
 let hasNestedUnquotedAssignment = matchesAny(finding["match"], [
-  ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]{0,5}[^\"'\\x60\\r\\n]*[.,][A-Za-z_][A-Za-z0-9_-]*=`" + `
+  ` + "`^(?i:passw(?:or)?d|psw|pwd|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]{0,5}[^\"'\\x60\\r\\n]*[.,][A-Za-z_][A-Za-z0-9_-]*=`" + `
 ]);
 let isEncryptedValue = matchesAny(finding["secret"], [
   // Serialized encryption envelopes and armored ciphertext.
@@ -216,8 +217,8 @@ matchesAny(finding["secret"], [
 || isUnquotedExpression
 || hasNestedUnquotedAssignment
 || matchesAny(finding["match"], [
-  ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `,
-  ` + "`^(?i:passw(?:or)?d|psw|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*\\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\\]]*\\\\?(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `
+  ` + "`^(?i:passw(?:or)?d|psw|pwd|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?i:nil|null|none|undefined|true|false|string|str|text|integer|int|number|boolean|bool|object)(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `,
+  ` + "`^(?i:passw(?:or)?d|psw|pwd|[_.-]pw)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*\\.(?i:(?:[a-z0-9]+_)*(?:passw(?:or)?d|psw|token|secret|hex)))[)}\\]]*\\\\?(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `
 ])
 )`,
 	}
@@ -243,6 +244,8 @@ matchesAny(finding["secret"], [
 		"login({\nusername = process.env.USERNAME\npasswd = \"g4F!mQ8#vZ2@rT6$xK9\"\n})",
 		"auth_config: {\npsw: hunter2\n}",
 		"database.host = db.internal\ndatabase_pw = \"J8s!vR4#qL7@nT2$xM6\"",
+		`Driver={ODBC Driver 18};Server=db1;Uid=sqladmin;PWD=odbc-test-password;Encrypt=True;`,
+		`Server=db1;Uid=app;Password={first-part;second-part};Encrypt=yes;`,
 		"service.connect(\n  service-pw: Qv7D0LXCM3EIMbgJpUNnkRtOfOueHznB\n)",
 		"dsn: postgres://db.internal/app\nclient.pw = \"m4F!qK8#zR2@tV6$xN9\"",
 		"login({\n  \"password\": \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n})",
@@ -255,6 +258,7 @@ matchesAny(finding["secret"], [
 	}
 	fps := []string{
 		`password: four`,
+		`Driver={ODBC Driver 18};Uid=app;PWD=tiny;`,
 		"username: alice\npassword = process.env.PASSWORD",
 		"database.host = db.internal\ndatabase_pw = undefined",
 		"username: alice\npassword = \"your_password\"",
