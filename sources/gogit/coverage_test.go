@@ -460,6 +460,11 @@ func TestObjectDirsFromEnv(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 
+	// An already-absolute entry is returned as filepath.Abs resolves it, which
+	// on Windows adds a drive letter.
+	absC, err := filepath.Abs(filepath.FromSlash("/c"))
+	require.NoError(t, err)
+
 	// GIT_OBJECT_DIRECTORY is taken literally; a relative path becomes absolute.
 	t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join("a", "..", "b"))
 	// The list drops empty entries, keeps absolute paths, and resolves a
@@ -469,7 +474,7 @@ func TestObjectDirsFromEnv(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{
 		filepath.Join(cwd, "b"),
-		filepath.FromSlash("/c"),
+		absC,
 		filepath.Join(cwd, "rel"),
 	}, dirs)
 }
