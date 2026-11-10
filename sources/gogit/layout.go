@@ -13,8 +13,10 @@ import (
 
 // ErrExternalStore reports Git storage outside the scanned repository. A
 // repository can name other directories through a .git file, commondir, or
-// objects/info/alternates. Following them would scan content the caller did
-// not select, so the source refuses unless AllowExternalObjects is set.
+// objects/info/alternates, and Git itself names them through
+// GIT_OBJECT_DIRECTORY and GIT_ALTERNATE_OBJECT_DIRECTORIES. Following them
+// would scan content the caller did not select, so the source refuses unless
+// AllowExternalObjects is set.
 var ErrExternalStore = errors.New("git storage is outside the scanned repository")
 
 // layout locates a repository's Git directories.
@@ -154,9 +156,36 @@ func (l layout) registeredWorktree() (string, bool) {
 	return main, err == nil
 }
 
-// alternates lists the object directories named by objects/info/alternates.
+// alternates lists the object directories Git would read, in Git's precedence
+// order: the directories named by GIT_OBJECT_DIRECTORY and
+// GIT_ALTERNATE_OBJECT_DIRECTORIES come before objects/info/alternates. A
+// receive-pack quarantine names its objects this way, so a hook that inherits
+// the environment can scan the pushed objects in-process.
 func (l layout) alternates() ([]string, error) {
-	return readAlternates(storageFS(l.common))
+	fromFile, err := readAlternates(storageFS(l.common))
+	if err != nil {
+		return nil, err
+	}
+	return append(objectDirsFromEnv(), fromFile...), nil
+}
+
+// objectDirsFromEnv returns the object directories named by the environment.
+// GIT_OBJECT_DIRECTORY names one directory; GIT_ALTERNATE_OBJECT_DIRECTORIES
+// names a platform-separated list. Git resolves relative paths against the
+// working directory, which the process shares, so they are cleaned here.
+func objectDirsFromEnv() []string {
+	var dirs []string
+	for _, path := range append([]string{os.Getenv("GIT_OBJECT_DIRECTORY")}, strings.Split(os.Getenv("GIT_ALTERNATE_OBJECT_DIRECTORIES"), string(filepath.ListSeparator))...) {
+		if path == "" {
+			continue
+		}
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		dirs = append(dirs, filepath.Clean(path))
+	}
+	return dirs
 }
 
 func readAlternates(fs readOnlyFS) ([]string, error) {

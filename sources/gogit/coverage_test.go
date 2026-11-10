@@ -449,6 +449,15 @@ func TestUnsafeStorageFiles(t *testing.T) {
 	})
 }
 
+func TestObjectDirsFromEnv(t *testing.T) {
+	t.Setenv("GIT_OBJECT_DIRECTORY", "")
+	t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", "")
+	require.Empty(t, objectDirsFromEnv())
+	t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join("a", "..", "b"))
+	t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", string(filepath.ListSeparator)+" /c "+string(filepath.ListSeparator)+string(filepath.ListSeparator))
+	require.Equal(t, []string{"b", filepath.FromSlash("/c")}, objectDirsFromEnv())
+}
+
 func TestShallowLimits(t *testing.T) {
 	root := t.TempDir()
 	fs := readOnlyFS{Filesystem: gitfs.New(root), objectRoot: root}

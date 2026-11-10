@@ -879,10 +879,14 @@ as needed; reopening a replaced or modified file causes an incomplete scan.
 ### Storage outside the repository
 
 A `.git` file, `commondir`, or `objects/info/alternates` can point at Git storage
-anywhere on disk. By default Betterleaks refuses storage outside the repository's
-directory, so a crafted repository cannot make it read, and report the secrets
-of, another repository on the same machine. Linked worktrees created with
-`git worktree add` are allowed because their main repository registers them.
+anywhere on disk. Git can also name object directories through
+`GIT_OBJECT_DIRECTORY` and `GIT_ALTERNATE_OBJECT_DIRECTORIES`, which a
+`receive-pack` quarantine uses. Betterleaks reads them like alternates, before
+the `objects/info/alternates` entries. By default Betterleaks refuses storage
+outside the repository's directory, so a crafted repository cannot make it read,
+and report the secrets of, another repository on the same machine. Linked
+worktrees created with `git worktree add` are allowed because their main
+repository registers them.
 Shared refs come from the common Git directory; `refs/bisect`, `refs/rewritten`,
 and `refs/worktree` come from the selected worktree. Reflog scanning includes
 the journals of all registered worktrees.
@@ -890,8 +894,9 @@ When `extensions.worktreeConfig` is enabled, worktree remote and branch
 settings override individual shared settings. Unspecified settings are retained,
 and URL rewrite rules are applied after merging.
 
-Repositories cloned with `--shared` or `--reference`, and submodule checkouts
-scanned directly, need `--allow-external-objects`. Relative alternates are not
+Repositories cloned with `--shared` or `--reference`, submodule checkouts
+scanned directly, and directories named by the object-directory environment
+variables need `--allow-external-objects`. Relative alternates are not
 supported.
 
 Symlinks inside Git storage must stay inside it, and storage files must be
@@ -1019,6 +1024,14 @@ while read -r old new ref; do
   git log -p --diff-merges=first-parent --format=medium --no-abbrev-commit \
     --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ "${range[@]}"
 done | betterleaks stdin --git-diff --redact
+```
+
+The SDK can instead read the quarantine in-process, without invoking Git: within
+the hook, `GIT_OBJECT_DIRECTORY` and `GIT_ALTERNATE_OBJECT_DIRECTORIES` name the
+quarantine objects, and a `gogit.Source` with `AllowExternalObjects` reads them:
+
+```go
+src := &gogit.Source{RepoPath: ".", Revision: old + ".." + new, AllowExternalObjects: true}
 ```
 
 ---

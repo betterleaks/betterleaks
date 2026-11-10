@@ -82,8 +82,10 @@ type Source struct {
 	// message and adds the commits it records to history and commit-messages.
 	Include, Exclude []string
 	// AllowExternalObjects permits Git storage outside the repository: a .git
-	// file, commondir, or object alternate that points elsewhere. Linked
-	// worktrees registered by their main repository are always allowed.
+	// file, commondir, or object alternate that points elsewhere, including the
+	// directories GIT_OBJECT_DIRECTORY and GIT_ALTERNATE_OBJECT_DIRECTORIES
+	// name. Linked worktrees registered by their main repository are always
+	// allowed.
 	AllowExternalObjects bool
 	Prefilter            sources.PrefilterFunc
 	// MaxArchiveDepth controls nested archive expansion; zero disables it.
