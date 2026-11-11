@@ -1,10 +1,12 @@
 # This is NOT the default betterleaks config. The default betterleaks config is located
 # here: https://github.com/betterleaks/betterleaks/blob/master/config/betterleaks.toml
-# This betterleaks config extends the default config and ignores secrets located in the `cmd/generate/config/rules`
+# This betterleaks config extends the default config and ignores the synthetic secrets in rule
+# sources: `rules/*.go`, and `cmd/generate/config/rules` in older commits.
 
 title = "Betterleaks development"
 prefilter = '''
 matchesAny(attributes["path"], [
+  `(^|/)rules/[^/]+\.go$`,
   `(^|/)cmd/generate/config/rules`,
   `.*test\.go`,
   `testdata`

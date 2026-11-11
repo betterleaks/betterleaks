@@ -1,4 +1,4 @@
-.PHONY: test test-cover failfast profile clean format build
+.PHONY: test test-cover failfast profile clean format build config
 
 PKG=github.com/betterleaks/betterleaks/v2
 VERSION ?= $(shell git describe --tags --match 'v2.*' --always --dirty 2>/dev/null || echo "dev")
@@ -32,5 +32,10 @@ clean:
 profile: build
 	./scripts/profile.sh './betterleaks' '.'
 
-config/betterleaks.toml: $(wildcard cmd/generate/config/**/*)
-	go generate ./...
+# Test every rule, then regenerate the default config from rules/.
+config:
+	go test ./rules
+	go generate ./rules
+
+config/betterleaks.toml: $(wildcard rules/*.go rules/gen/*)
+	go generate ./rules

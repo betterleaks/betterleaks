@@ -722,7 +722,7 @@ r.status == 200 && (r.json?.slug ?? "") != "" ? {
 
 For more complex validation setups, such as Basic Auth, dynamic request bodies,
 HMAC signatures, or composite rules, check the built-in
-rules in `cmd/generate/config/rules`.
+rules in [`rules/`](../rules).
 
 ## Explicit credential revocation
 

@@ -1,0 +1,26 @@
+package rules
+
+import "github.com/betterleaks/betterleaks/v2/config"
+
+var _ = Add(config.Rule{
+	ID:          "openweather-api-key",
+	Confidence:  "medium",
+	Description: "OpenWeather API key.",
+	Regex:       Assignment([]string{"openweather", "pyowm"}, `[a-z0-9]{32}`),
+	Keywords:    []string{"openweather", "pyowm"},
+	ValidateExpr: `let r = http.get("https://api.openweathermap.org/data/2.5/forecast?q=London&appid=" + finding["secret"], {
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
+	FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	Tests: []config.RuleTest{
+		Match("true positive 1", "OPENWEATHER_API_KEY=5fbbd6p84oe7ut4qrttebiwar77s63do", "5fbbd6p84oe7ut4qrttebiwar77s63do"),
+		Match("true positive 2", "pyowm='5fbbd6p84oe7ut4qrttebiwar77s63do'", "5fbbd6p84oe7ut4qrttebiwar77s63do"),
+		NoMatch("false positive 1", "OPENWEATHER_API_KEY=abcdef1234567890"),
+		NoMatch("false positive 2", "OPENWEATHER_API_KEY=00000000000000000000000000000000"),
+	},
+})

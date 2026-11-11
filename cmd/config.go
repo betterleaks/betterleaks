@@ -1,15 +1,10 @@
 package cmd
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -17,10 +12,8 @@ import (
 
 	configpkg "github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/internal/exprruntime"
+	"github.com/betterleaks/betterleaks/v2/internal/ruletest"
 	"github.com/betterleaks/betterleaks/v2/regexp"
-	"github.com/betterleaks/betterleaks/v2/report"
-	"github.com/betterleaks/betterleaks/v2/scan"
-	"github.com/betterleaks/betterleaks/v2/sources"
 )
 
 type resolvedConfig struct {
@@ -146,134 +139,30 @@ func (cmd *ConfigCheckCmd) Run(cli *CLI, runtime *commandRuntime) error {
 // Global policy still applies. Provider operations are compiled by validateConfig
 // but are never executed by this detection-only runner.
 func runConfigRuleTests(runtime *commandRuntime, resolved *resolvedConfig) (total, failed int, err error) {
-	cfg := resolved.cfg
-	local := exprruntime.NewLocal(runtime.regexEngine())
-	var prefilter exprruntime.Program
-	if cfg.PrefilterExpr != "" {
-		prefilter, err = local.CompilePrefilter(cfg.PrefilterExpr)
-		if err != nil {
-			return total, failed, err
-		}
+	runner, err := ruletest.New(resolved.cfg, runtime.regexEngine())
+	if err != nil {
+		return total, failed, err
 	}
-	for _, rule := range cfg.Rules {
+	for _, rule := range resolved.cfg.Rules {
 		if len(rule.Tests) == 0 {
 			continue
 		}
-		var diagnostics bytes.Buffer
-		logger := slog.New(slog.NewTextHandler(&diagnostics, &slog.HandlerOptions{Level: slog.LevelWarn}))
-		scanners := make(map[bool]*scan.Scanner, 2)
-		for _, test := range rule.Tests {
-			if err := runtime.logContext().Err(); err != nil {
+		failures, err := runner.Run(runtime.logContext(), rule)
+		total += len(rule.Tests)
+		failed += len(failures)
+		for _, failure := range failures {
+			if _, err := fmt.Fprintf(runtime.stderr, "FAIL: %s: rule %q test %q: %v\n", resolved.source, rule.ID, failure.Test, failure.Err); err != nil {
 				return total, failed, err
 			}
-			total++
-			diagnostics.Reset()
-			match := test.Mode == "match"
-			scanner := scanners[match]
-			if scanner == nil {
-				probe := *cfg
-				owner := rule
-				owner.Tests = nil
-				if match {
-					owner.SkipReport = false
-				}
-				probe.Rules = []configpkg.Rule{owner}
-				for _, component := range owner.Components {
-					dependency, _ := cfg.Rule(component.RuleID) // cfg.Validate checked references.
-					dependency.Tests = nil
-					probe.Rules = append(probe.Rules, dependency)
-				}
-				scanner, err = scan.New(&probe, scan.WithRegexEngine(runtime.regexEngine()),
-					scan.WithPrecompile(), scan.WithWorkers(1), scan.WithLogger(logger))
-				if err != nil {
-					return total, failed, fmt.Errorf("%s: rule %q: %w", resolved.source, rule.ID, err)
-				}
-				scanners[match] = scanner
+		}
+		if err != nil {
+			if ctxErr := runtime.logContext().Err(); ctxErr != nil {
+				return total, failed, ctxErr
 			}
-			var skip bool
-			var testErr error
-			if prefilter != nil {
-				skip, testErr = local.EvalPrefilter(prefilter, test.Attributes)
-			}
-			var actual []string
-			if testErr == nil && !skip {
-				_, testErr = scanner.Scan(runtime.logContext(), ruleTestSource{test}, func(f report.Finding) error {
-					if f.RuleID != rule.ID {
-						return nil
-					}
-					if f.ComponentSetsTruncated {
-						return errors.New("component combinations were truncated")
-					}
-					value := configpkg.ExpectedFinding{Rule: f.RuleID, Secret: f.Match.Value, Captures: f.Match.Captures}
-					for _, set := range f.ComponentSets {
-						components := make(map[string]string, len(set.Components))
-						for _, component := range set.Components {
-							components[component.RuleID] = component.Match.Value
-						}
-						value.ComponentSets = append(value.ComponentSets, components)
-					}
-					actual = append(actual, canonicalTestFinding(value))
-					return nil
-				})
-			}
-			if testErr == nil && diagnostics.Len() > 0 {
-				// Scans keep findings on filter evaluation errors. A test must not
-				// silently pass just because its filter failed open.
-				testErr = fmt.Errorf("scanner diagnostics: %s", strings.TrimSpace(diagnostics.String()))
-			}
-			if testErr == nil {
-				expected := make([]string, 0, len(test.Expect))
-				for _, value := range test.Expect {
-					value.Rule = rule.ID
-					expected = append(expected, canonicalTestFinding(value))
-				}
-				slices.Sort(expected)
-				slices.Sort(actual)
-				if !slices.Equal(expected, actual) {
-					testErr = fmt.Errorf("findings differ\n  want: %v\n   got: %v", expected, actual)
-				}
-			}
-			if testErr != nil {
-				if err := runtime.logContext().Err(); err != nil {
-					return total, failed, err
-				}
-				failed++
-				if _, err := fmt.Fprintf(runtime.stderr, "FAIL: %s: rule %q test %q: %v\n", resolved.source, rule.ID, test.Name, testErr); err != nil {
-					return total, failed, err
-				}
-			}
+			return total, failed, fmt.Errorf("%s: %w", resolved.source, err)
 		}
 	}
 	return total, failed, nil
-}
-
-// Yield empty content too, so path-only rules can be tested without file I/O.
-type ruleTestSource struct{ test configpkg.RuleTest }
-
-func (s ruleTestSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return yield(sources.Fragment{Raw: s.test.Input, Attributes: s.test.Attributes, StartLine: 1}, nil)
-}
-
-func canonicalTestFinding(value configpkg.ExpectedFinding) string {
-	sets := make([]string, 0, len(value.ComponentSets))
-	for _, set := range value.ComponentSets {
-		data, _ := json.Marshal(set)
-		sets = append(sets, string(data))
-	}
-	slices.Sort(sets)
-	if len(value.Captures) == 0 {
-		value.Captures = nil
-	}
-	data, _ := json.Marshal(struct {
-		Rule     string
-		Secret   string
-		Captures map[string]string
-		Sets     []string
-	}{value.Rule, value.Secret, value.Captures, sets})
-	return string(data)
 }
 
 type ConfigShowCmd struct {

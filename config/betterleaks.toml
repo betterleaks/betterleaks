@@ -1,6 +1,6 @@
 # This file has been auto-generated. Do not edit manually.
-# If you would like to contribute new rules, please use
-# cmd/generate/config/main.go and follow the contributing guidelines
+# If you would like to contribute new rules, add or edit a file in rules/,
+# run `make config`, and follow the contributing guidelines
 # at https://github.com/betterleaks/betterleaks/blob/main/.github/CONTRIBUTING.md
 #
 # How the hell does secret scanning work? Read this:

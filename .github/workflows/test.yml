@@ -35,6 +35,9 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Check default config is generated from rules
+        run: go generate ./rules && git diff --exit-code config/betterleaks.toml
+
       - name: Validate default config with RE2
         run: go run . config check config/betterleaks.toml
 
@@ -49,6 +52,3 @@ jobs:
       - name: Test
         run: |
           gotestsum --raw-command -- go test -json ./... --race
-
-      # - name: Validate Config
-      #   run: go generate ./... && git diff --exit-code

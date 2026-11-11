@@ -54,78 +54,68 @@ More test files and more assertions are not goals in themselves.
 
 ## Adding new Betterleaks rules
 
-If you want to add a new rule to the [default configuration](../config/betterleaks.toml) then follow these steps.
+Rules for the [default configuration](../config/betterleaks.toml) live in
+[`rules/`](../rules), one file per provider. `config/betterleaks.toml` is
+generated from them.
 
-1. Create a `cmd/generate/config/rules/{provider}.go` file.
-   This file is used to generate a new rule.
-   Let's look at `beamer.go` for example. Comments have been added for context.
-
-   ```golang
-   func Beamer() *config.Rule {
-       // Define Rule
-       r := config.Rule{
-           // Human readable description of the rule
-           Description: "Beamer API token",
-
-           // Unique ID for the rule
-           ID:          "beamer-api-token",
-           Confidence:  "medium",
-
-           // Regex used for detecting secrets. See regex section below for more details
-           Regex: utils.GenerateSemiGenericRegex([]string{"beamer"}, `b_[a-z0-9=_\-]{44}`, true),
-
-           // Keywords used for string matching on fragments (think of this as a prefilter)
-           Keywords: []string{"beamer"},
-       }
-
-       // validate the keyword, regex, and filters work
-       tps := utils.GenerateSampleSecrets("beamer", "b_"+secrets.NewSecret(utils.AlphaNumericExtended("44")))
-       fps := []string{
-           `R21A-A-V010SP13RC181024R16900-CN-B_250K-Release-OTA-97B6C6C59241976086FABDC41472150C.bfu`,
-       }
-       return utils.Validate(r, tps, fps)
-   }
-   ```
-
-   Feel free to use this example as a template when writing new rules.
-   This file should be fairly self-explanatory except for a few items;
-   regex and secret generation. To help with maintenance, _most_ rules should
-   be uniform. The functions,
-   `utils.GenerateSemiGenericRegex` and `utils.GenerateUniqueTokenRegex` (in
-   [`cmd/generate/config/utils/generate.go`](../cmd/generate/config/utils/generate.go)) generate regex patterns
-   that follow defined patterns.
-
-   The function signatures look like this:
+1. Create `rules/{provider}.go`, or add to the provider's existing file. Each
+   rule registers itself with `Add`; there is no list to update. Here's a rule
+   modeled on `beamer.go`, with comments added for context:
 
    ```golang
-   func GenerateSemiGenericRegex(identifiers []string, secretRegex string, isCaseInsensitive bool) string
+   package rules
 
-   func GenerateUniqueTokenRegex(secretRegex string, isCaseInsensitive bool) string
+   import "github.com/betterleaks/betterleaks/v2/config"
+
+   var _ = Add(config.Rule{
+       // Unique ID for the rule
+       ID: "beamer-api-token",
+
+       // Human readable description of the rule
+       Description: "Detected a Beamer API token, potentially compromising content management and exposing sensitive notifications and updates.",
+       Confidence:  "medium",
+
+       // Regex used for detecting secrets. See below for more details
+       Regex: Assignment([]string{"beamer"}, `(?i)b_[a-z0-9=_\-]{44}`),
+
+       // Keywords used for string matching on fragments (think of this as a prefilter)
+       Keywords: []string{"beamer"},
+
+       // Inputs the rule must and must not detect
+       Tests: []config.RuleTest{
+           Match("assignment", `beamerToken = "b_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903f"`, "b_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903f"),
+           NoMatch("firmware file name", "R21A-A-V010SP13RC181024R16900-CN-B_250K-Release-OTA-97B6C6C59241976086FABDC41472150C.bfu"),
+       },
+   })
    ```
 
-   `GenerateSemiGenericRegex` accepts a list of identifiers, a regex, and a boolean indicating whether the pattern should be case-insensitive.
-   The list of identifiers _should_ match the list of `Keywords` in the rule
-   definition above. Both `identifiers` in the `GenerateSemiGenericRegex`
-   function _and_ `Keywords` act as filters for Betterleaks telling the program
-   "_at least one of these strings must be present to be considered a leak_"
+   To help with maintenance, _most_ rules should be uniform, so build the regex
+   with one of two helpers:
 
-   `GenerateUniqueTokenRegex` just accepts a regex and a boolean indicating whether the pattern should be case-insensitive. If you are writing a rule for a
-   token that is unique enough not to require an identifier then you can use
-   this function. For example, Pulumi's API Token has the prefix `pul-` which is
-   unique enough to use `GenerateUniqueTokenRegex`. But something like Beamer's API
-   token that has a `b_` prefix is not unique enough to use `GenerateUniqueTokenRegex`,
-   so instead we use `GenerateSemiGenericRegex` and require a `beamer`
-   identifier is part of the rule.
-   If a token's prefix has more than `3` characters then you could
-   probably get away with using `GenerateUniqueTokenRegex`.
+   - `Token(pattern)` for a credential distinctive enough to stand alone. It
+     adds the standard token boundaries. Pulumi's API token has the prefix
+     `pul-`, which is unique enough for `Token`.
+   - `Assignment(names, pattern)` for a credential that is only recognizable
+     next to a name, such as `BEAMER_TOKEN = "b_..."`. Beamer's `b_` prefix is
+     not unique enough on its own. Names are case-insensitive regex fragments
+     and should match the rule's `Keywords`: both tell Betterleaks "_at least
+     one of these strings must be present to be considered a leak_".
 
-   Last thing you'll want to hit before we move on from this file is the
-   validation part. Use `utils.GenerateSampleSecrets` to create assignment
-   examples for the true positives (`tps` above) checked by `utils.Validate`.
-   `secrets.NewSecret` and `secrets.NewSecretWithEntropy` use a fixed local seed,
-   so their examples are repeatable and independent of rule generation order.
-   Add literal fixtures for boundary characters and other important edge cases;
-   regeneration does not provide randomized coverage.
+   A leading `(?i)` makes the pattern case-insensitive. If a token's prefix has
+   more than `3` characters then you could probably get away with `Token`.
+   Write a raw `Regex` only when neither helper fits.
+
+   Both helpers are tested once across common assignment syntaxes (env files,
+   JSON, YAML, source code), so a rule's tests only need to prove its format:
+
+   - `Match(name, input, secret)`: `input` must produce exactly one finding,
+     `secret`.
+   - `NoMatch(name, input)`: `input` must produce no findings.
+
+   Name each test for what it checks, such as "wrong prefix" or "placeholder",
+   and use literal values rather than generated ones. For components, named
+   captures, paths, or `Mode: "match"`, write a `config.RuleTest` literal; see
+   [rule tests](../docs/config.md#check-a-config-and-its-rule-tests).
 
 2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, set the rule's `FilterExpr` field. For more information, check out the [config doc](/docs/config.md)
 Example simple `filter`:
@@ -193,12 +183,16 @@ and evidence confirming invalidation. Return `revoked` only when invalidation is
 confirmed; an asynchronous acceptance response alone is `unknown`. See the
 [revocation contract](../docs/config.md#explicit-credential-revocation).
 
-5. Update `cmd/generate/config/main.go`. Extend `configRules` slice with
-   the `rules.Beamer(),` in `main()`. Try and keep
-   this alphabetically pretty please.
+5. Run your provider's tests while you iterate, then regenerate the default
+   config:
 
-6. Run `make config/betterleaks.toml`
+   ```sh
+   go test ./rules -run TestRules/beamer
+   make config
+   ```
 
-7. Check out your new rules in `config/betterleaks.toml` and see if everything looks good.
+   `make config` runs every rule test, then `go generate ./rules`.
 
-8. Open a PR
+6. Check out your new rules in `config/betterleaks.toml`, commit it together
+   with your `rules/` file, and open a PR. CI fails if the generated config is
+   out of date.

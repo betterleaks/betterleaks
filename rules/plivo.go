@@ -1,0 +1,77 @@
+package rules
+
+import "github.com/betterleaks/betterleaks/v2/config"
+
+var _ = Add(config.Rule{
+	ID:          "plivo-auth-id",
+	Confidence:  "high",
+	Description: "Plivo Auth ID, used as a component of the Plivo Auth Token composite rule.",
+	Regex: Assignment(
+		[]string{`plivo(?:[_. -]*(?:auth|account))?[_. -]*(?:id|sid)`},
+		`(?i)MA[A-Z0-9]{18}`,
+	),
+	Keywords:   []string{"plivo"},
+	SkipReport: true,
+	FilterExpr: `entropy(finding["secret"]) < 2.8 || tokenRatio(finding["secret"]) >= 2.5`,
+	Tests: []config.RuleTest{
+		{
+			Name:  "true positive 1",
+			Mode:  "match",
+			Input: "PLIVO_AUTH_ID=MA5FBBD6P84OE7UT4QRT",
+			Expect: []config.ExpectedFinding{
+				{Secret: "MA5FBBD6P84OE7UT4QRT"},
+			},
+		},
+		{
+			Name:   "false positive 1",
+			Mode:   "match",
+			Input:  "ACCOUNT_ID=MABDY4DMVMZESYNGY0NV",
+			Expect: []config.ExpectedFinding{},
+		},
+		{
+			Name:   "false positive 2",
+			Mode:   "match",
+			Input:  "PLIVO_AUTH_ID=MA000000000000000000",
+			Expect: []config.ExpectedFinding{},
+		},
+	},
+})
+
+var _ = Add(config.Rule{
+	ID:          "plivo-auth-token",
+	Confidence:  "high",
+	Description: "Plivo Auth Token.",
+	Regex: Assignment(
+		[]string{`plivo(?:[_. -]*(?:auth))?[_. -]*(?:secret|token|key)`},
+		`[A-Za-z0-9_-]{40}`,
+	),
+	Keywords: []string{"plivo"},
+	Components: []config.Component{
+		{RuleID: "plivo-auth-id"},
+	},
+	ValidateExpr: `let authID = (components["plivo-auth-id"]?.secret ?? "");
+let r = http.get("https://api.plivo.com/v1/Account/" + authID + "/", {
+  "Authorization": "Basic " + base64.encode(bytes(authID + ":" + finding["secret"])),
+  "Accept": "application/json"
+}); r.status == 200 ? {
+  "result": "valid"
+} : r.status == 403 ? {
+  "result": "valid",
+  "reason": "Authenticated but account access is restricted"
+} : r.status == 401 ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)`,
+	FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	Tests: []config.RuleTest{
+		{
+			Name:  "true positive 1",
+			Input: "PLIVO_AUTH_TOKEN=WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH\nPLIVO_AUTH_ID=MA5FBBD6P84OE7UT4QRT",
+			Expect: []config.ExpectedFinding{
+				{Secret: "WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH", ComponentSets: []map[string]string{{"plivo-auth-id": "MA5FBBD6P84OE7UT4QRT"}}},
+			},
+		},
+		NoMatch("false positive 1", "AUTH_TOKEN=qFj32Da8vf-g_-8qLu9P_k8XPyAHGrvKrzGTQIN4"),
+		NoMatch("false positive 2", "PLIVO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+	},
+})

@@ -1,0 +1,27 @@
+package rules
+
+import "github.com/betterleaks/betterleaks/v2/config"
+
+var _ = Add(config.Rule{
+	ID:          "aiven-auth-token",
+	Confidence:  "high",
+	Description: "Detected an Aiven authentication token, which may expose Aiven projects and services.",
+	Regex:       `(?i:aiven)[\s\S]{0,32}?\b([A-Za-z0-9/+=]{372})(?:[^A-Za-z0-9/+=]|$)`,
+	Keywords:    []string{"aiven"},
+	ValidateExpr: `let r = http.get("https://api.aiven.io/v1/project", {
+    "Authorization": "aivenv1 " + finding["secret"],
+    "Accept": "application/json"
+  }); r.status == 200 ? {
+    "result": "valid"
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
+	FilterExpr: `entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5`,
+	Tests: []config.RuleTest{
+		Match("true positive 1", `AIVEN_API_TOKEN="MOLXG502hGM9DsUSyvKVf2cx8zXEdBesHZLSqXnMj4agm9jLx4gpC9R+z26CX4tKgrIpjvR9dgorE/DzVxxH79Pd+mspIHgxkf7fL4eLxuFvl4RrvX9CWS7nMnfB9uDiM80AtGykzHm8KKr76I7UY8Az/i3x2OG5gFhH0+2AT0Qr75T1JbNF0IiPSjI3MQ0A1+k1b2DW2dwdNnYKEewrNjhVHre8sYLzMUE5Y+FIs8OFdpAm4YNUb283iVJjEcxT8AtMhmOrziMkmWn0haxjhT2qdxgnafGJidF0Dl/NIN+4o1WokQSyhHH1glhNV5wZcG4Po/KP3aPSRnrFE0+GZ6322TrWo1btS5mv+FKkS6gKq0zEfA=="`, "MOLXG502hGM9DsUSyvKVf2cx8zXEdBesHZLSqXnMj4agm9jLx4gpC9R+z26CX4tKgrIpjvR9dgorE/DzVxxH79Pd+mspIHgxkf7fL4eLxuFvl4RrvX9CWS7nMnfB9uDiM80AtGykzHm8KKr76I7UY8Az/i3x2OG5gFhH0+2AT0Qr75T1JbNF0IiPSjI3MQ0A1+k1b2DW2dwdNnYKEewrNjhVHre8sYLzMUE5Y+FIs8OFdpAm4YNUb283iVJjEcxT8AtMhmOrziMkmWn0haxjhT2qdxgnafGJidF0Dl/NIN+4o1WokQSyhHH1glhNV5wZcG4Po/KP3aPSRnrFE0+GZ6322TrWo1btS5mv+FKkS6gKq0zEfA=="),
+		Match("true positive 2", "Authorization: aivenv1 MOLXG502hGM9DsUSyvKVf2cx8zXEdBesHZLSqXnMj4agm9jLx4gpC9R+z26CX4tKgrIpjvR9dgorE/DzVxxH79Pd+mspIHgxkf7fL4eLxuFvl4RrvX9CWS7nMnfB9uDiM80AtGykzHm8KKr76I7UY8Az/i3x2OG5gFhH0+2AT0Qr75T1JbNF0IiPSjI3MQ0A1+k1b2DW2dwdNnYKEewrNjhVHre8sYLzMUE5Y+FIs8OFdpAm4YNUb283iVJjEcxT8AtMhmOrziMkmWn0haxjhT2qdxgnafGJidF0Dl/NIN+4o1WokQSyhHH1glhNV5wZcG4Po/KP3aPSRnrFE0+GZ6322TrWo1btS5mv+FKkS6gKq0zEfA==", "MOLXG502hGM9DsUSyvKVf2cx8zXEdBesHZLSqXnMj4agm9jLx4gpC9R+z26CX4tKgrIpjvR9dgorE/DzVxxH79Pd+mspIHgxkf7fL4eLxuFvl4RrvX9CWS7nMnfB9uDiM80AtGykzHm8KKr76I7UY8Az/i3x2OG5gFhH0+2AT0Qr75T1JbNF0IiPSjI3MQ0A1+k1b2DW2dwdNnYKEewrNjhVHre8sYLzMUE5Y+FIs8OFdpAm4YNUb283iVJjEcxT8AtMhmOrziMkmWn0haxjhT2qdxgnafGJidF0Dl/NIN+4o1WokQSyhHH1glhNV5wZcG4Po/KP3aPSRnrFE0+GZ6322TrWo1btS5mv+FKkS6gKq0zEfA=="),
+		NoMatch("false positive 1", `AIVEN_API_TOKEN="short"`),
+		NoMatch("false positive 2", `token="MOLXG502hGM9DsUSyvKVf2cx8zXEdBesHZLSqXnMj4agm9jLx4gpC9R+z26CX4tKgrIpjvR9dgorE/DzVxxH79Pd+mspIHgxkf7fL4eLxuFvl4RrvX9CWS7nMnfB9uDiM80AtGykzHm8KKr76I7UY8Az/i3x2OG5gFhH0+2AT0Qr75T1JbNF0IiPSjI3MQ0A1+k1b2DW2dwdNnYKEewrNjhVHre8sYLzMUE5Y+FIs8OFdpAm4YNUb283iVJjEcxT8AtMhmOrziMkmWn0haxjhT2qdxgnafGJidF0Dl/NIN+4o1WokQSyhHH1glhNV5wZcG4Po/KP3aPSRnrFE0+GZ6322TrWo1btS5mv+FKkS6gKq0zEfA=="`),
+	},
+})
