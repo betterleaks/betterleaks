@@ -67,6 +67,10 @@ linters:
       - linters:
           - misspell
         source: '"(?:addres|busines|clas)",'
+      # Rule definitions and their tests are partial struct literals on purpose.
+      - linters:
+          - exhaustruct
+        path: ^(?:rules|internal/rulebuilder)/
   settings:
     staticcheck:
       checks:

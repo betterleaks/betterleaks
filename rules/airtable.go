@@ -1,0 +1,77 @@
+package rules
+
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
+
+const airtableValidateExpr = `let r = http.get("https://api.airtable.com/v0/meta/whoami", {
+    "Authorization": "Bearer " + finding["secret"]
+  }); r.status == 200 ? {
+    "result": "valid",
+    "analysis": {
+      "id": (r.json?.id ?? ""),
+      "email": (r.json?.email ?? ""),
+      "scopes": (r.json?.scopes ?? [])
+    }
+  } : r.status in [401, 403] ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`
+
+const airtableAnalyzeExpr = `let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "email": input["email"] ?? ""
+  },
+  "metadata": len(scopes) > 0 ? {"scopes": scopes} : {},
+  "capabilities": analysis.capabilities({
+    "read": matchesAny(scopes, [":read$"]),
+    "write": matchesAny(scopes, ["^(?:data[.]|schema[.]).*:write$", "^webhook:manage$"]),
+    "manage_users": matchesAny(scopes, ["^enterprise[.](?:user:write|groups:manage|scim[.]usersAndGroups:manage)$"])
+  })
+}`
+
+var _ = rulebuilder.Add(config.Rule{
+	Description: "Uncovered a possible Airtable API Key, potentially compromising database access and leading to data leakage or alteration.",
+	ID:          "airtable-api-key",
+	Confidence:  "high",
+	Regex:       rulebuilder.Assignment([]string{"airtable"}, `(?i)[a-z0-9]{17}`),
+	Keywords:    []string{"airtable"},
+	FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
+	Tests: []config.RuleTest{
+		rulebuilder.Match("assignment", `airtableToken = "5fbbd6p84oe7ut4qr"`, "5fbbd6p84oe7ut4qr"),
+	},
+})
+
+var _ = rulebuilder.Add(config.Rule{
+	Description:  "Uncovered a possible Airtable Personal AccessToken, potentially compromising database access and leading to data leakage or alteration.",
+	ID:           "airtable-personnal-access-token",
+	Confidence:   "high",
+	Regex:        `\b(pat[[:alnum:]]{14}\.[a-f0-9]{64})\b`,
+	Keywords:     []string{"airtable"},
+	ValidateExpr: airtableValidateExpr,
+	AnalyzeExpr:  airtableAnalyzeExpr,
+	FilterExpr:   `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
+	Tests: []config.RuleTest{
+		rulebuilder.Match("assignment", `airtableToken = "pat5fbbd6p84oe7ut.8ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edca492f2b8a67697"`, "pat5fbbd6p84oe7ut.8ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edca492f2b8a67697"),
+	},
+})
+
+var _ = rulebuilder.Add(config.Rule{
+	Description:  "Detected an Airtable OAuth token, which may allow unauthorized access to Airtable resources granted to an OAuth integration.",
+	ID:           "airtable-oauth-token",
+	Confidence:   "high",
+	Regex:        rulebuilder.Assignment([]string{"airtable"}, `(?i)[A-Z0-9]+\.v1\.[A-Z0-9_-]+\.[a-f0-9]+`),
+	Keywords:     []string{"airtable"},
+	ValidateExpr: airtableValidateExpr,
+	AnalyzeExpr:  airtableAnalyzeExpr,
+	FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	Tests: []config.RuleTest{
+		rulebuilder.Match("true positive 1", `airtable_oauth_token = "APP7F9K2M4P6Q8R1.v1.XYZ123_ABC-DEF456_GHI789.abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"`, "APP7F9K2M4P6Q8R1.v1.XYZ123_ABC-DEF456_GHI789.abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"),
+		rulebuilder.NoMatch("false positive 1", `airtable_oauth_token = "EXAMPLE.v2.XYZ123_ABC.abcdef123456"`),
+		rulebuilder.NoMatch("false positive 2", `oauth_token = "APP7F9K2M4P6Q8R1.v1.XYZ123_ABC-DEF456_GHI789.abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"`),
+	},
+})

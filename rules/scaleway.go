@@ -1,0 +1,35 @@
+package rules
+
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
+
+var _ = rulebuilder.Add(config.Rule{
+	ID:          "scaleway-secret-key",
+	Confidence:  "high",
+	Description: "Identified a standalone Scaleway Secret Key. This can be used to authenticate API requests.",
+	Regex: rulebuilder.Assignment(
+		[]string{`(?:scaleway|scw).{0,20}?(?:secret|token)`},
+		`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`,
+	),
+	FilterExpr: rulebuilder.MinEntropy(3),
+	Keywords:   []string{"scaleway", "scw"},
+	ValidateExpr: `let r = http.get("https://api.scaleway.com/instance/v1/zones/fr-par-1/servers", {
+    "X-Auth-Token": secret,
+    "Accept": "application/json"
+  }); r.status in [200, 403] ? {
+    "result": "valid",
+    "metadata": {"permission_status": r.status == 200 ? "Active" : "Restricted but still valid (403)"}
+  } : r.status == 401 ? {
+    "result": "invalid",
+    "reason": "Unauthorized"
+  } : validate.unknown(r)`,
+	Tests: []config.RuleTest{
+		rulebuilder.Match("true positive 1", `scaleway_secret = "1f7b169c-846f-218a-b552-fa82fbf86758"`, "1f7b169c-846f-218a-b552-fa82fbf86758"),
+		rulebuilder.Match("true positive 2", `scw_token: "1f7b169c-846f-218a-b552-fa82fbf86758"`, "1f7b169c-846f-218a-b552-fa82fbf86758"),
+		rulebuilder.Match("true positive 3", `SCW_SECRET := "1f7b169c-846f-218a-b552-fa82fbf86758"`, "1f7b169c-846f-218a-b552-fa82fbf86758"),
+		rulebuilder.NoMatch("false positive 1", `scaleway_secret = "not-a-uuid"`),
+		rulebuilder.NoMatch("false positive 2", `scw_token = "12345678-1234-1234-1234-12345678901"`),
+	},
+})

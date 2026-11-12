@@ -35,9 +35,7 @@ type rawConfig struct {
 
 // Config is a configuration struct that contains detection rules and filters.
 type Config struct {
-	Title string `toml:"title"`
-	// Provider identifies an authored provider file; it does not affect detection.
-	Provider    string `toml:"provider,omitempty"`
+	Title       string `toml:"title"`
 	Path        string `toml:"-"`
 	Description string `toml:"description"`
 	// Rules is the resolved rule set in deterministic configuration order.
@@ -195,7 +193,7 @@ func (c *Config) Rule(id string) (Rule, bool) {
 
 // Hash identifies the resolved configuration, including rule order, finding
 // metadata, global filters, and validate, analyze, and revoke expressions. Config
-// title, description, path, minimum version, provider, and rule tests are excluded.
+// title, description, path, minimum version, and rule tests are excluded.
 //
 // The hash describes the current configuration; it is not cached or validated.
 // Compute it after customization, from the same state used to construct the

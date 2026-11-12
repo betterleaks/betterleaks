@@ -382,7 +382,6 @@ func TestConfigShowPreservesTOMLForms(t *testing.T) {
 }
 
 const ruleTestConfig = `
-provider = 'example'
 prefilter = 'attributes["path"] == "ignored.env"'
 filter = 'finding["secret"] == "filtered"'
 
