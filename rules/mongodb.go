@@ -2,13 +2,14 @@ package rules
 
 import (
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "mongodb-atlas-service-account-secret",
 	Confidence:  "high",
 	Description: "Detected a MongoDB Atlas service account client secret, which could allow unauthorized Atlas administration API access when paired with a service account client ID.",
-	Regex:       Token(`mdb_sa_sk_[A-Za-z0-9_-]{40}`),
+	Regex:       rulebuilder.Token(`mdb_sa_sk_[A-Za-z0-9_-]{40}`),
 	Keywords:    []string{"mdb_sa_sk_"},
 	Components: []config.Component{
 		{RuleID: "mongodb-atlas-service-account-id"},
@@ -26,7 +27,7 @@ var _ = Add(config.Rule{
 	FilterExpr: "entropy(finding[\"secret\"]) <= 3.0\n|| matchesAny(finding[\"secret\"], [`^mdb_sa_sk_[0-9]{40}$`])",
 	Tests: []config.RuleTest{
 		{
-			Name:  "mongodbAtlasServiceAccount assignment",
+			Name:  "assignment",
 			Input: "mongodbAtlasServiceAccountToken = \"mdb_sa_sk_5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7li\"\nmongodbAtlasServiceAccountIdToken = \"mdb_sa_id_1f7b169c846f218ab552fa82\"",
 			Expect: []config.ExpectedFinding{
 				{Secret: "mdb_sa_sk_5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7li", ComponentSets: []map[string]string{{"mongodb-atlas-service-account-id": "mdb_sa_id_1f7b169c846f218ab552fa82"}}},
@@ -53,33 +54,26 @@ var _ = Add(config.Rule{
 				{Secret: "mdb_sa_sk_5fbbd6p84oe7ut4_5fbbd6p84oe7ut4qrttebiwa", ComponentSets: []map[string]string{{"mongodb-atlas-service-account-id": "mdb_sa_id_1f7b169c846f218ab552fa82"}}},
 			},
 		},
-		NoMatch("false positive 1", "atlas api serviceAccounts getServiceAccount --clientId mdb_sa_id_1234567890abcdef12345678 --orgId 4888442a3354817a7320eb61"),
-		NoMatch("false positive 2", `export MDB_MCP_API_CLIENT_SECRET="mdb_sa_sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`),
-		NoMatch("false positive 3", `export MDB_MCP_API_CLIENT_SECRET="mdb_sa_sk_1234567890123456789012345678901234567890"`),
+		rulebuilder.NoMatch("false positive 1", "atlas api serviceAccounts getServiceAccount --clientId mdb_sa_id_1234567890abcdef12345678 --orgId 4888442a3354817a7320eb61"),
+		rulebuilder.NoMatch("false positive 2", `export MDB_MCP_API_CLIENT_SECRET="mdb_sa_sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`),
+		rulebuilder.NoMatch("false positive 3", `export MDB_MCP_API_CLIENT_SECRET="mdb_sa_sk_1234567890123456789012345678901234567890"`),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "mongodb-atlas-service-account-id",
 	Confidence:  "high",
 	Description: "Found a MongoDB Atlas service account client ID.",
-	Regex:       Token(`mdb_sa_id_[a-f0-9]{24}`),
+	Regex:       rulebuilder.Token(`mdb_sa_id_[a-f0-9]{24}`),
 	Keywords:    []string{"mdb_sa_id_"},
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "mongodbAtlasServiceAccountId assignment",
-			Mode:  "match",
-			Input: `mongodbAtlasServiceAccountIdToken = "mdb_sa_id_1f7b169c846f218ab552fa82"`,
-			Expect: []config.ExpectedFinding{
-				{Secret: "mdb_sa_id_1f7b169c846f218ab552fa82"},
-			},
-		},
+		rulebuilder.MatchComponent("assignment", `mongodbAtlasServiceAccountIdToken = "mdb_sa_id_1f7b169c846f218ab552fa82"`, "mdb_sa_id_1f7b169c846f218ab552fa82"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "mongodb-connection-string",
 	Confidence:  "high",
 	Description: "Detected a MongoDB connection string with embedded credentials, potentially exposing direct database access and sensitive application data.",
@@ -122,10 +116,10 @@ var _ = Add(config.Rule{
 				{Secret: "mongodb+srv://deploy-user:Xk9mP3vN7qR2@cluster0.mongodb.net/", Captures: map[string]string{"host": "cluster0.mongodb.net", "password": "Xk9mP3vN7qR2", "username": "deploy-user"}},
 			},
 		},
-		NoMatch("false positive 1", `MONGODB_URI="mongodb://user:pass@localhost:27017/app"`),
-		NoMatch("false positive 2", "spring.data.mongodb.uri=mongodb+srv://<username>:<password>@cluster.mongodb.net/app"),
-		NoMatch("false positive 3", "mongodb://$MONGODB_USER:$MONGODB_PASSWORD@cluster.mongodb.net/app"),
-		NoMatch("false positive 4", "mongodb+srv://${DB_USER}:${DB_PASS}@cluster.mongodb.net/"),
-		NoMatch("false positive 5", "mongodb://{{ .Values.mongoUser }}:{{ .Values.mongoPassword }}@mongo.example.net/app"),
+		rulebuilder.NoMatch("false positive 1", `MONGODB_URI="mongodb://user:pass@localhost:27017/app"`),
+		rulebuilder.NoMatch("false positive 2", "spring.data.mongodb.uri=mongodb+srv://<username>:<password>@cluster.mongodb.net/app"),
+		rulebuilder.NoMatch("false positive 3", "mongodb://$MONGODB_USER:$MONGODB_PASSWORD@cluster.mongodb.net/app"),
+		rulebuilder.NoMatch("false positive 4", "mongodb+srv://${DB_USER}:${DB_PASS}@cluster.mongodb.net/"),
+		rulebuilder.NoMatch("false positive 5", "mongodb://{{ .Values.mongoUser }}:{{ .Values.mongoPassword }}@mongo.example.net/app"),
 	},
 })

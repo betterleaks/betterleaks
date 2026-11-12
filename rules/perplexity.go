@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "perplexity-api-key",
 	Confidence:  "high",
 	Description: "Detected a Perplexity API key, which could lead to unauthorized access to Perplexity AI services and data exposure.",
@@ -19,7 +22,7 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) <= 4.0`,
 	Tests: []config.RuleTest{
-		Match("perplexity assignment", `perplexityToken = "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'"`, "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"),
-		NoMatch("false positive 1", "PERPLEXITY_API_KEY=pplx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("assignment", `perplexityToken = "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'"`, "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"),
+		rulebuilder.NoMatch("false positive 1", "PERPLEXITY_API_KEY=pplx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })

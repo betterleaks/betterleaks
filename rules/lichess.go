@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "lichess-personal-access-token",
 	Confidence:  "high",
 	Description: "Lichess personal access token.",
-	Regex:       Token(`lip_[A-Za-z0-9_]{16,60}`),
+	Regex:       rulebuilder.Token(`lip_[A-Za-z0-9_]{16,60}`),
 	Keywords:    []string{"lip_"},
 	ValidateExpr: `let r = http.get("https://lichess.org/api/account", {
     "Authorization": "Bearer " + finding["secret"],
@@ -18,9 +21,9 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "LICHESS_TOKEN=lip_eoTtDxpQ4FWYcbMq0Kt5b9ws_pgsxUmO", "lip_eoTtDxpQ4FWYcbMq0Kt5b9ws_pgsxUmO"),
-		NoMatch("false positive 1", "LICHESS_TOKEN=lip_short"),
+		rulebuilder.Match("true positive 1", "LICHESS_TOKEN=lip_eoTtDxpQ4FWYcbMq0Kt5b9ws_pgsxUmO", "lip_eoTtDxpQ4FWYcbMq0Kt5b9ws_pgsxUmO"),
+		rulebuilder.NoMatch("false positive 1", "LICHESS_TOKEN=lip_short"),
 	},
 })

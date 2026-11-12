@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://apidocs.harness.io/organization
 // Keep the existing validation endpoint for both PATs and SATs. A successful
@@ -57,7 +60,7 @@ let can_read = input["can_read"] ?? false;
 }`
 
 // Define rule for Harness Personal Access Token (PAT) and Service Account Token (SAT)
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	Description:  "Identified a Harness Access Token (PAT or SAT), risking unauthorized access to a Harness account.",
 	ID:           "harness-api-key",
 	Confidence:   "high",
@@ -67,8 +70,8 @@ var _ = Add(config.Rule{
 	AnalyzeExpr:  harnessAnalyzeExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.4`,
 	Tests: []config.RuleTest{
-		Match("harness assignment", `harnessToken = "pat.WE6v05tg7Z5jXlNPAK_XEP.1f7b169c846f218ab552fa82.5fbbd6p84oe7ut4qrtte"`, "pat.WE6v05tg7Z5jXlNPAK_XEP.1f7b169c846f218ab552fa82.5fbbd6p84oe7ut4qrtte"),
-		Match("harness assignment 2", `harnessToken = "sat.WE6v05tg7Z5jXlNPAK_XEP.1f7b169c846f218ab552fa82.5fbbd6p84oe7ut4qrtte"`, "sat.WE6v05tg7Z5jXlNPAK_XEP.1f7b169c846f218ab552fa82.5fbbd6p84oe7ut4qrtte"),
-		Match("true positive 1", `HARNESS_TOKEN="pat.AbCdEfGhIjKlMnOpQrStUv.0123abcd4567ef890123abcd.ZyXwVuTsRqPoNmLkJiHg"`, "pat.AbCdEfGhIjKlMnOpQrStUv.0123abcd4567ef890123abcd.ZyXwVuTsRqPoNmLkJiHg"),
+		rulebuilder.Match("assignment", `harnessToken = "pat.WE6v05tg7Z5jXlNPAK_XEP.1f7b169c846f218ab552fa82.5fbbd6p84oe7ut4qrtte"`, "pat.WE6v05tg7Z5jXlNPAK_XEP.1f7b169c846f218ab552fa82.5fbbd6p84oe7ut4qrtte"),
+		rulebuilder.Match("harness assignment 2", `harnessToken = "sat.WE6v05tg7Z5jXlNPAK_XEP.1f7b169c846f218ab552fa82.5fbbd6p84oe7ut4qrtte"`, "sat.WE6v05tg7Z5jXlNPAK_XEP.1f7b169c846f218ab552fa82.5fbbd6p84oe7ut4qrtte"),
+		rulebuilder.Match("true positive 1", `HARNESS_TOKEN="pat.AbCdEfGhIjKlMnOpQrStUv.0123abcd4567ef890123abcd.ZyXwVuTsRqPoNmLkJiHg"`, "pat.AbCdEfGhIjKlMnOpQrStUv.0123abcd4567ef890123abcd.ZyXwVuTsRqPoNmLkJiHg"),
 	},
 })

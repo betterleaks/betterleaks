@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "groq-api-key",
 	Confidence:  "high",
 	Description: "Identified a Groq API Key, which may expose high-speed AI inference services to unauthorized access.",
-	Regex:       Token(`(?i)gsk_[A-Z0-9]{52}`),
+	Regex:       rulebuilder.Token(`(?i)gsk_[A-Z0-9]{52}`),
 	Keywords:    []string{"gsk_"},
 	ValidateExpr: `let r = http.get("https://api.groq.com/openai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
@@ -18,7 +21,7 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	Tests: []config.RuleTest{
-		Match("groq assignment", `groqToken = "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"`, "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"),
-		NoMatch("Too short", "gsk_OpUMIkmFs2bOf1YRGh0lWGdy"),
+		rulebuilder.Match("assignment", `groqToken = "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"`, "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"),
+		rulebuilder.NoMatch("Too short", "gsk_OpUMIkmFs2bOf1YRGh0lWGdy"),
 	},
 })

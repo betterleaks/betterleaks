@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://docs.apify.com/api/v2/users-me-get
 const apifyValidateExpr = `let r = http.get("https://api.apify.com/v2/users/me", {
@@ -21,9 +24,9 @@ r.status == 200 && type(r.json) == "map" && type(r.json?.data) == "map" && (r.js
   "result": "invalid", "reason": "Unauthorized"
 } : validate.unknown(r)`
 
-const apifyAnalyzeExpr = identityOnlyAnalyzeExpr
+const apifyAnalyzeExpr = rulebuilder.IdentityOnlyAnalyzeExpr
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "apify-api-token",
 	Confidence:   "high",
 	Description:  "Detected an Apify API token, which may expose actors, tasks, and stored data.",
@@ -31,14 +34,14 @@ var _ = Add(config.Rule{
 	Keywords:     []string{"apify_api_"},
 	ValidateExpr: apifyValidateExpr,
 	AnalyzeExpr:  apifyAnalyzeExpr,
-	FilterExpr:   MinEntropy(3.5),
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "APIFY_TOKEN=apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv", "apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv"),
-		Match("true positive 2", `"token": "apify_api_9uyewBxQUF1EXWdKVc4lNaTSM461Ls4oQouz"`, "apify_api_9uyewBxQUF1EXWdKVc4lNaTSM461Ls4oQouz"),
-		Match("true positive 3", "?token=apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv&other=value", "apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv"),
-		NoMatch("false positive 1", "APIFY_TOKEN=apify_api_tooShort"),
-		NoMatch("false positive 2", "APIFY_TOKEN=APIFY_API_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv"),
-		NoMatch("false positive 3", "APIFY_TOKEN=apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv_extra"),
-		NoMatch("false positive 4", "?token=apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv_extra"),
+		rulebuilder.Match("true positive 1", "APIFY_TOKEN=apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv", "apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv"),
+		rulebuilder.Match("true positive 2", `"token": "apify_api_9uyewBxQUF1EXWdKVc4lNaTSM461Ls4oQouz"`, "apify_api_9uyewBxQUF1EXWdKVc4lNaTSM461Ls4oQouz"),
+		rulebuilder.Match("true positive 3", "?token=apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv&other=value", "apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv"),
+		rulebuilder.NoMatch("false positive 1", "APIFY_TOKEN=apify_api_tooShort"),
+		rulebuilder.NoMatch("false positive 2", "APIFY_TOKEN=APIFY_API_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv"),
+		rulebuilder.NoMatch("false positive 3", "APIFY_TOKEN=apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv_extra"),
+		rulebuilder.NoMatch("false positive 4", "?token=apify_api_NcjXcxEz2XL1irjppyWSHvjghalQOd1LXOHv_extra"),
 	},
 })

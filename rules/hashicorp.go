@@ -1,12 +1,11 @@
 package rules
 
 import (
-	"fmt"
-
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "hashicorp-tf-api-token",
 	Confidence:  "high",
 	Description: "Uncovered a HashiCorp Terraform user/org API token, which may lead to unauthorized infrastructure management and security breaches.",
@@ -14,26 +13,21 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"atlasv1"},
 	FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 	Tests: []config.RuleTest{
-		Match("hashicorpToken assignment", `hashicorpTokenToken = "1f7b169c846f21.atlasv1.ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7"`, "1f7b169c846f21.atlasv1.ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7"),
-		Match("true positive 1", `#token = "hE1hlYILrSqpqh.atlasv1.ARjZuyzl33F71WR55s6ln5GQ1HWIwTDDH3MiRjz7OnpCfaCb1RCF5zGaSncCWmJdcYA"`, "hE1hlYILrSqpqh.atlasv1.ARjZuyzl33F71WR55s6ln5GQ1HWIwTDDH3MiRjz7OnpCfaCb1RCF5zGaSncCWmJdcYA"),
-		NoMatch("low entropy", `token        = "xxxxxxxxxxxxxx.atlasv1.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`),
+		rulebuilder.Match("assignment", `hashicorpTokenToken = "1f7b169c846f21.atlasv1.ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7"`, "1f7b169c846f21.atlasv1.ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7"),
+		rulebuilder.Match("true positive 1", `#token = "hE1hlYILrSqpqh.atlasv1.ARjZuyzl33F71WR55s6ln5GQ1HWIwTDDH3MiRjz7OnpCfaCb1RCF5zGaSncCWmJdcYA"`, "hE1hlYILrSqpqh.atlasv1.ARjZuyzl33F71WR55s6ln5GQ1HWIwTDDH3MiRjz7OnpCfaCb1RCF5zGaSncCWmJdcYA"),
+		rulebuilder.NoMatch("low entropy", `token        = "xxxxxxxxxxxxxx.atlasv1.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`),
 	},
 })
 
-var _ = Add(HashicorpField())
-
-func HashicorpField() config.Rule {
-	keywords := []string{"administrator_login_password", "password"}
-	r := config.Rule{
-		ID:          "hashicorp-tf-password",
-		Confidence:  "medium",
-		Description: "Identified a HashiCorp Terraform password field, risking unauthorized infrastructure configuration and security breaches.",
-		Regex:       Assignment(keywords, `(?i)`+fmt.Sprintf(`"%s"`, AlphaNumericExtended("8,20"))),
-		Path:        `(?i)\.(?:tf|hcl)$`,
-		Keywords:    keywords,
-		FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
-	}
-	r.Tests = []config.RuleTest{
+var _ = rulebuilder.Add(config.Rule{
+	ID:          "hashicorp-tf-password",
+	Confidence:  "medium",
+	Description: "Identified a HashiCorp Terraform password field, risking unauthorized infrastructure configuration and security breaches.",
+	Regex:       rulebuilder.Assignment([]string{"administrator_login_password", "password"}, `(?i)"`+rulebuilder.AlphaNumericExtended("8,20")+`"`),
+	Path:        `(?i)\.(?:tf|hcl)$`,
+	Keywords:    []string{"administrator_login_password", "password"},
+	FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
+	Tests: []config.RuleTest{
 		{
 			Name:       "true positive 1",
 			Input:      `password       = "rootpasswd"`,
@@ -68,6 +62,5 @@ func HashicorpField() config.Rule {
 			Attributes: map[string]string{"path": "unrelated.js"},
 			Expect:     []config.ExpectedFinding{},
 		},
-	}
-	return r
-}
+	},
+})

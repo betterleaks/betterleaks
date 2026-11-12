@@ -1,6 +1,22 @@
-package rules
+package rulebuilder
 
 import "strings"
+
+// Token matches a credential with a distinctive format, such as a fixed
+// prefix, bounded by the standard token delimiters. A leading (?i) makes the
+// whole pattern case-insensitive.
+func Token(pattern string) string {
+	pattern, insensitive := strings.CutPrefix(pattern, "(?i)")
+	return uniqueTokenRegex(pattern, insensitive)
+}
+
+// Assignment matches a credential assigned to a name containing one of names,
+// such as ACME_SECRET = "...". Names are case-insensitive regex fragments. A
+// leading (?i) makes the value pattern case-insensitive too.
+func Assignment(names []string, pattern string) string {
+	pattern, insensitive := strings.CutPrefix(pattern, "(?i)")
+	return semiGenericRegex(names, pattern, insensitive)
+}
 
 const (
 	// case insensitive prefix

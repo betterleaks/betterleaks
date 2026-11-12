@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "zai-api-key",
 	Confidence:  "medium",
 	Description: "Detected a Z.ai API key, which may expose GLM model access and usage to unauthorized parties.",
-	Regex:       Assignment([]string{"zai", "z_ai", `z\.ai`, "glm", "zlm"}, `(?i)`+Hex("32")+`\.`+AlphaNumeric("16")),
+	Regex:       rulebuilder.Assignment([]string{"zai", "z_ai", `z\.ai`, "glm", "zlm"}, `(?i)`+rulebuilder.Hex("32")+`\.`+rulebuilder.AlphaNumeric("16")),
 	Keywords:    []string{"zai", "z_ai", "z.ai", "glm", "zlm"},
 	ValidateExpr: `let r = http.post("https://api.z.ai/api/paas/v4/tokenizer", {
     "Authorization": "Bearer " + finding["secret"],
@@ -27,6 +30,6 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	Tests: []config.RuleTest{
-		Match("zai assignment", `zaiToken = "cbe5985d07804065b46efaf1daa82834.ZLV4IOHGbEEHPDt5"`, "cbe5985d07804065b46efaf1daa82834.ZLV4IOHGbEEHPDt5"),
+		rulebuilder.Match("assignment", `zaiToken = "cbe5985d07804065b46efaf1daa82834.ZLV4IOHGbEEHPDt5"`, "cbe5985d07804065b46efaf1daa82834.ZLV4IOHGbEEHPDt5"),
 	},
 })

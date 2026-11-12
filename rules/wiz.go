@@ -1,50 +1,31 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "wiz-client-id.1",
 	Confidence:  "medium",
 	Description: "Wiz OAuth client ID, used as a component of the Wiz client-secret composite rule.",
-	Regex:       Assignment([]string{"wiz"}, `[A-Za-z0-9]{53,56}`),
+	Regex:       rulebuilder.Assignment([]string{"wiz"}, `[A-Za-z0-9]{53,56}`),
 	Keywords:    []string{"wiz"},
 	SkipReport:  true,
-	FilterExpr:  MinEntropy(4.0),
+	FilterExpr:  rulebuilder.MinEntropy(4.0),
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "WIZ_CLIENT_ID=RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSv",
-			Expect: []config.ExpectedFinding{
-				{Secret: "RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSv"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "CLIENT_ID=RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSv",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "WIZ_CLIENT_ID=short",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 3",
-			Mode:   "match",
-			Input:  "WIZ_CLIENT_ID=00000000000000000000000000000000000000000000000000000000",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "WIZ_CLIENT_ID=RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSv", "RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSv"),
+		rulebuilder.NoMatchComponent("false positive 1", "CLIENT_ID=RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSv"),
+		rulebuilder.NoMatchComponent("false positive 2", "WIZ_CLIENT_ID=short"),
+		rulebuilder.NoMatchComponent("false positive 3", "WIZ_CLIENT_ID=00000000000000000000000000000000000000000000000000000000"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "wiz-client-secret.1",
 	Confidence:  "high",
 	Description: "Wiz OAuth client secret, which may allow access to the Wiz API when paired with its client ID.",
-	Regex:       Assignment([]string{"wiz"}, `[A-Za-z0-9]{64}`),
+	Regex:       rulebuilder.Assignment([]string{"wiz"}, `[A-Za-z0-9]{64}`),
 	Keywords:    []string{"wiz"},
 	Components: []config.Component{
 		{RuleID: "wiz-client-id.1", Within: "5L"},
@@ -62,7 +43,7 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(4.0),
+	FilterExpr: rulebuilder.MinEntropy(4.0),
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -71,8 +52,8 @@ var _ = Add(config.Rule{
 				{Secret: "RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSvQmntzYlk", ComponentSets: []map[string]string{{"wiz-client-id.1": "RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSv"}}},
 			},
 		},
-		NoMatch("false positive 1", "CLIENT_SECRET=RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSvQmntzYlk"),
-		NoMatch("false positive 2", "WIZ_CLIENT_SECRET=short"),
-		NoMatch("false positive 3", "WIZ_CLIENT_SECRET=0000000000000000000000000000000000000000000000000000000000000000"),
+		rulebuilder.NoMatch("false positive 1", "CLIENT_SECRET=RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSvQmntzYlk"),
+		rulebuilder.NoMatch("false positive 2", "WIZ_CLIENT_SECRET=short"),
+		rulebuilder.NoMatch("false positive 3", "WIZ_CLIENT_SECRET=0000000000000000000000000000000000000000000000000000000000000000"),
 	},
 })

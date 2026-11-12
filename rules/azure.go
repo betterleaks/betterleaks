@@ -2,9 +2,10 @@ package rules
 
 import (
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "azure-tenant-id",
 	Confidence:  "medium",
 	Description: "Detected an Azure tenant ID, used as a component of Azure service principal validation.",
@@ -13,18 +14,11 @@ var _ = Add(config.Rule{
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) <= 2.5`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "azure_tenant_id=72f988bf-86f1-41af-91ab-2d7cd011db47",
-			Expect: []config.ExpectedFinding{
-				{Secret: "72f988bf-86f1-41af-91ab-2d7cd011db47"},
-			},
-		},
+		rulebuilder.MatchComponent("true positive 1", "azure_tenant_id=72f988bf-86f1-41af-91ab-2d7cd011db47", "72f988bf-86f1-41af-91ab-2d7cd011db47"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "azure-client-id",
 	Confidence:  "medium",
 	Description: "Detected an Azure client ID, used as a component of Azure service principal validation.",
@@ -33,21 +27,14 @@ var _ = Add(config.Rule{
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) <= 2.5`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "azure_client_id=f47ac10b-58cc-4372-a567-0e02b2c3d479",
-			Expect: []config.ExpectedFinding{
-				{Secret: "f47ac10b-58cc-4372-a567-0e02b2c3d479"},
-			},
-		},
+		rulebuilder.MatchComponent("true positive 1", "azure_client_id=f47ac10b-58cc-4372-a567-0e02b2c3d479", "f47ac10b-58cc-4372-a567-0e02b2c3d479"),
 	},
 })
 
 // References:
 // - https://learn.microsoft.com/en-us/microsoft-365/compliance/sit-defn-azure-ad-client-secret
 // - https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app#add-credentials
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "azure-ad-client-secret",
 	Confidence:  "high",
 	Description: "Azure AD Client Secret",
@@ -194,54 +181,33 @@ var _ = Add(config.Rule{
 				{Secret: "Zj_1Q~LgoiBj5lQ4Oqp9Wlm3c_c-U87qkQM7q", ComponentSets: []map[string]string{{"azure-client-id": "f47ac10b-58cc-4372-a567-0e02b2c3d479", "azure-tenant-id": "72f988bf-86f1-41af-91ab-2d7cd011db47"}}},
 			},
 		},
-		NoMatch("false positive 1", "// CloudFront-Signature: Ixn4bF1LLrLcB8XG-t5bZbIB0vfwSF2s4gkef~PcNBdx73MVvZD3v8DZ5GzcqNrybMiqdYJY5KqK6vTsf5JXDgwFFz-h98wdsbV-izcuonPdzMHp4Ay4qyXM6Ed5jB9dUWYGwMkA6rsWXpftfX8xmk4tG1LwFuJV6nAsx4cfpuKwo4vU2Hyr2-fkA7MZG8AHkpDdVUnjm1q-Re9HdG0nCq-2lnBAdOchBpJt37narOj-Zg6cbx~6rzQLVQd8XIv-Bn7VTc1tkBAJVtGOHb0Q~PLzSRmtNGYTnpL0z~gp3tq8lhZc2HuvJW5-tZaYP9yufeIzk5bqsT6DT4iDuclKKw__, , , false"),
-		NoMatch("false positive 2", `+ "<Trust Comment=\"\" Identity=\"USK@u2vn3Lh6Kte2-TgBSNKorbsKkuAt34ckoLmgx0ndXO0,4~q8Q~3wIHjX9DT0yCNfQmr9oxmYrDZoQVLOdNg~yk0,AQACAAE/WebOfTrustRC2/2\" Value=\"100\"/>"`),
-		NoMatch("false positive 3", "client_secret=bP88Q~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.NoMatch("false positive 1", "// CloudFront-Signature: Ixn4bF1LLrLcB8XG-t5bZbIB0vfwSF2s4gkef~PcNBdx73MVvZD3v8DZ5GzcqNrybMiqdYJY5KqK6vTsf5JXDgwFFz-h98wdsbV-izcuonPdzMHp4Ay4qyXM6Ed5jB9dUWYGwMkA6rsWXpftfX8xmk4tG1LwFuJV6nAsx4cfpuKwo4vU2Hyr2-fkA7MZG8AHkpDdVUnjm1q-Re9HdG0nCq-2lnBAdOchBpJt37narOj-Zg6cbx~6rzQLVQd8XIv-Bn7VTc1tkBAJVtGOHb0Q~PLzSRmtNGYTnpL0z~gp3tq8lhZc2HuvJW5-tZaYP9yufeIzk5bqsT6DT4iDuclKKw__, , , false"),
+		rulebuilder.NoMatch("false positive 2", `+ "<Trust Comment=\"\" Identity=\"USK@u2vn3Lh6Kte2-TgBSNKorbsKkuAt34ckoLmgx0ndXO0,4~q8Q~3wIHjX9DT0yCNfQmr9oxmYrDZoQVLOdNg~yk0,AQACAAE/WebOfTrustRC2/2\" Value=\"100\"/>"`),
+		rulebuilder.NoMatch("false positive 3", "client_secret=bP88Q~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "azure-storage-account-name",
 	Confidence:  "medium",
 	Description: "Detected an Azure Storage account name, used as a component of Azure Storage key validation.",
 	Regex:       `(?i)(?:\bAccountName\s*=\s*([a-z0-9]{3,24})\b|https://([a-z0-9]{3,24})\.blob\.core\.windows\.net\b|\b(?:azure[_\s.-]*storage[_\s.-]*(?:account[_\s.-]*)?name|storage[_\s.-]*account[_\s.-]*name)\b(?s:.{0,24}?)([a-z0-9]{3,24})\b)`,
-	Keywords:    []string{"AccountName", "blob.core.windows.net", "storage"},
+	Keywords:    []string{"accountname", "blob.core.windows.net", "storage"},
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) <= 1.5`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "AccountName=mystorageaccount;AccountKey=VD5v/4tg6Y4jWlMO9JZWDOcGzfjsqrpsPDZAdrxGBG81lHSYzNJ7pLcF6ubf1SxQeYd0TW9ceqba75woTt/R7f==",
-			Expect: []config.ExpectedFinding{
-				{Secret: "mystorageaccount"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: "https://prodlogs.blob.core.windows.net/container",
-			Expect: []config.ExpectedFinding{
-				{Secret: "prodlogs"},
-			},
-		},
-		{
-			Name:  "true positive 3",
-			Mode:  "match",
-			Input: "AZURE_STORAGE_ACCOUNT_NAME=prodblob2024",
-			Expect: []config.ExpectedFinding{
-				{Secret: "prodblob2024"},
-			},
-		},
+		rulebuilder.MatchComponent("true positive 1", "AccountName=mystorageaccount;AccountKey=VD5v/4tg6Y4jWlMO9JZWDOcGzfjsqrpsPDZAdrxGBG81lHSYzNJ7pLcF6ubf1SxQeYd0TW9ceqba75woTt/R7f==", "mystorageaccount"),
+		rulebuilder.MatchComponent("true positive 2", "https://prodlogs.blob.core.windows.net/container", "prodlogs"),
+		rulebuilder.MatchComponent("true positive 3", "AZURE_STORAGE_ACCOUNT_NAME=prodblob2024", "prodblob2024"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "azure-storage-account-key",
 	Confidence:  "high",
 	Description: "Detected an Azure Storage account key.",
 	Regex:       `(?i)\b(?:AccountKey|(?:azure[_\s.-]*)?(?:storage[_\s.-]*)?(?:account[_\s.-]*)?(?:access[_\s.-]*)?key)\b(?s:.{0,24}?)([A-Za-z0-9+/]{86}==)`,
-	Keywords:    []string{"AccountKey", "storage", "accesskey", "access_key", "access-key"},
+	Keywords:    []string{"accountkey", "storage", "accesskey", "access_key", "access-key"},
 	Components: []config.Component{
 		{RuleID: "azure-storage-account-name", Within: "8L"},
 	},
@@ -265,13 +231,13 @@ var _ = Add(config.Rule{
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "azure-app-configuration-connection-string",
 	Confidence:  "high",
 	Description: "Detected an Azure App Configuration connection string.",
 	Regex:       `(?i)Endpoint=(?P<azure_appconfig_endpoint>https://[a-z0-9-]+\.azconfig\.io);Id=(?P<azure_appconfig_id>[^;\s'"]{4,80});Secret=([A-Za-z0-9+/]{36,100}={0,2})`,
 	ValueGroup:  3,
-	Keywords:    []string{"azconfig.io", "Endpoint=", "Secret="},
+	Keywords:    []string{"azconfig.io", "endpoint=", "secret="},
 	ValidateExpr: `let r = azure.validateAppConfig(
   finding["captures"]?.azure_appconfig_endpoint ?? "",
   finding["captures"]?.azure_appconfig_id ?? "",
@@ -296,12 +262,12 @@ var _ = Add(config.Rule{
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "azure-servicebus-connection-string",
 	Confidence:  "high",
 	Description: "Detected an Azure Service Bus or Event Hub shared access connection string.",
 	Regex:       `(?i)(Endpoint=sb://[a-z0-9-]+\.servicebus\.windows\.net/;SharedAccessKeyName=[^;=\s'"]{1,128};SharedAccessKey=[A-Za-z0-9+/]{32,100}={0,2}(?:;EntityPath=[^;\s'"]{1,128})?)`,
-	Keywords:    []string{"Endpoint=sb://", "SharedAccessKey"},
+	Keywords:    []string{"endpoint=sb://", "sharedaccesskey"},
 	ValidateExpr: `let r = azure.validateServiceBusSAS(finding["secret"]); r.status in [200, 201, 202, 204] ? {
   "result": "valid",
   "metadata": {"host": r.host, "entity_path": r.entity_path}
@@ -312,6 +278,6 @@ var _ = Add(config.Rule{
 `,
 	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("bare secret", "Endpoint=sb://orders-prod.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=VD5v/4tg6Y4jWlMO9JZWDOcGzfjsqrpsPDZAdrxGBG81lHSYzNJ7pLcF;EntityPath=orders", "Endpoint=sb://orders-prod.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=VD5v/4tg6Y4jWlMO9JZWDOcGzfjsqrpsPDZAdrxGBG81lHSYzNJ7pLcF;EntityPath=orders"),
+		rulebuilder.Match("bare secret", "Endpoint=sb://orders-prod.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=VD5v/4tg6Y4jWlMO9JZWDOcGzfjsqrpsPDZAdrxGBG81lHSYzNJ7pLcF;EntityPath=orders", "Endpoint=sb://orders-prod.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=VD5v/4tg6Y4jWlMO9JZWDOcGzfjsqrpsPDZAdrxGBG81lHSYzNJ7pLcF;EntityPath=orders"),
 	},
 })

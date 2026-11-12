@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "rainforest-pay-production-api-key",
 	Confidence:  "medium",
 	Description: "Rainforest Pay production API key.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`rainforest(?:[_. -]*pay)?(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
 		`apikey_[a-f0-9]{64}`,
 	),
@@ -24,11 +27,11 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "RAINFOREST_API_KEY=apikey_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc", "apikey_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc"),
-		NoMatch("false positive 1", "RAINFOREST_API_KEY=sbx_apikey_2bd2c646e7e1194f8c9cf194e8f4555de1f3eefbbc472003276666d4efb76e74"),
-		NoMatch("false positive 2", "API_KEY=apikey_1ad1c535b0c0093e7b9bf093d7e3444cd0e2ddefab36199216f555c3efa65d63"),
-		NoMatch("false positive 3", "RAINFOREST_API_KEY=apikey_0000000000000000000000000000000000000000000000000000000000000000"),
+		rulebuilder.Match("true positive 1", "RAINFOREST_API_KEY=apikey_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc", "apikey_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc"),
+		rulebuilder.NoMatch("false positive 1", "RAINFOREST_API_KEY=sbx_apikey_2bd2c646e7e1194f8c9cf194e8f4555de1f3eefbbc472003276666d4efb76e74"),
+		rulebuilder.NoMatch("false positive 2", "API_KEY=apikey_1ad1c535b0c0093e7b9bf093d7e3444cd0e2ddefab36199216f555c3efa65d63"),
+		rulebuilder.NoMatch("false positive 3", "RAINFOREST_API_KEY=apikey_0000000000000000000000000000000000000000000000000000000000000000"),
 	},
 })

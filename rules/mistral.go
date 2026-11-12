@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "mistral-api-key",
 	Confidence:  "medium",
 	Description: "Detected a Mistral AI API Key, which may expose AI language model services to unauthorized access.",
-	Regex:       Assignment([]string{"mistral"}, `(?i)[A-Z0-9]{32}`),
+	Regex:       rulebuilder.Assignment([]string{"mistral"}, `(?i)[A-Z0-9]{32}`),
 	Keywords:    []string{"mistral"},
 	ValidateExpr: `let r = http.get("https://api.mistral.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
@@ -19,8 +22,8 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("mistral assignment", `mistralToken = "5FBBD6P84OE7UT4QRTTEBIWAR77S63DO"`, "5FBBD6P84OE7UT4QRTTEBIWAR77S63DO"),
-		NoMatch("Too short", "mistral_token = 47cFZMzkoEo9DBapfvhrmMst3zfV"),
-		NoMatch("All same chars (low entropy)", "mistral_token = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+		rulebuilder.Match("assignment", `mistralToken = "5FBBD6P84OE7UT4QRTTEBIWAR77S63DO"`, "5FBBD6P84OE7UT4QRTTEBIWAR77S63DO"),
+		rulebuilder.NoMatch("Too short", "mistral_token = 47cFZMzkoEo9DBapfvhrmMst3zfV"),
+		rulebuilder.NoMatch("All same chars (low entropy)", "mistral_token = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
 	},
 })

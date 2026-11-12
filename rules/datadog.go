@@ -1,13 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "datadog-api-key",
 	Confidence:  "high",
 	Description: "Detected a Datadog API key, potentially risking monitoring and analytics data exposure and manipulation.",
-	Regex: Assignment([]string{"datadog"},
-		`(?i)`+AlphaNumeric("32")),
+	Regex:       rulebuilder.Assignment([]string{"datadog"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
 	Keywords: []string{
 		"datadog",
 	},
@@ -20,23 +22,23 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("datadog assignment", `datadogToken = "5fbbd6p84oe7ut4qrttebiwar77s63do"`, "5fbbd6p84oe7ut4qrttebiwar77s63do"),
-		Match("true positive 1", "DATADOG_API_KEY=0024a29224affe29d173c0bf99e5a89d", "0024a29224affe29d173c0bf99e5a89d"),
+		rulebuilder.Match("assignment", `datadogToken = "5fbbd6p84oe7ut4qrttebiwar77s63do"`, "5fbbd6p84oe7ut4qrttebiwar77s63do"),
+		rulebuilder.Match("true positive 1", "DATADOG_API_KEY=0024a29224affe29d173c0bf99e5a89d", "0024a29224affe29d173c0bf99e5a89d"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "datadog-application-key",
 	Confidence:  "high",
 	Description: "Detected a Datadog application key, which may expose Datadog account and monitoring data when paired with an API key.",
-	Regex:       Assignment([]string{"datadog"}, `(?i)[A-Za-z0-9-]{40}`),
+	Regex:       rulebuilder.Assignment([]string{"datadog"}, `(?i)[A-Za-z0-9-]{40}`),
 	Keywords: []string{
 		"datadog",
 	},
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "DATADOG_APPLICATION_KEY=abcDEF0123456789abcDEF0123456789abcDEF01", "abcDEF0123456789abcDEF0123456789abcDEF01"),
+		rulebuilder.Match("true positive 1", "DATADOG_APPLICATION_KEY=abcDEF0123456789abcDEF0123456789abcDEF01", "abcDEF0123456789abcDEF0123456789abcDEF01"),
 	},
 })

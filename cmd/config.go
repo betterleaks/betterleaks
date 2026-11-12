@@ -331,7 +331,6 @@ func compileRuleRegexps(cfg *configpkg.Config, engine regexp.Engine) error {
 
 type configView struct {
 	Title       string     `toml:"title,omitempty"`
-	Provider    string     `toml:"provider,omitempty"`
 	Description string     `toml:"description,omitempty"`
 	MinVersion  string     `toml:"minVersion,omitempty"`
 	Prefilter   string     `toml:"prefilter,omitempty"`
@@ -367,7 +366,6 @@ type componentView struct {
 func renderConfig(cfg *configpkg.Config) configView {
 	view := configView{
 		Title:       cfg.Title,
-		Provider:    cfg.Provider,
 		Description: cfg.Description,
 		MinVersion:  cfg.MinVersion,
 		Prefilter:   cfg.PrefilterExpr,
@@ -407,7 +405,6 @@ func renderConfigTOML(view configView) string {
 	var b strings.Builder
 
 	writeString(&b, "title", view.Title)
-	writeString(&b, "provider", view.Provider)
 	writeString(&b, "description", view.Description)
 	writeString(&b, "minVersion", view.MinVersion)
 	writeString(&b, "prefilter", view.Prefilter)

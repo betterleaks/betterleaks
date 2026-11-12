@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	// Human redable description of the rule
 	Description: "Identified a Defined Networking API token, which could lead to unauthorized network operations and data breaches.",
 
@@ -11,11 +14,11 @@ var _ = Add(config.Rule{
 	Confidence: "high",
 
 	// Regex used for detecting secrets. See regex section below for more details
-	Regex: Assignment([]string{"dnkey"}, `(?i)dnkey-[a-z0-9=_\-]{26}-[a-z0-9=_\-]{52}`),
+	Regex: rulebuilder.Assignment([]string{"dnkey"}, `(?i)dnkey-[a-z0-9=_\-]{26}-[a-z0-9=_\-]{52}`),
 
 	// Keywords used for string matching on fragments (think of this as a prefilter)
 	Keywords: []string{"dnkey"},
 	Tests: []config.RuleTest{
-		Match("dnkey assignment", `dnkeyToken = "dnkey-ki=bm50nvcz3-wjwuth1tchax6-ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld"`, "dnkey-ki=bm50nvcz3-wjwuth1tchax6-ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld"),
+		rulebuilder.Match("assignment", `dnkeyToken = "dnkey-ki=bm50nvcz3-wjwuth1tchax6-ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld"`, "dnkey-ki=bm50nvcz3-wjwuth1tchax6-ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld"),
 	},
 })

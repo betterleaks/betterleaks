@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "salesforce-instance-url.1",
 	Confidence:  "high",
 	Description: "Salesforce instance host, used as a component of the Salesforce access-token rule.",
@@ -10,56 +13,20 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"salesforce.com"},
 	SkipReport:  true,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "SALESFORCE_INSTANCE_URL=https://example123.my.salesforce.com",
-			Expect: []config.ExpectedFinding{
-				{Secret: "example123.my.salesforce.com"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: "SALESFORCE_INSTANCE_URL=https://acme--dev.sandbox.my.salesforce.com",
-			Expect: []config.ExpectedFinding{
-				{Secret: "acme--dev.sandbox.my.salesforce.com"},
-			},
-		},
-		{
-			Name:  "true positive 3",
-			Mode:  "match",
-			Input: "SALESFORCE_INSTANCE_URL=https://na123.salesforce.com",
-			Expect: []config.ExpectedFinding{
-				{Secret: "na123.salesforce.com"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "SALESFORCE_INSTANCE_URL=https://example.com",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "SALESFORCE_INSTANCE_URL=https://-invalid.my.salesforce.com",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 3",
-			Mode:   "match",
-			Input:  "SALESFORCE_INSTANCE_URL=https://my.salesforce.com.evil.example",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "SALESFORCE_INSTANCE_URL=https://example123.my.salesforce.com", "example123.my.salesforce.com"),
+		rulebuilder.MatchComponent("true positive 2", "SALESFORCE_INSTANCE_URL=https://acme--dev.sandbox.my.salesforce.com", "acme--dev.sandbox.my.salesforce.com"),
+		rulebuilder.MatchComponent("true positive 3", "SALESFORCE_INSTANCE_URL=https://na123.salesforce.com", "na123.salesforce.com"),
+		rulebuilder.NoMatchComponent("false positive 1", "SALESFORCE_INSTANCE_URL=https://example.com"),
+		rulebuilder.NoMatchComponent("false positive 2", "SALESFORCE_INSTANCE_URL=https://-invalid.my.salesforce.com"),
+		rulebuilder.NoMatchComponent("false positive 3", "SALESFORCE_INSTANCE_URL=https://my.salesforce.com.evil.example"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "salesforce-access-token.1",
 	Confidence:  "high",
 	Description: "Salesforce access token.",
-	Regex:       Token(`00[A-Za-z0-9]{13}![A-Za-z0-9._-]{80,260}`),
+	Regex:       rulebuilder.Token(`00[A-Za-z0-9]{13}![A-Za-z0-9._-]{80,260}`),
 	Keywords:    []string{"salesforce.com"},
 	Components: []config.Component{
 		{RuleID: "salesforce-instance-url.1", Within: "30L"},
@@ -76,7 +43,7 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.3),
+	FilterExpr: rulebuilder.MinEntropy(3.3),
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -92,8 +59,8 @@ var _ = Add(config.Rule{
 				{Secret: "00DE0X0A0M0PeLE!AQcAQH0dMHEXAMPLEzmpkb58urFRkgeBGsxL_QJWwYMfAbUeeG7c1EXAMPLEDUkWe6H34r1AAwOR8B8fLEz6nEXAMPLEAAAA", ComponentSets: []map[string]string{{"salesforce-instance-url.1": "MyDomainName.my.salesforce.com"}}},
 			},
 		},
-		NoMatch("false positive 1", "SALESFORCE_INSTANCE_URL=https://example123.my.salesforce.com\nSALESFORCE_ACCESS_TOKEN=00DE0X0A0M0PeLE!short"),
-		NoMatch("false positive 2", "SALESFORCE_INSTANCE_URL=https://example123.my.salesforce.com\nSALESFORCE_ACCESS_TOKEN=00DE0X0A0M0PeLE!xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
-		NoMatch("false positive 3", "SALESFORCE_INSTANCE_URL=https://example123.my.salesforce.com\nSALESFORCE_ACCESS_TOKEN=00DE0X0A0M0PeLE!AQcAQH0dMHEXAMPLEzmpkb58urFRkgeBGsxL/QJWwYMfAbUeeG7c1EXAMPLEDUkWe6H34r1AAwOR8B8fLEz6nEXAMPLEAAAA"),
+		rulebuilder.NoMatch("false positive 1", "SALESFORCE_INSTANCE_URL=https://example123.my.salesforce.com\nSALESFORCE_ACCESS_TOKEN=00DE0X0A0M0PeLE!short"),
+		rulebuilder.NoMatch("false positive 2", "SALESFORCE_INSTANCE_URL=https://example123.my.salesforce.com\nSALESFORCE_ACCESS_TOKEN=00DE0X0A0M0PeLE!xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.NoMatch("false positive 3", "SALESFORCE_INSTANCE_URL=https://example123.my.salesforce.com\nSALESFORCE_ACCESS_TOKEN=00DE0X0A0M0PeLE!AQcAQH0dMHEXAMPLEzmpkb58urFRkgeBGsxL/QJWwYMfAbUeeG7c1EXAMPLEDUkWe6H34r1AAwOR8B8fLEz6nEXAMPLEAAAA"),
 	},
 })

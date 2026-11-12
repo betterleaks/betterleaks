@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "temporal-cloud-api-key.1",
 	Confidence:  "high",
 	Description: "Temporal Cloud API key.",
-	Regex: Token(
+	Regex: rulebuilder.Token(
 		`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*Y2NvdW50X2lk[A-Za-z0-9_-]*InRlbXBvcmFsLmlv[A-Za-z0-9_-]*(?:ICJrZXlfaWQiOi|a2V5X2lk|rZXlfaWQi)[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}`,
 	),
 	Keywords: []string{"inrlbxbvcmfslmlv"},
@@ -22,8 +25,8 @@ var _ = Add(config.Rule{
 	FilterExpr: `entropy(finding["secret"]) < 3.2
 || !matchesAny(finding["secret"], ["^(?:[^0-9]*[0-9]){3}"])`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", "TEMPORAL_API_KEY=eyJhbGciOiJFUzI1NiIsImtpZCI6IlNhbXBsZSJ9.eyJhY2NvdW50X2lkIjoic2FtcGxlIiwiYXVkIjpbInRlbXBvcmFsLmlvIl0sImlzcyI6InRlbXBvcmFsLmlvIiwia2V5X2lkIjoic2FtcGxlLWtleSIsInN1YiI6InVzZXItMTIzIiwiZXhwIjoyMDAwMDAwMDAwfQ.c2lnbmF0dXJlX3BsYWNlaG9sZGVyXzEyMzQ1Njc4OTA", "eyJhbGciOiJFUzI1NiIsImtpZCI6IlNhbXBsZSJ9.eyJhY2NvdW50X2lkIjoic2FtcGxlIiwiYXVkIjpbInRlbXBvcmFsLmlvIl0sImlzcyI6InRlbXBvcmFsLmlvIiwia2V5X2lkIjoic2FtcGxlLWtleSIsInN1YiI6InVzZXItMTIzIiwiZXhwIjoyMDAwMDAwMDAwfQ.c2lnbmF0dXJlX3BsYWNlaG9sZGVyXzEyMzQ1Njc4OTA"),
-		NoMatch("false positive 1", "TEMPORAL_API_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInN1YiI6InVzZXIiLCJleHAiOjE5NzIxNzI0NjF9.WQWcwBAQFNE259f2o8ruFln_UMLTFEnEaUD7KHrs9Aw"),
-		NoMatch("false positive 2", "TEMPORAL_API_KEY=eyJshort.payload.signature"),
+		rulebuilder.Match("true positive 1", "TEMPORAL_API_KEY=eyJhbGciOiJFUzI1NiIsImtpZCI6IlNhbXBsZSJ9.eyJhY2NvdW50X2lkIjoic2FtcGxlIiwiYXVkIjpbInRlbXBvcmFsLmlvIl0sImlzcyI6InRlbXBvcmFsLmlvIiwia2V5X2lkIjoic2FtcGxlLWtleSIsInN1YiI6InVzZXItMTIzIiwiZXhwIjoyMDAwMDAwMDAwfQ.c2lnbmF0dXJlX3BsYWNlaG9sZGVyXzEyMzQ1Njc4OTA", "eyJhbGciOiJFUzI1NiIsImtpZCI6IlNhbXBsZSJ9.eyJhY2NvdW50X2lkIjoic2FtcGxlIiwiYXVkIjpbInRlbXBvcmFsLmlvIl0sImlzcyI6InRlbXBvcmFsLmlvIiwia2V5X2lkIjoic2FtcGxlLWtleSIsInN1YiI6InVzZXItMTIzIiwiZXhwIjoyMDAwMDAwMDAwfQ.c2lnbmF0dXJlX3BsYWNlaG9sZGVyXzEyMzQ1Njc4OTA"),
+		rulebuilder.NoMatch("false positive 1", "TEMPORAL_API_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInN1YiI6InVzZXIiLCJleHAiOjE5NzIxNzI0NjF9.WQWcwBAQFNE259f2o8ruFln_UMLTFEnEaUD7KHrs9Aw"),
+		rulebuilder.NoMatch("false positive 2", "TEMPORAL_API_KEY=eyJshort.payload.signature"),
 	},
 })

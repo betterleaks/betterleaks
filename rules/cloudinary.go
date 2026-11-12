@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "cloudinary-cloud-name",
 	Confidence:  "high",
 	Description: "Detected a Cloudinary cloud name, used as a component of the cloudinary-api-secret composite rule.",
@@ -10,38 +13,14 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"cloudinary"},
 	SkipReport:  true,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "CLOUDINARY_CLOUD_NAME=demo",
-			Expect: []config.ExpectedFinding{
-				{Secret: "demo"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: "cloudinary cloud: product-images",
-			Expect: []config.ExpectedFinding{
-				{Secret: "product-images"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "CLOUD_NAME=demo",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "CLOUDINARY_CLOUD_NAME=ab",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "CLOUDINARY_CLOUD_NAME=demo", "demo"),
+		rulebuilder.MatchComponent("true positive 2", "cloudinary cloud: product-images", "product-images"),
+		rulebuilder.NoMatchComponent("false positive 1", "CLOUD_NAME=demo"),
+		rulebuilder.NoMatchComponent("false positive 2", "CLOUDINARY_CLOUD_NAME=ab"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "cloudinary-api-key",
 	Confidence:  "high",
 	Description: "Detected a Cloudinary API key, used as a component of the cloudinary-api-secret composite rule.",
@@ -50,30 +29,13 @@ var _ = Add(config.Rule{
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) < 2.75`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "CLOUDINARY_API_KEY=123456789012345",
-			Expect: []config.ExpectedFinding{
-				{Secret: "123456789012345"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "API_KEY=123456789012345",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "CLOUDINARY_API_KEY=12345678901234",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "CLOUDINARY_API_KEY=123456789012345", "123456789012345"),
+		rulebuilder.NoMatchComponent("false positive 1", "API_KEY=123456789012345"),
+		rulebuilder.NoMatchComponent("false positive 2", "CLOUDINARY_API_KEY=12345678901234"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "cloudinary-api-secret",
 	Confidence:  "high",
 	Description: "Detected a Cloudinary API secret, which may allow unauthorized access to Cloudinary media and account APIs when paired with a cloud name and API key.",
@@ -101,7 +63,7 @@ var _ = Add(config.Rule{
 				{Secret: "aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW", ComponentSets: []map[string]string{{"cloudinary-api-key": "123456789012345", "cloudinary-cloud-name": "demo"}}},
 			},
 		},
-		NoMatch("false positive 1", "API_SECRET=abcdefghijklmnopqrstuvwxyz123456"),
-		NoMatch("false positive 2", "CLOUDINARY_API_SECRET=abcdefghijklmnopqrstuvwxyz12345"),
+		rulebuilder.NoMatch("false positive 1", "API_SECRET=abcdefghijklmnopqrstuvwxyz123456"),
+		rulebuilder.NoMatch("false positive 2", "CLOUDINARY_API_SECRET=abcdefghijklmnopqrstuvwxyz12345"),
 	},
 })

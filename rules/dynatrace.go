@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "dynatrace-api-token",
 	Confidence:  "high",
 	Description: "Detected a Dynatrace API token, potentially risking application performance monitoring and data exposure.",
@@ -10,6 +13,6 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"dt0c01."},
 	FilterExpr:  `entropy(finding["secret"]) <= 4.0`,
 	Tests: []config.RuleTest{
-		Match("dynatrace assignment", `dynatraceToken = "dt0c01.5fbbd6p84oe7ut4qrttebiwa.5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lc"`, "dt0c01.5fbbd6p84oe7ut4qrttebiwa.5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lc"),
+		rulebuilder.Match("assignment", `dynatraceToken = "dt0c01.5fbbd6p84oe7ut4qrttebiwa.5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lc"`, "dt0c01.5fbbd6p84oe7ut4qrttebiwa.5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lc"),
 	},
 })

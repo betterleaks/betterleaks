@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "snowflake-account-host.1",
 	Confidence:  "high",
 	Description: "Snowflake account host, used as a component of the programmatic access-token rule.",
@@ -10,42 +13,18 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"snowflakecomputing.com"},
 	SkipReport:  true,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "SNOWFLAKE_HOST=xy12345.us-east-1.snowflakecomputing.com",
-			Expect: []config.ExpectedFinding{
-				{Secret: "xy12345.us-east-1.snowflakecomputing.com"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: "host=acme-prod.eu-west-1.aws.snowflakecomputing.com",
-			Expect: []config.ExpectedFinding{
-				{Secret: "acme-prod.eu-west-1.aws.snowflakecomputing.com"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "SNOWFLAKE_HOST=xy12345.example.com",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "SNOWFLAKE_HOST=snowflakecomputing.com.evil.example",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "SNOWFLAKE_HOST=xy12345.us-east-1.snowflakecomputing.com", "xy12345.us-east-1.snowflakecomputing.com"),
+		rulebuilder.MatchComponent("true positive 2", "host=acme-prod.eu-west-1.aws.snowflakecomputing.com", "acme-prod.eu-west-1.aws.snowflakecomputing.com"),
+		rulebuilder.NoMatchComponent("false positive 1", "SNOWFLAKE_HOST=xy12345.example.com"),
+		rulebuilder.NoMatchComponent("false positive 2", "SNOWFLAKE_HOST=snowflakecomputing.com.evil.example"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "snowflake-programmatic-access-token.1",
 	Confidence:  "high",
 	Description: "Snowflake programmatic access token.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`(?:snowflake[_. -]*(?:programmatic[_. -]*)?(?:access[_. -]*)?token|sf[_. -]*token)`},
 		`[A-Za-z0-9_-]{100,500}`,
 	),
@@ -74,7 +53,7 @@ var _ = Add(config.Rule{
 				{Secret: "WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZzOK8pMcG7ubf2TxReZd1UXAceqba86woUt0S8fdI2myN1nZ6NYCy0bQx6umpyk9dz5c02tMq", ComponentSets: []map[string]string{{"snowflake-account-host.1": "xy12345.us-east-1.snowflakecomputing.com"}}},
 			},
 		},
-		NoMatch("false positive 1", "SNOWFLAKE_TOKEN=short"),
-		NoMatch("false positive 2", "ACCESS_TOKEN=AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCdEfGhIjKlMnOpQrStUvWxYz12"),
+		rulebuilder.NoMatch("false positive 1", "SNOWFLAKE_TOKEN=short"),
+		rulebuilder.NoMatch("false positive 2", "ACCESS_TOKEN=AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCdEfGhIjKlMnOpQrStUvWxYz12"),
 	},
 })

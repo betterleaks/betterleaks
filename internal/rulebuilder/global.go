@@ -1,6 +1,6 @@
-package rules
+package rulebuilder
 
-const GlobalPrefilter = `matchesAny(attributes["path"], [
+const globalPrefilter = `matchesAny(attributes["path"], [
   ` + "`gitleaks\\.toml`" + `,
   ` + "`(?i)\\.(?:bmp|gif|jpe?g|png|svg|tiff?)$`" + `,
   ` + "`(?i)\\.(?:eot|[ot]tf|woff2?)$`" + `,
@@ -27,7 +27,7 @@ const GlobalPrefilter = `matchesAny(attributes["path"], [
 ])
 `
 
-const GlobalFilter = `(matchesAny(finding["secret"], [
+const globalFilter = `(matchesAny(finding["secret"], [
   ` + "`(?i)^true|false|null$`" + `,
   ` + "`^(?i:a+|b+|c+|d+|e+|f+|g+|h+|i+|j+|k+|l+|m+|n+|o+|p+|q+|r+|s+|t+|u+|v+|w+|x+|y+|z+|\\*+|\\.+)$`" + `,
   ` + "`^\\$(?:\\d+|{\\d+})$`" + `,

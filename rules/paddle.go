@@ -1,15 +1,16 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "paddle-live-api-key",
 	Confidence:  "high",
 	Description: "Paddle live API key.",
-	Regex: Token(
-		`pdl_live_apikey_[a-z0-9]{26}_[A-Za-z0-9]{22}_[A-Za-z0-9]{3}`,
-	),
-	Keywords: []string{"pdl_live_apikey_"},
+	Regex:       rulebuilder.Token(`pdl_live_apikey_[a-z0-9]{26}_[A-Za-z0-9]{22}_[A-Za-z0-9]{3}`),
+	Keywords:    []string{"pdl_live_apikey_"},
 	ValidateExpr: `let r = http.get("https://api.paddle.com/event-types", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json"
@@ -20,10 +21,10 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "PADDLE_API_KEY=pdl_live_apikey_5fbbd6p84oe7ut4qrttebiwar7_RFbD56TI2smTyVsGd5Xav0_RFb", "pdl_live_apikey_5fbbd6p84oe7ut4qrttebiwar7_RFbD56TI2smTyVsGd5Xav0_RFb"),
-		NoMatch("false positive 1", "PADDLE_API_KEY=pdl_sdbx_apikey_01kps076233qscw38dxz320d0e_Ab3D5fGb7Jk9LmNpQrStUv_X2z"),
-		NoMatch("false positive 2", "PADDLE_API_KEY=pdl_live_apikey_short"),
+		rulebuilder.Match("true positive 1", "PADDLE_API_KEY=pdl_live_apikey_5fbbd6p84oe7ut4qrttebiwar7_RFbD56TI2smTyVsGd5Xav0_RFb", "pdl_live_apikey_5fbbd6p84oe7ut4qrttebiwar7_RFbD56TI2smTyVsGd5Xav0_RFb"),
+		rulebuilder.NoMatch("false positive 1", "PADDLE_API_KEY=pdl_sdbx_apikey_01kps076233qscw38dxz320d0e_Ab3D5fGb7Jk9LmNpQrStUv_X2z"),
+		rulebuilder.NoMatch("false positive 2", "PADDLE_API_KEY=pdl_live_apikey_short"),
 	},
 })

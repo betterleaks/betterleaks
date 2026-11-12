@@ -1,16 +1,18 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	Description: "Identified an Intercom API Token, which could compromise customer communication channels and data privacy.",
 	ID:          "intercom-api-key",
 	Confidence:  "medium",
-	Regex:       Assignment([]string{"intercom"}, `(?i)`+AlphaNumericExtended("60")),
-
-	Keywords:   []string{"intercom"},
-	FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	Regex:       rulebuilder.Assignment([]string{"intercom"}, `(?i)`+rulebuilder.AlphaNumericExtended("60")),
+	Keywords:    []string{"intercom"},
+	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("intercom assignment", `intercomToken = "ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7"`, "ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7"),
+		rulebuilder.Match("assignment", `intercomToken = "ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7"`, "ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7"),
 	},
 })

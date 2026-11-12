@@ -1,38 +1,29 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "ebay-client-id",
 	Confidence:  "high",
 	Description: "eBay client ID, used as a component of the eBay client-secret composite rule.",
 	Regex:       `\b([a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+-PRD-[a-f0-9]{8,12}-[a-f0-9]{8,12})`,
-	Keywords:    []string{"-PRD-"},
+	Keywords:    []string{"-prd-"},
 	SkipReport:  true,
-	FilterExpr:  MinEntropy(3.0),
+	FilterExpr:  rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "EBAY_CLIENT_ID=MyApp-MyApp-PRD-1a2b3c4d-567890ab",
-			Expect: []config.ExpectedFinding{
-				{Secret: "MyApp-MyApp-PRD-1a2b3c4d-567890ab"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "EBAY_CLIENT_ID=MyApp-MyApp-SBX-1a2b3c4d-567890ab",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "EBAY_CLIENT_ID=MyApp-MyApp-PRD-1a2b3c4d-567890ab", "MyApp-MyApp-PRD-1a2b3c4d-567890ab"),
+		rulebuilder.NoMatchComponent("false positive 1", "EBAY_CLIENT_ID=MyApp-MyApp-SBX-1a2b3c4d-567890ab"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "ebay-client-secret",
 	Confidence:  "high",
 	Description: "eBay client secret.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`ebay(?:[_. -]*(?:client|api))?[_. -]*(?:secret|key)`},
 		`PRD-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4,12}`,
 	),
@@ -52,7 +43,7 @@ r.status == 200 && (r.json?.active ?? true) == false ? {
   "result": "invalid",
   "reason": "Invalid client"
 } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.0),
+	FilterExpr: rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -61,6 +52,6 @@ r.status == 200 && (r.json?.active ?? true) == false ? {
 				{Secret: "PRD-1f7b169c-1f7b-1f7b-1f7b-1f7b169c", ComponentSets: []map[string]string{{"ebay-client-id": "MyApp-MyApp-PRD-1a2b3c4d-567890ab"}}},
 			},
 		},
-		NoMatch("false positive 1", "EBAY_CLIENT_SECRET=SBX-1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b"),
+		rulebuilder.NoMatch("false positive 1", "EBAY_CLIENT_SECRET=SBX-1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b"),
 	},
 })

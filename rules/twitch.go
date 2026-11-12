@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://dev.twitch.tv/docs/authentication/validate-tokens/
 // https://dev.twitch.tv/docs/authentication/revoke-tokens/
@@ -51,19 +54,19 @@ let capabilities = analysis.capabilities({
   "reason": len(capabilities) == 0 ? "Twitch returned no recognized permission grants" : ""
 }`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ValidateExpr: twitchValidateExpr,
 	AnalyzeExpr:  twitchAnalyzeExpr,
 	ID:           "twitch-api-token",
 	Confidence:   "medium",
 	Description:  "Discovered a Twitch API token, which could compromise streaming services and account integrations.",
-	Regex:        Assignment([]string{"twitch"}, `(?i)`+AlphaNumeric("30")),
+	Regex:        rulebuilder.Assignment([]string{"twitch"}, `(?i)`+rulebuilder.AlphaNumeric("30")),
 	RevokeExpr:   twitchRevokeExpr,
 	Keywords: []string{
 		"twitch",
 	},
 	FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("twitch assignment", `twitchToken = "5fbbd6p84oe7ut4qrttebiwar77s63"`, "5fbbd6p84oe7ut4qrttebiwar77s63"),
+		rulebuilder.Match("assignment", `twitchToken = "5fbbd6p84oe7ut4qrttebiwar77s63"`, "5fbbd6p84oe7ut4qrttebiwar77s63"),
 	},
 })

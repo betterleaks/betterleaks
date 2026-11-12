@@ -1,4 +1,4 @@
-package rules
+package generic
 
 // TODO introduce skiplists:
 // https://github.com/danielmiessler/SecLists/blob/master/Miscellaneous/wordlist-skipfish.fuzz.txt
@@ -8,7 +8,7 @@ package rules
 // https://github.com/UraniumX92/Discord-Bot-using-py/tree/224b2b71a58c25f420ce980f2ea49627b4b646f1/Data%20Files
 // https://github.com/Meen11/BSBI-Indexing/blob/63032017aa24f3111f18468607cd0db5997bb891/datasets/citeseer/11/10.1.1.27.6385.txt
 
-var DefaultStopWords = []string{
+var genericStopWords = []string{
 	"000000",
 	"aaaaaa",
 	"about",

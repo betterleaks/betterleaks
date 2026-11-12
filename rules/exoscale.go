@@ -1,14 +1,17 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "exoscale-api-key",
 	Confidence:  "high",
 	Description: "Identified an Exoscale API key paired with a secret, which together grant programmatic access to Exoscale cloud resources.",
-	Regex:       Token(`EXO[a-zA-Z0-9]{24,30}`),
-	Keywords:    []string{"EXO"},
-	FilterExpr:  MinEntropy(3.0),
+	Regex:       rulebuilder.Token(`EXO[a-zA-Z0-9]{24,30}`),
+	Keywords:    []string{"exo"},
+	FilterExpr:  rulebuilder.MinEntropy(3.0),
 	Components: []config.Component{
 		{
 			RuleID: "exoscale-api-secret",
@@ -34,27 +37,20 @@ var _ = Add(config.Rule{
 				{Secret: "EXO1f7b169c846f218ab552fa82", ComponentSets: []map[string]string{{"exoscale-api-secret": "WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH"}}},
 			},
 		},
-		NoMatch("Too short", `exoscale_api_key = "EXOabc123"`),
-		NoMatch("Wrong prefix", `exoscale_api_key = "EXAabc123def456ghi789jkl012mno345"`),
+		rulebuilder.NoMatch("Too short", `exoscale_api_key = "EXOabc123"`),
+		rulebuilder.NoMatch("Wrong prefix", `exoscale_api_key = "EXAabc123def456ghi789jkl012mno345"`),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "exoscale-api-secret",
 	Confidence:  "high",
 	Description: "Identified an Exoscale API secret, used as a component of the exoscale-api-key composite rule.",
-	Regex:       Assignment([]string{"exoscale"}, `(?i)[A-Za-z0-9_\-]{40,60}`),
+	Regex:       rulebuilder.Assignment([]string{"exoscale"}, `(?i)[A-Za-z0-9_\-]{40,60}`),
 	Keywords:    []string{"exoscale"},
-	FilterExpr:  MinEntropy(4.0),
+	FilterExpr:  rulebuilder.MinEntropy(4.0),
 	SkipReport:  true,
 	Tests: []config.RuleTest{
-		{
-			Name:  "exoscale assignment",
-			Mode:  "match",
-			Input: `exoscaleToken = "WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH"`,
-			Expect: []config.ExpectedFinding{
-				{Secret: "WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH"},
-			},
-		},
+		rulebuilder.MatchComponent("assignment", `exoscaleToken = "WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH"`, "WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH"),
 	},
 })

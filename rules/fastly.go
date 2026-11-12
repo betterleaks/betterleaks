@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 const fastlyValidateExpr = `let r = http.get("https://api.fastly.com/tokens/self", {
     "Accept": "application/json",
@@ -50,17 +53,17 @@ let known_scopes = ["global", "global:read", "purge_all", "purge_select"];
   })
 }`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	Description:  "Uncovered a Fastly API token, which may compromise CDN and edge cloud services, leading to content delivery and security issues.",
 	ID:           "fastly-api-token",
 	Confidence:   "high",
-	Regex:        Assignment([]string{"fastly"}, `(?i)`+AlphaNumericExtendedShort("32")),
+	Regex:        rulebuilder.Assignment([]string{"fastly"}, `(?i)`+rulebuilder.AlphaNumericExtendedShort("32")),
 	Keywords:     []string{"fastly"},
 	ValidateExpr: fastlyValidateExpr,
 	AnalyzeExpr:  fastlyAnalyzeExpr,
 	FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("fastly assignment", `fastlyToken = "4v8l67z---wfu0y1vd_3l1cmfzxoud8e"`, "4v8l67z---wfu0y1vd_3l1cmfzxoud8e"),
-		Match("true positive 1", "Fastly token: fgsb3ef237afd6c1b9d91f81cdba64f3", "fgsb3ef237afd6c1b9d91f81cdba64f3"),
+		rulebuilder.Match("assignment", `fastlyToken = "4v8l67z---wfu0y1vd_3l1cmfzxoud8e"`, "4v8l67z---wfu0y1vd_3l1cmfzxoud8e"),
+		rulebuilder.Match("true positive 1", "Fastly token: fgsb3ef237afd6c1b9d91f81cdba64f3", "fgsb3ef237afd6c1b9d91f81cdba64f3"),
 	},
 })

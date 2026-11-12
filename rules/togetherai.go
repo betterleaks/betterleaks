@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "togetherai-api-key",
 	Confidence:  "high",
 	Description: "Detected a Together.ai API Key, which may expose access to open-source AI models and inference services.",
-	Regex:       Token(`(?i)tgp_v1_[A-Za-z0-9_-]{43}`),
+	Regex:       rulebuilder.Token(`(?i)tgp_v1_[A-Za-z0-9_-]{43}`),
 	Keywords:    []string{"tgp_v1_"},
 	ValidateExpr: `let r = http.get("https://api.together.xyz/v1/models", {
     "Authorization": "Bearer " + finding["secret"],
@@ -19,8 +22,8 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("togetherai assignment", `togetheraiToken = "tgp_v1_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH9"`, "tgp_v1_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH9"),
-		NoMatch("Too short", "tgp_v1_Tctm6OfOeNkwLIKkyxJxUHIqNKx2AvFr"),
-		NoMatch("Wrong prefix", "tgp_v2_Tctm6OfOeNkwLIKkyxJxUHIqNKx2AvFr65tQRIOMgzY"),
+		rulebuilder.Match("assignment", `togetheraiToken = "tgp_v1_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH9"`, "tgp_v1_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH9"),
+		rulebuilder.NoMatch("Too short", "tgp_v1_Tctm6OfOeNkwLIKkyxJxUHIqNKx2AvFr"),
+		rulebuilder.NoMatch("Wrong prefix", "tgp_v2_Tctm6OfOeNkwLIKkyxJxUHIqNKx2AvFr65tQRIOMgzY"),
 	},
 })

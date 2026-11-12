@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "mergify-application-key",
 	Confidence:  "high",
 	Description: "Mergify application API key.",
-	Regex:       Token(`mergify_application_key_[A-Za-z0-9_-]{40,200}`),
+	Regex:       rulebuilder.Token(`mergify_application_key_[A-Za-z0-9_-]{40,200}`),
 	Keywords:    []string{"mergify_application_key_"},
 	ValidateExpr: `let r = http.get("https://api.mergify.com/v1/application", {
     "Authorization": "Bearer " + finding["secret"],
@@ -17,10 +20,10 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.2),
+	FilterExpr: rulebuilder.MinEntropy(3.2),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "MERGIFY_API_KEY=mergify_application_key_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZzOK8pMcG7ubf2TxR", "mergify_application_key_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZzOK8pMcG7ubf2TxR"),
-		NoMatch("false positive 1", "MERGIFY_API_KEY=mergify_application_key_short"),
-		NoMatch("false positive 2", "MERGIFY_API_KEY=mergify_application_key_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+		rulebuilder.Match("true positive 1", "MERGIFY_API_KEY=mergify_application_key_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZzOK8pMcG7ubf2TxR", "mergify_application_key_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZzOK8pMcG7ubf2TxR"),
+		rulebuilder.NoMatch("false positive 1", "MERGIFY_API_KEY=mergify_application_key_short"),
+		rulebuilder.NoMatch("false positive 2", "MERGIFY_API_KEY=mergify_application_key_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 	},
 })

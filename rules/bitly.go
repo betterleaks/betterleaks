@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://dev.bitly.com/api-reference/
 const bitlyValidateExpr = `let r = http.get("https://api-ssl.bitly.com/v4/user", {
@@ -27,9 +30,9 @@ r.status == 200 && type(r.json) == "map" && (r.json?.login ?? "") != "" ? {
   "result": "invalid", "reason": "Unauthorized"
 } : validate.unknown(r)`
 
-const bitlyAnalyzeExpr = identityOnlyAnalyzeExpr
+const bitlyAnalyzeExpr = rulebuilder.IdentityOnlyAnalyzeExpr
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "bitly-access-token",
 	Confidence:   "high",
 	Description:  "Detected a Bitly access token, which may allow unauthorized access to Bitly account and link management APIs.",
@@ -39,8 +42,8 @@ var _ = Add(config.Rule{
 	AnalyzeExpr:  bitlyAnalyzeExpr,
 	FilterExpr:   `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", "bitly_token = 20e9817b9c5ddde1b0cec7622bfc557dbc823791", "20e9817b9c5ddde1b0cec7622bfc557dbc823791"),
-		NoMatch("false positive 1", "token = 20e9817b9c5ddde1b0cec7622bfc557dbc823791"),
-		NoMatch("false positive 2", "bitly_token = 20e9817b9c5ddde1b0cec7622bfc557dbc82379"),
+		rulebuilder.Match("true positive 1", "bitly_token = 20e9817b9c5ddde1b0cec7622bfc557dbc823791", "20e9817b9c5ddde1b0cec7622bfc557dbc823791"),
+		rulebuilder.NoMatch("false positive 1", "token = 20e9817b9c5ddde1b0cec7622bfc557dbc823791"),
+		rulebuilder.NoMatch("false positive 2", "bitly_token = 20e9817b9c5ddde1b0cec7622bfc557dbc82379"),
 	},
 })

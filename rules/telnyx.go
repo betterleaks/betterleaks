@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "telnyx-api-v2-key.1",
 	Confidence:  "high",
 	Description: "Telnyx API v2 key.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`telnyx(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
 		`KEY[0-9A-Za-z_-]{55}`,
 	),
@@ -23,11 +26,11 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Authentication failed"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "TELNYX_API_KEY=KEY017D98C041711C2B8B6F5A2E50702659_hwntpZaC4XD1OEQEaKWydG", "KEY017D98C041711C2B8B6F5A2E50702659_hwntpZaC4XD1OEQEaKWydG"),
-		NoMatch("false positive 1", "API_KEY=KEY017D98C041711C2B8B6F5A2E50702659_hwntpZaC4XD1OEQEaKWydG"),
-		NoMatch("false positive 2", "TELNYX_API_KEY=KEY_short"),
-		NoMatch("false positive 3", "TELNYX_API_KEY=KEYxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("true positive 1", "TELNYX_API_KEY=KEY017D98C041711C2B8B6F5A2E50702659_hwntpZaC4XD1OEQEaKWydG", "KEY017D98C041711C2B8B6F5A2E50702659_hwntpZaC4XD1OEQEaKWydG"),
+		rulebuilder.NoMatch("false positive 1", "API_KEY=KEY017D98C041711C2B8B6F5A2E50702659_hwntpZaC4XD1OEQEaKWydG"),
+		rulebuilder.NoMatch("false positive 2", "TELNYX_API_KEY=KEY_short"),
+		rulebuilder.NoMatch("false positive 3", "TELNYX_API_KEY=KEYxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })

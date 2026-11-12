@@ -62,17 +62,13 @@ after an assertion failure. Configs without tests still receive compilation
 checks and report zero tests. Validation, analysis, and revocation expressions
 are compiled but never executed; tests make no provider requests.
 
-Provider files may include a top-level `provider` string. Each directory entry
-is an independent config, so its component definitions must be in that file or
-inherited through `[extend]`. Directory checks are not recursive. Pack manifests
-containing `providers = [...]` or rule-ID selections are not resolved by this
-command; pass config files containing rule definitions.
+Each directory entry is an independent config, so its component definitions
+must be in that file or inherited through `[extend]`. Directory checks are not
+recursive.
 
 Put examples below their owning rule:
 
 ```toml
-provider = "example"
-
 [[rules]]
 id = "example-key"
 regex = '''\bexample_([A-Za-z0-9]{16})\b'''
@@ -119,7 +115,7 @@ testing. This bypasses reporting suppression while preserving matching and
 filtering. It cannot remove a primary rule's component requirements. Also add
 a normal finding-mode negative case to check that a hidden component stays hidden.
 
-`config show` preserves provider metadata and tests. They do not affect detection
+`config show` preserves rule tests. They do not affect detection
 hashes and are never executed during ordinary scans. Inherited rules keep their
 tests; replacing or disabling a rule replaces or removes its tests too.
 
@@ -176,8 +172,8 @@ Changing a component definition also changes its parent's rule hash. Provider
 expressions participate even in detection-only scans; runtime flags do not change
 what the hash identifies.
 Only the overall hash includes the global `filter` and `prefilter` and the order
-of rules. Config title, description, file path, minimum version, provider metadata,
-and rule tests are excluded.
+of rules. Config title, description, file path, minimum version, and rule tests
+are excluded.
 
 Hashes describe current configuration data, not an existing scanner's snapshot.
 Compute them from the same state used to construct your scanner and source
@@ -205,7 +201,6 @@ of configuration.
 Every config can use these fields:
 
 - `title`, `description`: optional descriptive text.
-- `provider`: optional authoring metadata identifying a provider; does not affect detection.
 
 - `prefilter`: global Expr expression that skips entire files, commits, or other source fragments before regex matching.
 - `filter`: global Expr expression that discards specific findings after regex matching.

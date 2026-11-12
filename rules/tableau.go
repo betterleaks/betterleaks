@@ -1,50 +1,29 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "tableau-personal-access-token-name.1",
 	Confidence:  "high",
 	Description: "Tableau personal access-token name, used as a component of the token rule.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`tableau(?:[_. -]*(?:personal[_. -]*access|pat))?[_. -]*(?:token[_. -]*)?name`},
 		`[A-Za-z][A-Za-z0-9_-]{2,50}`,
 	),
 	Keywords:   []string{"tableau"},
 	SkipReport: true,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "TABLEAU_TOKEN_NAME=test-token-6",
-			Expect: []config.ExpectedFinding{
-				{Secret: "test-token-6"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: `tableau_pat_name="production_service"`,
-			Expect: []config.ExpectedFinding{
-				{Secret: "production_service"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "TOKEN_NAME=test-token-6",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "TABLEAU_TOKEN_NAME=1invalid",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "TABLEAU_TOKEN_NAME=test-token-6", "test-token-6"),
+		rulebuilder.MatchComponent("true positive 2", `tableau_pat_name="production_service"`, "production_service"),
+		rulebuilder.NoMatchComponent("false positive 1", "TOKEN_NAME=test-token-6"),
+		rulebuilder.NoMatchComponent("false positive 2", "TABLEAU_TOKEN_NAME=1invalid"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "tableau-server-host.1",
 	Confidence:  "high",
 	Description: "Tableau Online server host, used as a component of the personal access-token rule.",
@@ -52,30 +31,13 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"online.tableau.com"},
 	SkipReport:  true,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "TABLEAU_SERVER=https://prod-ansouthgest-a.online.tableau.com",
-			Expect: []config.ExpectedFinding{
-				{Secret: "prod-ansouthgest-a.online.tableau.com"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "TABLEAU_SERVER=https://prod.tabeau.com",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "TABLEAU_SERVER=https://online.tableau.com.evil.example",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "TABLEAU_SERVER=https://prod-ansouthgest-a.online.tableau.com", "prod-ansouthgest-a.online.tableau.com"),
+		rulebuilder.NoMatchComponent("false positive 1", "TABLEAU_SERVER=https://prod.tabeau.com"),
+		rulebuilder.NoMatchComponent("false positive 2", "TABLEAU_SERVER=https://online.tableau.com.evil.example"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "tableau-personal-access-token.1",
 	Confidence:  "high",
 	Description: "Tableau personal access token.",
@@ -96,7 +58,7 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Invalid Tableau credentials"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -119,9 +81,9 @@ var _ = Add(config.Rule{
 				{Secret: "+MqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv", ComponentSets: []map[string]string{{"tableau-personal-access-token-name.1": "test-token-6", "tableau-server-host.1": "prod-ansouthgest-a.online.tableau.com"}}},
 			},
 		},
-		NoMatch("false positive 1", "TABLEAU_PAT_SECRET=invalid-secret-format"),
-		NoMatch("false positive 2", "TABLEAU_PAT_SECRET=AYMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv"),
-		NoMatch("false positive 3", "TABLEAU_PAT_SECRET=YMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuvw"),
-		NoMatch("false positive 4", "TOKEN=YMqNfVWiTSa0QgpoJ9GpCw==:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.NoMatch("false positive 1", "TABLEAU_PAT_SECRET=invalid-secret-format"),
+		rulebuilder.NoMatch("false positive 2", "TABLEAU_PAT_SECRET=AYMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuv"),
+		rulebuilder.NoMatch("false positive 3", "TABLEAU_PAT_SECRET=YMqNfVWiTSa0QgpoJ9GpCw==:0123456789abcdefghijklmnopqrstuvw"),
+		rulebuilder.NoMatch("false positive 4", "TOKEN=YMqNfVWiTSa0QgpoJ9GpCw==:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })

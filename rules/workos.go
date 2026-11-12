@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "workos-production-api-key.1",
 	Confidence:  "high",
 	Description: "WorkOS production API key.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`workos(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
 		`sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2}`,
 	),
@@ -26,9 +29,9 @@ var _ = Add(config.Rule{
 	FilterExpr: `entropy(finding["secret"]) < 3.5
 || matchesAny(finding["secret"], ["(?i)example"])`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", "WORKOS_API_KEY=sk_live_a2V5XzAxS1BSWE1LTjBEWE1INlpBU0VEWjU2VFE3LFdjOWxFMTNDS29xRkdlYU9uMUpDbUpTZWE", "sk_live_a2V5XzAxS1BSWE1LTjBEWE1INlpBU0VEWjU2VFE3LFdjOWxFMTNDS29xRkdlYU9uMUpDbUpTZWE"),
-		NoMatch("false positive 1", "STRIPE_SECRET_KEY=sk_live_a2V5XzAxS1BSWE1LTjBEWE1INlpBU0VEWjU2VFE3LFdjOWxFMTNDS29xRkdlYU9uMUpDbUpTZWE"),
-		NoMatch("false positive 2", "WORKOS_API_KEY=sk_test_example"),
-		NoMatch("false positive 3", "WORKOS_API_KEY=sk_live_a2V5Xzexampleexampleexampleexampleexampleexampleexampleexampleexampleexample"),
+		rulebuilder.Match("true positive 1", "WORKOS_API_KEY=sk_live_a2V5XzAxS1BSWE1LTjBEWE1INlpBU0VEWjU2VFE3LFdjOWxFMTNDS29xRkdlYU9uMUpDbUpTZWE", "sk_live_a2V5XzAxS1BSWE1LTjBEWE1INlpBU0VEWjU2VFE3LFdjOWxFMTNDS29xRkdlYU9uMUpDbUpTZWE"),
+		rulebuilder.NoMatch("false positive 1", "STRIPE_SECRET_KEY=sk_live_a2V5XzAxS1BSWE1LTjBEWE1INlpBU0VEWjU2VFE3LFdjOWxFMTNDS29xRkdlYU9uMUpDbUpTZWE"),
+		rulebuilder.NoMatch("false positive 2", "WORKOS_API_KEY=sk_test_example"),
+		rulebuilder.NoMatch("false positive 3", "WORKOS_API_KEY=sk_live_a2V5Xzexampleexampleexampleexampleexampleexampleexampleexampleexampleexample"),
 	},
 })

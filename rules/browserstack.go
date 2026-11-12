@@ -1,61 +1,35 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "browserstack-username.1",
 	Confidence:  "medium",
 	Description: "BrowserStack username, used as a component of the BrowserStack access-key composite rule.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`browserstack[_.-]?(?:username|user)`},
 		`[A-Za-z0-9][A-Za-z0-9._-]{2,39}`,
 	),
 	Keywords:   []string{"browserstack"},
 	SkipReport: true,
-	FilterExpr: MinEntropy(2.0),
+	FilterExpr: rulebuilder.MinEntropy(2.0),
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "BROWSERSTACK_USERNAME=RFbD56TI2smT",
-			Expect: []config.ExpectedFinding{
-				{Secret: "RFbD56TI2smT"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: `browserstack.user: "RFbD56TI2smT"`,
-			Expect: []config.ExpectedFinding{
-				{Secret: "RFbD56TI2smT"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "USERNAME=RFbD56TI2smT",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "BROWSERSTACK_USERNAME=ab",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 3",
-			Mode:   "match",
-			Input:  "BROWSERSTACK_USERNAME=aaaaaaaaaaaa",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "BROWSERSTACK_USERNAME=RFbD56TI2smT", "RFbD56TI2smT"),
+		rulebuilder.MatchComponent("true positive 2", `browserstack.user: "RFbD56TI2smT"`, "RFbD56TI2smT"),
+		rulebuilder.NoMatchComponent("false positive 1", "USERNAME=RFbD56TI2smT"),
+		rulebuilder.NoMatchComponent("false positive 2", "BROWSERSTACK_USERNAME=ab"),
+		rulebuilder.NoMatchComponent("false positive 3", "BROWSERSTACK_USERNAME=aaaaaaaaaaaa"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "browserstack-access-key.1",
 	Confidence:  "high",
 	Description: "BrowserStack access key, which may allow access to automated browser and device testing when paired with its username.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`browserstack[_.-]?(?:access[_.-]?)?(?:key|secret|token)`},
 		`[A-Za-z0-9]{20}`,
 	),
@@ -74,7 +48,7 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Authentication failed"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.0),
+	FilterExpr: rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -90,8 +64,8 @@ var _ = Add(config.Rule{
 				{Secret: "RFbD56TI2smTyVsGd5Xa", ComponentSets: []map[string]string{{"browserstack-username.1": "RFbD56TI2smT"}}},
 			},
 		},
-		NoMatch("false positive 1", "ACCESS_KEY=RFbD56TI2smTyVsGd5Xa"),
-		NoMatch("false positive 2", "BROWSERSTACK_ACCESS_KEY=short"),
-		NoMatch("false positive 3", "BROWSERSTACK_ACCESS_KEY=00000000000000000000"),
+		rulebuilder.NoMatch("false positive 1", "ACCESS_KEY=RFbD56TI2smTyVsGd5Xa"),
+		rulebuilder.NoMatch("false positive 2", "BROWSERSTACK_ACCESS_KEY=short"),
+		rulebuilder.NoMatch("false positive 3", "BROWSERSTACK_ACCESS_KEY=00000000000000000000"),
 	},
 })

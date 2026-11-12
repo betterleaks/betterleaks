@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "mailersend-api-token",
 	Confidence:  "high",
 	Description: "MailerSend API token.",
-	Regex:       Token(`mlsn\.[A-Za-z0-9]{30,100}`),
+	Regex:       rulebuilder.Token(`mlsn\.[A-Za-z0-9]{30,100}`),
 	Keywords:    []string{"mlsn."},
 	ValidateExpr: `let r = http.get("https://api.mailersend.com/v1/api-quota", {
     "Authorization": "Bearer " + finding["secret"],
@@ -17,10 +20,10 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "MAILERSEND_API_TOKEN=mlsn.5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rys", "mlsn.5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rys"),
-		NoMatch("false positive 1", "MAILERSEND_API_TOKEN=mlsn.short"),
-		NoMatch("false positive 2", "MAILERSEND_API_TOKEN=mlsn.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+		rulebuilder.Match("true positive 1", "MAILERSEND_API_TOKEN=mlsn.5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rys", "mlsn.5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rys"),
+		rulebuilder.NoMatch("false positive 1", "MAILERSEND_API_TOKEN=mlsn.short"),
+		rulebuilder.NoMatch("false positive 2", "MAILERSEND_API_TOKEN=mlsn.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 	},
 })

@@ -1,14 +1,17 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // RubyGemsAPIToken validates by listing the owner's gems, a read-only call that needs no OTP.
 // https://guides.rubygems.org/rubygems-org-api/
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "rubygems-api-token",
 	Confidence:  "high",
 	Description: "Identified a Rubygem API token, potentially compromising Ruby library distribution and package management.",
-	Regex:       Token(`rubygems_[a-f0-9]{48}`),
+	Regex:       rulebuilder.Token(`rubygems_[a-f0-9]{48}`),
 	Keywords: []string{
 		"rubygems_",
 	},
@@ -30,6 +33,6 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	Tests: []config.RuleTest{
-		Match("rubygemsAPIToken assignment", `rubygemsAPITokenToken = "rubygems_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4"`, "rubygems_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4"),
+		rulebuilder.Match("assignment", `rubygemsAPITokenToken = "rubygems_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4"`, "rubygems_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4"),
 	},
 })

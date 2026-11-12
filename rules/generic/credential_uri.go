@@ -1,10 +1,13 @@
-package rules
+package generic
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(GenericCredentialURI())
+var _ = rulebuilder.Add(genericCredentialURI())
 
-func GenericCredentialURI() config.Rule {
+func genericCredentialURI() config.Rule {
 	documentationHostPattern := `(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?\.?`
 	localOrReservedHostPattern := `(?:(?:[a-z0-9_-]+\.)*example(?:\.(?:com|org|net))?|(?:[a-z0-9_-]+\.)*(?:invalid|test|localhost))\.?`
 	onlyHostListPattern := func(hostPattern string) string {
@@ -223,26 +226,26 @@ isInstructionalPlaceholder
 				{Secret: "s3cr3t", Captures: map[string]string{"host": "cache.localhost", "password": "s3cr3t", "scheme": "redis", "uri": "redis://:s3cr3t@cache.localhost:6379/0"}},
 			},
 		},
-		NoMatch("false positive 1", "DATABASE_URL=postgres://alice@db.internal/app"),
-		NoMatch("false positive 2", "DATABASE_URL=postgres://alice:@db.internal/app"),
-		NoMatch("false positive 3", "DATABASE_URL=postgres://alice:${DB_PASSWORD}@db.internal/app"),
-		NoMatch("false positive 4", "DATABASE_URL=postgres://alice:$DB_PASSWORD@db.internal/app"),
-		NoMatch("false positive 5", "DATABASE_URL=postgres://{{ db_user }}:{{ db_password }}@db.internal/app"),
-		NoMatch("false positive 6", "DATABASE_URL=postgres://<username>:<password>@db.internal/app"),
-		NoMatch("false positive 7", "SSH_URL=ssh://foo:bar@example.com"),
-		NoMatch("false positive 8", "FTP_URL=ftp://foo:bar@test.com/repository"),
-		NoMatch("false positive 9", "REDIS_URL=redis://:redis-password-goes-here@gitlab-redis/"),
-		NoMatch("false positive 10", "DATABASE_URL=postgres://user:password@example.org/app"),
-		NoMatch("false positive 11", "SERVICE_URL=https://alice:s3cr3t@api.example.com/v1"),
-		NoMatch("false positive 12", "DATABASE_URL=postgres://alice:hunter2@db.example.net/app"),
-		NoMatch("false positive 13", "REDIS_URL=redis://:s3cr3t@cache.example/0"),
-		NoMatch("false positive 14", "SERVICE_URL=http://user:pass:word@old_configurator.example.com)"),
-		NoMatch("false positive 15", "SERVICE_URL=https://alice:s3cr3t@example.com./v1"),
-		NoMatch("false positive 16", "SERVICE_URL=https://alice:s3cr3t@example.com?mode=test"),
-		NoMatch("false positive 17", "DATABASE_URL=postgresql://alice:hunter2@example.com,db.example.net/app"),
-		NoMatch("false positive 18", "SERVICE_URL=http://username:password@example.com,https://test:test@example.org:9200"),
-		NoMatch("false positive 19", "DATABASE_URL=postgres://alice:replace_me@db.internal/app"),
-		NoMatch("false positive 20", "alice:hunter2@example.com"),
+		rulebuilder.NoMatch("false positive 1", "DATABASE_URL=postgres://alice@db.internal/app"),
+		rulebuilder.NoMatch("false positive 2", "DATABASE_URL=postgres://alice:@db.internal/app"),
+		rulebuilder.NoMatch("false positive 3", "DATABASE_URL=postgres://alice:${DB_PASSWORD}@db.internal/app"),
+		rulebuilder.NoMatch("false positive 4", "DATABASE_URL=postgres://alice:$DB_PASSWORD@db.internal/app"),
+		rulebuilder.NoMatch("false positive 5", "DATABASE_URL=postgres://{{ db_user }}:{{ db_password }}@db.internal/app"),
+		rulebuilder.NoMatch("false positive 6", "DATABASE_URL=postgres://<username>:<password>@db.internal/app"),
+		rulebuilder.NoMatch("false positive 7", "SSH_URL=ssh://foo:bar@example.com"),
+		rulebuilder.NoMatch("false positive 8", "FTP_URL=ftp://foo:bar@test.com/repository"),
+		rulebuilder.NoMatch("false positive 9", "REDIS_URL=redis://:redis-password-goes-here@gitlab-redis/"),
+		rulebuilder.NoMatch("false positive 10", "DATABASE_URL=postgres://user:password@example.org/app"),
+		rulebuilder.NoMatch("false positive 11", "SERVICE_URL=https://alice:s3cr3t@api.example.com/v1"),
+		rulebuilder.NoMatch("false positive 12", "DATABASE_URL=postgres://alice:hunter2@db.example.net/app"),
+		rulebuilder.NoMatch("false positive 13", "REDIS_URL=redis://:s3cr3t@cache.example/0"),
+		rulebuilder.NoMatch("false positive 14", "SERVICE_URL=http://user:pass:word@old_configurator.example.com)"),
+		rulebuilder.NoMatch("false positive 15", "SERVICE_URL=https://alice:s3cr3t@example.com./v1"),
+		rulebuilder.NoMatch("false positive 16", "SERVICE_URL=https://alice:s3cr3t@example.com?mode=test"),
+		rulebuilder.NoMatch("false positive 17", "DATABASE_URL=postgresql://alice:hunter2@example.com,db.example.net/app"),
+		rulebuilder.NoMatch("false positive 18", "SERVICE_URL=http://username:password@example.com,https://test:test@example.org:9200"),
+		rulebuilder.NoMatch("false positive 19", "DATABASE_URL=postgres://alice:replace_me@db.internal/app"),
+		rulebuilder.NoMatch("false positive 20", "alice:hunter2@example.com"),
 	}
 	return r
 }

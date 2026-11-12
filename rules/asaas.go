@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "asaas-api-token",
 	Confidence:  "high",
 	Description: "Detected an Asaas API token, which may expose payment and customer data.",
@@ -19,11 +22,11 @@ let r = http.get(url, {
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "ASAAS_API_KEY=$aact_prod_abcdefghijklmnop1234567890ABCDEF", "$aact_prod_abcdefghijklmnop1234567890ABCDEF"),
-		Match("true positive 2", `api_token: "$aact_hmlg_1234567890abcdefghijklmnopQRSTUV"`, "$aact_hmlg_1234567890abcdefghijklmnopQRSTUV"),
-		NoMatch("false positive 1", "ASAAS_API_KEY=$aact_dev_abcdefghijklmnop1234567890ABCDEF"),
-		NoMatch("false positive 2", "ASAAS_API_KEY=$aact_prod_too_short"),
+		rulebuilder.Match("true positive 1", "ASAAS_API_KEY=$aact_prod_abcdefghijklmnop1234567890ABCDEF", "$aact_prod_abcdefghijklmnop1234567890ABCDEF"),
+		rulebuilder.Match("true positive 2", `api_token: "$aact_hmlg_1234567890abcdefghijklmnopQRSTUV"`, "$aact_hmlg_1234567890abcdefghijklmnopQRSTUV"),
+		rulebuilder.NoMatch("false positive 1", "ASAAS_API_KEY=$aact_dev_abcdefghijklmnop1234567890ABCDEF"),
+		rulebuilder.NoMatch("false positive 2", "ASAAS_API_KEY=$aact_prod_too_short"),
 	},
 })

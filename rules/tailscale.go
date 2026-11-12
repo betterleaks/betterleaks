@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 const tailscaleVerifyExpr = `let parts = split(finding["secret"], "-");
 let r = http.post("https://api.tailscale.com/api/v2/secret-scanning/verify", {
@@ -99,7 +102,7 @@ let readable = ["all:read", "acl:read", "devices:read", "dns:read", "routes:read
 }`
 
 // https://tailscale.com/docs/reference/key-prefixes
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "tailscale-api-key.1",
 	Confidence:   "high",
 	Description:  "Tailscale API access token.",
@@ -108,18 +111,18 @@ var _ = Add(config.Rule{
 	Tags:         []string{"provider:tailscale"},
 	ValidateExpr: tailscaleAPIValidateExpr,
 	AnalyzeExpr:  tailscaleScopesAnalyzeExpr,
-	FilterExpr:   MinEntropy(3.5),
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "TAILSCALE_API_KEY=tskey-api-kRFbDCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZA", "tskey-api-kRFbDCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZA"),
-		Match("bare secret", "tskey-api-kRFbD56TI2smTyVsGCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k", "tskey-api-kRFbD56TI2smTyVsGCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k"),
-		NoMatch("false positive 1", "TAILSCALE_API_KEY=tskey-api-short"),
-		NoMatch("false positive 2", "tskey-api-kAb12CNTRL-0123456789ABCDEFGHIJKLMNOPQ"),
-		NoMatch("false positive 3", "tskey-api-kAb12CNTRL-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcde"),
-		NoMatch("false positive 4", "tskey-auth-kAb12CNTRL-0123456789ABCDEFGHIJKLMNOPQR"),
+		rulebuilder.Match("true positive 1", "TAILSCALE_API_KEY=tskey-api-kRFbDCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZA", "tskey-api-kRFbDCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZA"),
+		rulebuilder.Match("bare secret", "tskey-api-kRFbD56TI2smTyVsGCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k", "tskey-api-kRFbD56TI2smTyVsGCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k"),
+		rulebuilder.NoMatch("false positive 1", "TAILSCALE_API_KEY=tskey-api-short"),
+		rulebuilder.NoMatch("false positive 2", "tskey-api-kAb12CNTRL-0123456789ABCDEFGHIJKLMNOPQ"),
+		rulebuilder.NoMatch("false positive 3", "tskey-api-kAb12CNTRL-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcde"),
+		rulebuilder.NoMatch("false positive 4", "tskey-auth-kAb12CNTRL-0123456789ABCDEFGHIJKLMNOPQR"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "tailscale-auth-key",
 	Confidence:   "high",
 	Description:  "Tailscale device enrollment key.",
@@ -128,14 +131,14 @@ var _ = Add(config.Rule{
 	Tags:         []string{"provider:tailscale"},
 	ValidateExpr: tailscaleVerifyExpr,
 	AnalyzeExpr:  tailscaleVerifyAnalyzeExpr,
-	FilterExpr:   MinEntropy(3.5),
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("tailscale assignment", `tailscaleToken = "tskey-auth-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"`, "tskey-auth-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"),
-		NoMatch("false positive 1", "tskey-auth-short"),
+		rulebuilder.Match("assignment", `tailscaleToken = "tskey-auth-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"`, "tskey-auth-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"),
+		rulebuilder.NoMatch("false positive 1", "tskey-auth-short"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "tailscale-oauth-client-secret",
 	Confidence:   "high",
 	Description:  "Tailscale OAuth credential for minting scoped API tokens.",
@@ -144,14 +147,14 @@ var _ = Add(config.Rule{
 	Tags:         []string{"provider:tailscale", "category:oauth"},
 	ValidateExpr: tailscaleOAuthValidateExpr,
 	AnalyzeExpr:  tailscaleScopesAnalyzeExpr,
-	FilterExpr:   MinEntropy(3.5),
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("tailscale assignment", `tailscaleToken = "tskey-client-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"`, "tskey-client-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"),
-		NoMatch("false positive 1", "tskey-client-short"),
+		rulebuilder.Match("assignment", `tailscaleToken = "tskey-client-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"`, "tskey-client-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"),
+		rulebuilder.NoMatch("false positive 1", "tskey-client-short"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "tailscale-scim-key",
 	Confidence:  "high",
 	Description: "Tailscale user provisioning credential.",
@@ -161,14 +164,14 @@ var _ = Add(config.Rule{
 	Tags:         []string{"provider:tailscale"},
 	ValidateExpr: tailscaleVerifyExpr,
 	AnalyzeExpr:  tailscaleVerifyAnalyzeExpr,
-	FilterExpr:   MinEntropy(3.5),
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("tailscale assignment", `tailscaleToken = "tskey-scim-RFbD56TI2smTyVsG-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"`, "tskey-scim-RFbD56TI2smTyVsG-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"),
-		NoMatch("false positive 1", "tskey-scim-short"),
+		rulebuilder.Match("assignment", `tailscaleToken = "tskey-scim-RFbD56TI2smTyVsG-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"`, "tskey-scim-RFbD56TI2smTyVsG-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"),
+		rulebuilder.NoMatch("false positive 1", "tskey-scim-short"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "tailscale-webhook-secret",
 	Confidence:   "high",
 	Description:  "Tailscale webhook signing secret.",
@@ -177,15 +180,15 @@ var _ = Add(config.Rule{
 	Tags:         []string{"provider:tailscale"},
 	ValidateExpr: tailscaleVerifyExpr,
 	AnalyzeExpr:  tailscaleVerifyAnalyzeExpr,
-	FilterExpr:   MinEntropy(3.5),
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("tailscale assignment", `tailscaleToken = "tskey-webhook-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"`, "tskey-webhook-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"),
-		NoMatch("false positive 1", "tskey-webhook-short"),
+		rulebuilder.Match("assignment", `tailscaleToken = "tskey-webhook-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"`, "tskey-webhook-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA"),
+		rulebuilder.NoMatch("false positive 1", "tskey-webhook-short"),
 	},
 })
 
 // Untyped keys predate the distinction between auth keys and API tokens.
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "tailscale-key",
 	Confidence:   "high",
 	Description:  "Tailscale legacy untyped credential.",
@@ -194,9 +197,9 @@ var _ = Add(config.Rule{
 	Tags:         []string{"provider:tailscale"},
 	ValidateExpr: tailscaleVerifyExpr,
 	AnalyzeExpr:  tailscaleVerifyAnalyzeExpr,
-	FilterExpr:   MinEntropy(3.5),
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("tailscale assignment", `tailscaleToken = "tskey-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xa"`, "tskey-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xa"),
-		NoMatch("false positive 1", "tskey-short"),
+		rulebuilder.Match("assignment", `tailscaleToken = "tskey-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xa"`, "tskey-kRFbD56TI2smTCNTRL-RFbD56TI2smTyVsGd5Xa"),
+		rulebuilder.NoMatch("false positive 1", "tskey-short"),
 	},
 })

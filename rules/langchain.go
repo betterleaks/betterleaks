@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "langchain-langsmith-personal-access-token",
 	Confidence:  "high",
 	Description: "LangSmith personal access token.",
@@ -17,14 +20,14 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(4.0),
+	FilterExpr: rulebuilder.MinEntropy(4.0),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "LANGSMITH_API_KEY=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", "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"),
-		NoMatch("false positive 1", "LANGSMITH_API_KEY=lsv2_pt_short"),
+		rulebuilder.Match("true positive 1", "LANGSMITH_API_KEY=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", "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"),
+		rulebuilder.NoMatch("false positive 1", "LANGSMITH_API_KEY=lsv2_pt_short"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "langchain-langsmith-service-key",
 	Confidence:  "high",
 	Description: "LangSmith service API key.",
@@ -39,9 +42,9 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(4.0),
+	FilterExpr: rulebuilder.MinEntropy(4.0),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "LANGSMITH_SERVICE_KEY=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", "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"),
-		NoMatch("false positive 1", "LANGSMITH_SERVICE_KEY=lsv2_sk_short"),
+		rulebuilder.Match("true positive 1", "LANGSMITH_SERVICE_KEY=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", "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"),
+		rulebuilder.NoMatch("false positive 1", "LANGSMITH_SERVICE_KEY=lsv2_sk_short"),
 	},
 })

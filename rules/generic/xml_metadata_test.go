@@ -1,9 +1,8 @@
-package rules
+package generic
 
 import (
 	"testing"
 
-	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/regexp"
 	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/betterleaks/betterleaks/v2/scan"
@@ -15,8 +14,7 @@ func TestGenericXMLMetadata(t *testing.T) {
 	const token = "Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"
 	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
 		t.Run(engine.Version(), func(t *testing.T) {
-			cfg := baseConfig()
-			cfg.Rules = []config.Rule{GenericCredential(), GenericPassword(), *testRule(t, "generic-username")}
+			cfg := testConfig(t, "generic-api-key", "generic-password", "generic-username")
 			s, err := scan.New(cfg, scan.WithRegexEngine(engine))
 			require.NoError(t, err)
 			for _, tc := range []struct {

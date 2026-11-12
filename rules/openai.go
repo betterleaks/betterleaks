@@ -1,14 +1,17 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "openai-api-key",
 	Confidence:  "high",
 	Description: "Found an OpenAI API Key, posing a risk of unauthorized access to AI services and data manipulation.",
-	Regex:       Token(`sk-(?:proj|svcacct|admin)-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})\b|sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}`),
+	Regex:       rulebuilder.Token(`sk-(?:proj|svcacct|admin)-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})\b|sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}`),
 	Keywords: []string{
-		"T3BlbkFJ",
+		"t3blbkfj",
 	},
 	ValidateExpr: `let r = http.get("https://api.openai.com/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
@@ -20,16 +23,16 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("openaiApiKey assignment", `openaiApiKeyToken = "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"`, "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"),
-		Match("Legacy project keys", `"client = OpenAI(api_key=\"sk-proj-1AXfKYubvBH1LYyObyxST3BlbkFJSXJZjpk2sZk3POtOlPna\")\n",`, "sk-proj-1AXfKYubvBH1LYyObyxST3BlbkFJSXJZjpk2sZk3POtOlPna"),
-		Match("bare secret", "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", "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"),
-		Match("bare secret 2", "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", "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"),
-		Match("bare secret 3", "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", "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"),
-		Match("bare secret 4", "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", "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"),
-		Match("bare secret 5", "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", "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"),
-		Match("bare secret 6", "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", "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"),
-		Match("bare secret 7", "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", "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"),
-		Match("bare secret 8", "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", "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"),
-		Match("bare secret 9", "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", "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"),
+		rulebuilder.Match("assignment", `openaiApiKeyToken = "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"`, "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"),
+		rulebuilder.Match("Legacy project keys", `"client = OpenAI(api_key=\"sk-proj-1AXfKYubvBH1LYyObyxST3BlbkFJSXJZjpk2sZk3POtOlPna\")\n",`, "sk-proj-1AXfKYubvBH1LYyObyxST3BlbkFJSXJZjpk2sZk3POtOlPna"),
+		rulebuilder.Match("bare secret", "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", "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"),
+		rulebuilder.Match("bare secret 2", "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", "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"),
+		rulebuilder.Match("bare secret 3", "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", "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"),
+		rulebuilder.Match("bare secret 4", "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", "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"),
+		rulebuilder.Match("bare secret 5", "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", "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"),
+		rulebuilder.Match("bare secret 6", "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", "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"),
+		rulebuilder.Match("bare secret 7", "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", "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"),
+		rulebuilder.Match("bare secret 8", "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", "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"),
+		rulebuilder.Match("bare secret 9", "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", "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"),
 	},
 })

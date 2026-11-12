@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://www.twilio.com/docs/sendgrid/api-reference/api-key-permissions
 // Scope inspection only: never send mail or create a key to test permissions.
@@ -28,18 +31,18 @@ let capabilities = analysis.capabilities({
   "reason": len(capabilities) == 0 ? "SendGrid returned no recognized permission grants" : ""
 }`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ValidateExpr: sendgridValidateExpr,
 	AnalyzeExpr:  sendgridAnalyzeExpr,
 	ID:           "sendgrid-api-token",
 	Confidence:   "high",
 	Description:  "Detected a SendGrid API token, posing a risk of unauthorized email service operations and data exposure.",
-	Regex:        Token(`SG\.(?i)[a-z0-9=_\-\.]{66}`),
+	Regex:        rulebuilder.Token(`SG\.(?i)[a-z0-9=_\-\.]{66}`),
 	Keywords: []string{
-		"SG.",
+		"sg.",
 	},
 	FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	Tests: []config.RuleTest{
-		Match("sengridAPIToken assignment", `sengridAPITokenToken = "SG.ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55rmn"`, "SG.ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55rmn"),
+		rulebuilder.Match("assignment", `sengridAPITokenToken = "SG.ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55rmn"`, "SG.ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55rmn"),
 	},
 })

@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "influxdb-api-token",
 	Confidence:  "high",
 	Description: "Detected an InfluxDB API token, which may allow unauthorized access to time-series data and InfluxDB organization resources.",
@@ -19,9 +22,9 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", "influx\ntoken=nxft2SEGZrEH2-jwDIea6tDSiX6TqHn50u0kOcDqSRnUdnK35VYauC1buWdwh-UFq7dgeb7qf3pMyKg6sbf6zg==", "nxft2SEGZrEH2-jwDIea6tDSiX6TqHn50u0kOcDqSRnUdnK35VYauC1buWdwh-UFq7dgeb7qf3pMyKg6sbf6zg=="),
-		Match("true positive 2", "influxdb\ntoken='z62qZYqGCOCI1zx3cFZYFcosWJoGw9XKIeEcF_GWwhfefRBSMjQfl3M5-ZDZN1FOFvWJPJHVi2-bZ6hPaQWvpw=='", "z62qZYqGCOCI1zx3cFZYFcosWJoGw9XKIeEcF_GWwhfefRBSMjQfl3M5-ZDZN1FOFvWJPJHVi2-bZ6hPaQWvpw=="),
-		NoMatch("false positive 1", "influx token=short"),
-		NoMatch("false positive 2", "token=nxft2SEGZrEH2-jwDIea6tDSiX6TqHn50u0kOcDqSRnUdnK35VYauC1buWdwh-UFq7dgeb7qf3pMyKg6sbf6zg=="),
+		rulebuilder.Match("true positive 1", "influx\ntoken=nxft2SEGZrEH2-jwDIea6tDSiX6TqHn50u0kOcDqSRnUdnK35VYauC1buWdwh-UFq7dgeb7qf3pMyKg6sbf6zg==", "nxft2SEGZrEH2-jwDIea6tDSiX6TqHn50u0kOcDqSRnUdnK35VYauC1buWdwh-UFq7dgeb7qf3pMyKg6sbf6zg=="),
+		rulebuilder.Match("true positive 2", "influxdb\ntoken='z62qZYqGCOCI1zx3cFZYFcosWJoGw9XKIeEcF_GWwhfefRBSMjQfl3M5-ZDZN1FOFvWJPJHVi2-bZ6hPaQWvpw=='", "z62qZYqGCOCI1zx3cFZYFcosWJoGw9XKIeEcF_GWwhfefRBSMjQfl3M5-ZDZN1FOFvWJPJHVi2-bZ6hPaQWvpw=="),
+		rulebuilder.NoMatch("false positive 1", "influx token=short"),
+		rulebuilder.NoMatch("false positive 2", "token=nxft2SEGZrEH2-jwDIea6tDSiX6TqHn50u0kOcDqSRnUdnK35VYauC1buWdwh-UFq7dgeb7qf3pMyKg6sbf6zg=="),
 	},
 })

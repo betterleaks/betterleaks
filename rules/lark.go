@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "lark-app-id",
 	Confidence:  "high",
 	Description: "Lark application ID, used as a component of the Lark application-secret rule.",
@@ -11,32 +14,17 @@ var _ = Add(config.Rule{
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "LARK_APP_ID=cli_AbCdEfGhIjKlMnOp",
-			Expect: []config.ExpectedFinding{
-				{Secret: "cli_AbCdEfGhIjKlMnOp"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "LARK_APP_ID=cli_short",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "LARK_APP_ID=cli_AbCdEfGhIjKlMnOp", "cli_AbCdEfGhIjKlMnOp"),
+		rulebuilder.NoMatchComponent("false positive 1", "LARK_APP_ID=cli_short"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "lark-app-secret",
 	Confidence:  "high",
 	Description: "Lark application secret.",
-	Regex: Assignment(
-		[]string{"lark", "larksuite"},
-		`(?i)[A-Za-z0-9]{32}`,
-	),
-	Keywords: []string{"lark"},
+	Regex:       rulebuilder.Assignment([]string{"lark", "larksuite"}, `(?i)[A-Za-z0-9]{32}`),
+	Keywords:    []string{"lark"},
 	Components: []config.Component{
 		{RuleID: "lark-app-id"},
 	},
@@ -60,7 +48,7 @@ r.status == 200 && code == 0 ? {
 				{Secret: "5fbbd6p84oe7ut4qrttebiwar77s63do", ComponentSets: []map[string]string{{"lark-app-id": "cli_AbCdEfGhIjKlMnOp"}}},
 			},
 		},
-		NoMatch("false positive 1", "LARK_APP_SECRET=short"),
-		NoMatch("false positive 2", "OTHER_APP_SECRET=AbCdEfGhIjKlMnOpQrStUvWxYz123456"),
+		rulebuilder.NoMatch("false positive 1", "LARK_APP_SECRET=short"),
+		rulebuilder.NoMatch("false positive 2", "OTHER_APP_SECRET=AbCdEfGhIjKlMnOpQrStUvWxYz123456"),
 	},
 })

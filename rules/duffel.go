@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "duffel-api-token",
 	Confidence:  "high",
 	Description: "Uncovered a Duffel API token, which may compromise travel platform integrations and sensitive customer data.",
@@ -10,6 +13,6 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"duffel_"},
 	FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
 	Tests: []config.RuleTest{
-		Match("duffel assignment", `duffelToken = "duffel_test_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"`, "duffel_test_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"),
+		rulebuilder.Match("assignment", `duffelToken = "duffel_test_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"`, "duffel_test_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"),
 	},
 })

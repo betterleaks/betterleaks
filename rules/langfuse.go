@@ -1,47 +1,33 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "langfuse-public-key.1",
 	Confidence:  "high",
 	Description: "Langfuse public key, used as a component of the Langfuse secret-key composite rule.",
-	Regex:       Token(`pk-lf-` + uuidPattern()),
+	Regex:       rulebuilder.Token(`pk-lf-` + uuidPattern()),
 	Keywords:    []string{"pk-lf-"},
 	SkipReport:  true,
-	FilterExpr:  MinEntropy(3.0),
+	FilterExpr:  rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "LANGFUSE_PUBLIC_KEY=pk-lf-1f7b169c-1f7b-1f7b-1f7b-1f7b169c846f",
-			Expect: []config.ExpectedFinding{
-				{Secret: "pk-lf-1f7b169c-1f7b-1f7b-1f7b-1f7b169c846f"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "LANGFUSE_PUBLIC_KEY=pk-lf-00000000-0000-0000-0000-000000000000",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "LANGFUSE_PUBLIC_KEY=pk-lf-short",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "LANGFUSE_PUBLIC_KEY=pk-lf-1f7b169c-1f7b-1f7b-1f7b-1f7b169c846f", "pk-lf-1f7b169c-1f7b-1f7b-1f7b-1f7b169c846f"),
+		rulebuilder.NoMatchComponent("false positive 1", "LANGFUSE_PUBLIC_KEY=pk-lf-00000000-0000-0000-0000-000000000000"),
+		rulebuilder.NoMatchComponent("false positive 2", "LANGFUSE_PUBLIC_KEY=pk-lf-short"),
 	},
 })
 
 // Langfuse also supports several cloud regions and self-hosted instances.
 // The EU cloud request can prove a matching pair valid; non-success remains
 // unknown rather than rejecting credentials issued for another host.
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "langfuse-secret-key.1",
 	Confidence:  "high",
 	Description: "Langfuse secret key, which authenticates project API access when paired with its public key.",
-	Regex:       Token(`sk-lf-` + uuidPattern()),
+	Regex:       rulebuilder.Token(`sk-lf-` + uuidPattern()),
 	Keywords:    []string{"sk-lf-"},
 	Components: []config.Component{
 		{RuleID: "langfuse-public-key.1", Within: "5L"},
@@ -52,7 +38,7 @@ var _ = Add(config.Rule{
   }); r.status == 200 ? {
     "result": "valid"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.0),
+	FilterExpr: rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -61,11 +47,11 @@ var _ = Add(config.Rule{
 				{Secret: "sk-lf-1f7b169c-1f7b-1f7b-1f7b-1f7b169c846f", ComponentSets: []map[string]string{{"langfuse-public-key.1": "pk-lf-1f7b169c-1f7b-1f7b-1f7b-1f7b169c846f"}}},
 			},
 		},
-		NoMatch("false positive 1", "LANGFUSE_SECRET_KEY=sk-lf-00000000-0000-0000-0000-000000000000"),
-		NoMatch("false positive 2", "LANGFUSE_SECRET_KEY=sk-lf-short"),
+		rulebuilder.NoMatch("false positive 1", "LANGFUSE_SECRET_KEY=sk-lf-00000000-0000-0000-0000-000000000000"),
+		rulebuilder.NoMatch("false positive 2", "LANGFUSE_SECRET_KEY=sk-lf-short"),
 	},
 })
 
 func uuidPattern() string {
-	return Hex("8") + `-` + Hex("4") + `-` + Hex("4") + `-` + Hex("4") + `-` + Hex("12")
+	return rulebuilder.Hex("8") + `-` + rulebuilder.Hex("4") + `-` + rulebuilder.Hex("4") + `-` + rulebuilder.Hex("4") + `-` + rulebuilder.Hex("12")
 }

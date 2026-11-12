@@ -55,19 +55,26 @@ More test files and more assertions are not goals in themselves.
 ## Adding new Betterleaks rules
 
 Rules for the [default configuration](../config/betterleaks.toml) live in
-[`rules/`](../rules), one file per provider. `config/betterleaks.toml` is
-generated from them.
+[`rules/`](../rules), one file per provider. Rules that are not specific to a
+provider, such as generic API keys and passwords, live in
+[`rules/generic/`](../rules/generic). `config/betterleaks.toml` is generated
+from them.
 
-1. Create `rules/{provider}.go`, or add to the provider's existing file. Each
-   rule registers itself with `Add`; there is no list to update. Here's a rule
-   modeled on `beamer.go`, with comments added for context:
+1. Run `make newrule NAME={provider}` to create `rules/{provider}.go` from a
+   template, or add to the provider's existing file. Each rule registers
+   itself with `rulebuilder.Add`; there is no list to update.
+   The helpers live in [`internal/rulebuilder`](../internal/rulebuilder).
+   Here's a rule modeled on `beamer.go`, with comments added for context:
 
    ```golang
    package rules
 
-   import "github.com/betterleaks/betterleaks/v2/config"
+   import (
+       "github.com/betterleaks/betterleaks/v2/config"
+       "github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+   )
 
-   var _ = Add(config.Rule{
+   var _ = rulebuilder.Add(config.Rule{
        // Unique ID for the rule
        ID: "beamer-api-token",
 
@@ -76,21 +83,21 @@ generated from them.
        Confidence:  "medium",
 
        // Regex used for detecting secrets. See below for more details
-       Regex: Assignment([]string{"beamer"}, `(?i)b_[a-z0-9=_\-]{44}`),
+       Regex: rulebuilder.Assignment([]string{"beamer"}, `(?i)b_[a-z0-9=_\-]{44}`),
 
-       // Keywords used for string matching on fragments (think of this as a prefilter)
+       // Lowercase keywords used for string matching on fragments (think of this as a prefilter)
        Keywords: []string{"beamer"},
 
        // Inputs the rule must and must not detect
        Tests: []config.RuleTest{
-           Match("assignment", `beamerToken = "b_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903f"`, "b_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903f"),
-           NoMatch("firmware file name", "R21A-A-V010SP13RC181024R16900-CN-B_250K-Release-OTA-97B6C6C59241976086FABDC41472150C.bfu"),
+           rulebuilder.Match("assignment", `beamerToken = "b_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903f"`, "b_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903f"),
+           rulebuilder.NoMatch("firmware file name", "R21A-A-V010SP13RC181024R16900-CN-B_250K-Release-OTA-97B6C6C59241976086FABDC41472150C.bfu"),
        },
    })
    ```
 
    To help with maintenance, _most_ rules should be uniform, so build the regex
-   with one of two helpers:
+   with one of two `rulebuilder` helpers:
 
    - `Token(pattern)` for a credential distinctive enough to stand alone. It
      adds the standard token boundaries. Pulumi's API token has the prefix
@@ -111,10 +118,12 @@ generated from them.
    - `Match(name, input, secret)`: `input` must produce exactly one finding,
      `secret`.
    - `NoMatch(name, input)`: `input` must produce no findings.
+   - `MatchComponent` and `NoMatchComponent` do the same for a `SkipReport`
+     component rule, whose matches are never reported on their own.
 
    Name each test for what it checks, such as "wrong prefix" or "placeholder",
-   and use literal values rather than generated ones. For components, named
-   captures, paths, or `Mode: "match"`, write a `config.RuleTest` literal; see
+   and use literal values rather than generated ones. For expected component
+   sets, named captures, or paths, write a `config.RuleTest` literal; see
    [rule tests](../docs/config.md#check-a-config-and-its-rule-tests).
 
 2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, set the rule's `FilterExpr` field. For more information, check out the [config doc](/docs/config.md)

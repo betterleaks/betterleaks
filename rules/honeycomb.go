@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://docs.honeycomb.io/api/auth/list-authorizations
 const honeycombValidateExpr = `let r = http.get("https://api.honeycomb.io/1/auth", {
@@ -51,17 +54,17 @@ let can_write = any([
   "capabilities": analysis.capabilities({"read": can_read, "write": can_write})
 }`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "honeycomb-api-key",
 	Confidence:   "medium",
 	Description:  "Detected a Honeycomb API key, which may expose Honeycomb telemetry and environment data.",
-	Regex:        Assignment([]string{"honeycomb"}, `(?i)(?:`+Hex("32")+`|`+AlphaNumeric("22")+`)`),
+	Regex:        rulebuilder.Assignment([]string{"honeycomb"}, `(?i)(?:`+rulebuilder.Hex("32")+`|`+rulebuilder.AlphaNumeric("22")+`)`),
 	Keywords:     []string{"honeycomb"},
 	ValidateExpr: honeycombValidateExpr,
 	AnalyzeExpr:  honeycombAnalyzeExpr,
 	FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", "honeycomb_secret_key=8f14e45fceea167a5a36dedd4bea2543", "8f14e45fceea167a5a36dedd4bea2543"),
-		Match("true positive 2", "honeycomb_token=z0d1f2bcaloumn3456789P", "z0d1f2bcaloumn3456789P"),
+		rulebuilder.Match("true positive 1", "honeycomb_secret_key=8f14e45fceea167a5a36dedd4bea2543", "8f14e45fceea167a5a36dedd4bea2543"),
+		rulebuilder.Match("true positive 2", "honeycomb_token=z0d1f2bcaloumn3456789P", "z0d1f2bcaloumn3456789P"),
 	},
 })

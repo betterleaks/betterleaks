@@ -1,18 +1,17 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(ResendAPIKey())
-
-func ResendAPIKey() config.Rule {
-	const base58 = `[1-9A-HJ-NP-Za-km-z]`
-	r := config.Rule{
-		ID:          "resend-api-key.1",
-		Confidence:  "high",
-		Description: "Resend API key, which may allow sending email or managing account resources.",
-		Regex:       Token(`re_` + base58 + `{8}_` + base58 + `{24}`),
-		Keywords:    []string{"resend"},
-		ValidateExpr: `let r = http.get("https://api.resend.com/domains", {
+var _ = rulebuilder.Add(config.Rule{
+	ID:          "resend-api-key.1",
+	Confidence:  "high",
+	Description: "Resend API key, which may allow sending email or managing account resources.",
+	Regex:       rulebuilder.Token(`re_[1-9A-HJ-NP-Za-km-z]{8}_[1-9A-HJ-NP-Za-km-z]{24}`),
+	Keywords:    []string{"resend"},
+	ValidateExpr: `let r = http.get("https://api.resend.com/domains", {
     "Authorization": "Bearer " + finding["secret"],
     "Accept": "application/json",
     "User-Agent": "betterleaks-secret-validation/1"
@@ -25,14 +24,12 @@ func ResendAPIKey() config.Rule {
     "result": "invalid",
     "reason": "Invalid API key"
   } : validate.unknown(r)`,
-		FilterExpr: MinEntropy(3.5),
-	}
-	r.Tests = []config.RuleTest{
-		Match("true positive 1", "RESEND_API_KEY=re_hDTaBGRX_xcWigjiDhDTaBGRXeJ6ZzZ7q", "re_hDTaBGRX_xcWigjiDhDTaBGRXeJ6ZzZ7q"),
-		Match("true positive 2", "RESEND_AUTHORIZATION=Bearer re_hDTaBGRX_xcWigjiDhDTaBGRXeJ6ZzZ7q", "re_hDTaBGRX_xcWigjiDhDTaBGRXeJ6ZzZ7q"),
-		NoMatch("false positive 1", "RESEND_API_KEY=re_short"),
-		NoMatch("false positive 2", "RESEND_API_KEY=re_0OtIl123_0OtIl1234567890123456789"),
-		NoMatch("false positive 3", "RESEND_API_KEY=re_AAAAAAAA_AAAAAAAAAAAAAAAAAAAAAAAA"),
-	}
-	return r
-}
+	FilterExpr: rulebuilder.MinEntropy(3.5),
+	Tests: []config.RuleTest{
+		rulebuilder.Match("true positive 1", "RESEND_API_KEY=re_hDTaBGRX_xcWigjiDhDTaBGRXeJ6ZzZ7q", "re_hDTaBGRX_xcWigjiDhDTaBGRXeJ6ZzZ7q"),
+		rulebuilder.Match("true positive 2", "RESEND_AUTHORIZATION=Bearer re_hDTaBGRX_xcWigjiDhDTaBGRXeJ6ZzZ7q", "re_hDTaBGRX_xcWigjiDhDTaBGRXeJ6ZzZ7q"),
+		rulebuilder.NoMatch("false positive 1", "RESEND_API_KEY=re_short"),
+		rulebuilder.NoMatch("false positive 2", "RESEND_API_KEY=re_0OtIl123_0OtIl1234567890123456789"),
+		rulebuilder.NoMatch("false positive 3", "RESEND_API_KEY=re_AAAAAAAA_AAAAAAAAAAAAAAAAAAAAAAAA"),
+	},
+})

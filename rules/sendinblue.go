@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://developers.brevo.com/reference/get-account
 const brevoValidateExpr = `let r = http.get("https://api.brevo.com/v3/account", {
@@ -25,9 +28,9 @@ r.status == 200 && type(r.json) == "map" && (r.json?.email ?? "") != "" ? {
   "result": "invalid", "reason": "Unauthorized"
 } : validate.unknown(r)`
 
-const brevoAnalyzeExpr = identityOnlyAnalyzeExpr
+const brevoAnalyzeExpr = rulebuilder.IdentityOnlyAnalyzeExpr
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "sendinblue-api-token",
 	Confidence:  "high",
 	Description: "Identified a Brevo (formerly Sendinblue) API token, which may compromise email marketing services and subscriber data privacy.",
@@ -37,12 +40,12 @@ var _ = Add(config.Rule{
 	},
 	ValidateExpr: brevoValidateExpr,
 	AnalyzeExpr:  brevoAnalyzeExpr,
-	FilterExpr:   MinEntropy(3.2),
+	FilterExpr:   rulebuilder.MinEntropy(3.2),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "BREVO_API_KEY=xkeysib-abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd-1234567890abcd12", "xkeysib-abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd-1234567890abcd12"),
-		Match("true positive 2", "SENDINBLUE_API_KEY=xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78", "xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78"),
-		Match("true positive 3", "BREVO_KEYS=[xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78]", "xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78"),
-		NoMatch("false positive 1", "BREVO_API_KEY=xkeysib-too-short"),
-		NoMatch("false positive 2", "BREVO_API_KEY=xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78_extra"),
+		rulebuilder.Match("true positive 1", "BREVO_API_KEY=xkeysib-abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd-1234567890abcd12", "xkeysib-abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd-1234567890abcd12"),
+		rulebuilder.Match("true positive 2", "SENDINBLUE_API_KEY=xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78", "xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78"),
+		rulebuilder.Match("true positive 3", "BREVO_KEYS=[xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78]", "xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78"),
+		rulebuilder.NoMatch("false positive 1", "BREVO_API_KEY=xkeysib-too-short"),
+		rulebuilder.NoMatch("false positive 2", "BREVO_API_KEY=xkeysib-1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef-ab12cd34ef56gh78_extra"),
 	},
 })

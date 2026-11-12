@@ -1,26 +1,29 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "planetscale-password",
 	Confidence:  "high",
 	Description: "Discovered a PlanetScale password, which could lead to unauthorized database operations and data breaches.",
-	Regex:       Token(`(?i)pscale_pw_(?i)[\w=\.-]{32,64}`),
+	Regex:       rulebuilder.Token(`(?i)pscale_pw_(?i)[\w=\.-]{32,64}`),
 	Keywords: []string{
 		"pscale_pw_",
 	},
 	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("planetScale assignment", `planetScaleToken = "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-"`, "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-"),
-		Match("planetScale assignment 2", `planetScaleToken = "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"`, "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"),
-		Match("planetScale assignment 3", `planetScaleToken = "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55r"`, "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55r"),
+		rulebuilder.Match("assignment", `planetScaleToken = "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-"`, "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-"),
+		rulebuilder.Match("planetScale assignment 2", `planetScaleToken = "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"`, "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"),
+		rulebuilder.Match("planetScale assignment 3", `planetScaleToken = "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55r"`, "pscale_pw_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55r"),
 	},
 })
 
 // PlanetScaleID detects PlanetScale service token IDs.
 // This is a dependency rule for PlanetScaleAPIToken and is not reported on its own.
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "planetscale-id",
 	Confidence:  "high",
 	Description: "Found a PlanetScale service token ID.",
@@ -29,38 +32,17 @@ var _ = Add(config.Rule{
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "pscale_user = 0dm7fw8prpel",
-			Expect: []config.ExpectedFinding{
-				{Secret: "0dm7fw8prpel"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: "planetscale_id: 0dm7fw8prpel",
-			Expect: []config.ExpectedFinding{
-				{Secret: "0dm7fw8prpel"},
-			},
-		},
-		{
-			Name:  "true positive 3",
-			Mode:  "match",
-			Input: "PSCALE_USER_NAME = 5fbbd6p84oe7",
-			Expect: []config.ExpectedFinding{
-				{Secret: "5fbbd6p84oe7"},
-			},
-		},
+		rulebuilder.MatchComponent("true positive 1", "pscale_user = 0dm7fw8prpel", "0dm7fw8prpel"),
+		rulebuilder.MatchComponent("true positive 2", "planetscale_id: 0dm7fw8prpel", "0dm7fw8prpel"),
+		rulebuilder.MatchComponent("true positive 3", "PSCALE_USER_NAME = 5fbbd6p84oe7", "5fbbd6p84oe7"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "planetscale-api-token",
 	Confidence:  "high",
 	Description: "Identified a PlanetScale API token, potentially compromising database management and operations.",
-	Regex:       Token(`pscale_tkn_(?i)[\w=\.-]{32,64}`),
+	Regex:       rulebuilder.Token(`pscale_tkn_(?i)[\w=\.-]{32,64}`),
 	Keywords: []string{
 		"pscale_tkn_",
 	},
@@ -80,7 +62,7 @@ var _ = Add(config.Rule{
 	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
 		{
-			Name:  "planetScale assignment",
+			Name:  "assignment",
 			Input: "planetScaleToken = \"pscale_tkn_ki=bm50nvcz3-wjwuth1tchax6992fd-\"\npscale_user = 0dm7fw8prpel",
 			Expect: []config.ExpectedFinding{
 				{Secret: "pscale_tkn_ki=bm50nvcz3-wjwuth1tchax6992fd-", ComponentSets: []map[string]string{{"planetscale-id": "0dm7fw8prpel"}}},
@@ -103,18 +85,18 @@ var _ = Add(config.Rule{
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "planetscale-oauth-token",
 	Confidence:  "high",
 	Description: "Found a PlanetScale OAuth token, posing a risk to database access control and sensitive data integrity.",
-	Regex:       Token(`pscale_oauth_[\w=\.-]{32,64}`),
+	Regex:       rulebuilder.Token(`pscale_oauth_[\w=\.-]{32,64}`),
 	Keywords: []string{
 		"pscale_oauth_",
 	},
 	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("planetScale assignment", `planetScaleToken = "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-"`, "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-"),
-		Match("planetScale assignment 2", `planetScaleToken = "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"`, "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"),
-		Match("planetScale assignment 3", `planetScaleToken = "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55r"`, "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55r"),
+		rulebuilder.Match("assignment", `planetScaleToken = "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-"`, "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-"),
+		rulebuilder.Match("planetScale assignment 2", `planetScaleToken = "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"`, "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903"),
+		rulebuilder.Match("planetScale assignment 3", `planetScaleToken = "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55r"`, "pscale_oauth_ki=bm50nvcz3-wjwuth1tchax6992fd-41l48soc903fsrsj9cld-8001fa7=55r"),
 	},
 })

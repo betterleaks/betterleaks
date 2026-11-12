@@ -1,18 +1,21 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "prefect-api-token",
 	Confidence:  "high",
 	Description: "Detected a Prefect API token, risking unauthorized access to workflow management and automation services.",
-	Regex:       Token(`pnu_[a-zA-Z0-9]{36}`),
+	Regex:       rulebuilder.Token(`pnu_[a-zA-Z0-9]{36}`),
 	Keywords: []string{
 		"pnu_",
 	},
 	FilterExpr: `entropy(finding["secret"]) <= 2.0`,
 	Tests: []config.RuleTest{
-		Match("api-token assignment", `api-tokenToken = "pnu_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "pnu_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
-		NoMatch("false positive 1", `PREFECT_API_KEY = "pnu_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"`),
+		rulebuilder.Match("assignment", `api-tokenToken = "pnu_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "pnu_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
+		rulebuilder.NoMatch("false positive 1", `PREFECT_API_KEY = "pnu_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"`),
 	},
 })

@@ -4,12 +4,13 @@ import (
 	"fmt"
 
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
-var _ = Add(KubernetesSecret())
+var _ = rulebuilder.Add(kubernetesSecret())
 
-// KubernetesSecret validates if we detected a kubernetes secret which contains data!
-func KubernetesSecret() config.Rule {
+// kubernetesSecret matches Kubernetes Secret manifests that contain data.
+func kubernetesSecret() config.Rule {
 	// Only match basic variations of `kind: secret`, we don't want things like `kind: ExternalSecret`.
 	//language=regexp
 	kindPat := `\bkind:[ \t]*["']?\bsecret\b["']?`

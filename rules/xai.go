@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://docs.x.ai/developers/rest-api-reference/inference/other
 // Model/endpoint wildcards are not management API permissions.
@@ -46,18 +49,18 @@ const xaiAnalyzeExpr = `let input = validation.analysis;
   "reason": "xAI model and endpoint ACLs do not establish resource read/write or administrative grants"
 }`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ValidateExpr: xaiValidateExpr,
 	AnalyzeExpr:  xaiAnalyzeExpr,
 	ID:           "xai-api-key",
 	Confidence:   "high",
 	Description:  "Detected an xAI (Grok) API Key, which may expose Grok AI model access to unauthorized parties.",
-	Regex:        Token(`(?i)xai-[A-Za-z0-9_-]{70,120}`),
+	Regex:        rulebuilder.Token(`(?i)xai-[A-Za-z0-9_-]{70,120}`),
 	Keywords:     []string{"xai-"},
 	FilterExpr:   `entropy(finding["secret"]) <= 3.5`,
 	Tests: []config.RuleTest{
-		Match("xai assignment", `xaiToken = "xai-WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZzOK8pMcG7ubf2TxReZd1UXAceqba86woUt0S"`, "xai-WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZzOK8pMcG7ubf2TxReZd1UXAceqba86woUt0S"),
-		NoMatch("Too short", "xai-CNPlxZEZVpxDTRD8N6Luet7LwS2qyuijh7pdHbmNzsw"),
-		NoMatch("Wrong prefix", "xbi-CNPlxZEZVpxDTRD8N6Luet7LwS2qyuijh7pdHbmNzswLAYSWUeODm8Cav2On1LqgrCewPvGCWxBqSbh3"),
+		rulebuilder.Match("assignment", `xaiToken = "xai-WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZzOK8pMcG7ubf2TxReZd1UXAceqba86woUt0S"`, "xai-WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZzOK8pMcG7ubf2TxReZd1UXAceqba86woUt0S"),
+		rulebuilder.NoMatch("Too short", "xai-CNPlxZEZVpxDTRD8N6Luet7LwS2qyuijh7pdHbmNzsw"),
+		rulebuilder.NoMatch("Wrong prefix", "xbi-CNPlxZEZVpxDTRD8N6Luet7LwS2qyuijh7pdHbmNzswLAYSWUeODm8Cav2On1LqgrCewPvGCWxBqSbh3"),
 	},
 })

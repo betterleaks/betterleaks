@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // CfxreServerKey is not registered in the default config: it was found in
 // GHAS, but is not worth adding at this time.
@@ -13,8 +16,8 @@ func CfxreServerKey() config.Rule {
 		Keywords:    []string{"cfxk_"},
 		FilterExpr:  `entropy(finding["secret"]) <= 3.5`,
 		Tests: []config.RuleTest{
-			Match("true positive 1", `sv_licenseKey "cfxk_AbCdEfGhIjKlMnOpQrStUvWx"`, "cfxk_AbCdEfGhIjKlMnOpQrStUvWx"),
-			NoMatch("false positive 1", "cfxk_short"),
+			rulebuilder.Match("true positive 1", `sv_licenseKey "cfxk_AbCdEfGhIjKlMnOpQrStUvWx"`, "cfxk_AbCdEfGhIjKlMnOpQrStUvWx"),
+			rulebuilder.NoMatch("false positive 1", "cfxk_short"),
 		},
 	}
 }

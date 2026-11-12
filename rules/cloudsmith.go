@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "cloudsmith-api-key",
 	Confidence:  "high",
 	Description: "Detected a Cloudsmith API key, which may expose package repositories and artifact management operations to unauthorized access.",
-	Regex:       Token(`csa_[a-f0-9]{30}[A-Za-z0-9]{6}`),
+	Regex:       rulebuilder.Token(`csa_[a-f0-9]{30}[A-Za-z0-9]{6}`),
 	Keywords:    []string{"csa_"},
 	ValidateExpr: `let r = http.get("https://api.cloudsmith.io/user/self/", {
     "Authorization": "Bearer " + finding["secret"]
@@ -18,8 +21,8 @@ var _ = Add(config.Rule{
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
 	Tests: []config.RuleTest{
-		Match("cloudsmith assignment", `cloudsmithToken = "csa_93d7f5d17b39f506a607a3c4f61794Q1phUk"`, "csa_93d7f5d17b39f506a607a3c4f61794Q1phUk"),
-		NoMatch("false positive 1", `cloudsmith = "csa_93d7f5d16b39f506a607a3c4f61794Q1phU"`),
-		NoMatch("false positive 2", `cloudsmith = "csb_93d7f5d16b39f506a607a3c4f61794Q1phUQ"`),
+		rulebuilder.Match("assignment", `cloudsmithToken = "csa_93d7f5d17b39f506a607a3c4f61794Q1phUk"`, "csa_93d7f5d17b39f506a607a3c4f61794Q1phUk"),
+		rulebuilder.NoMatch("false positive 1", `cloudsmith = "csa_93d7f5d16b39f506a607a3c4f61794Q1phU"`),
+		rulebuilder.NoMatch("false positive 2", `cloudsmith = "csb_93d7f5d16b39f506a607a3c4f61794Q1phUQ"`),
 	},
 })

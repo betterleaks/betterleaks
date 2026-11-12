@@ -1,15 +1,19 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "nytimes-access-token",
 	Confidence:  "high",
 	Description: "Detected a Nytimes Access Token, risking unauthorized access to New York Times APIs and content services.",
-	Regex: Assignment([]string{
-		"nytimes", "new-york-times", "newyorktimes"},
-		`(?i)`+AlphaNumericExtended("32")),
-
+	Regex: rulebuilder.Assignment(
+		[]string{
+			"nytimes", "new-york-times", "newyorktimes"},
+		`(?i)`+rulebuilder.AlphaNumericExtended("32"),
+	),
 	Keywords: []string{
 		"nytimes",
 		"new-york-times",
@@ -17,6 +21,6 @@ var _ = Add(config.Rule{
 	},
 	FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("nytimes assignment", `nytimesToken = "5fbbd6p84oe7ut4qrttebiwar77s63do"`, "5fbbd6p84oe7ut4qrttebiwar77s63do"),
+		rulebuilder.Match("assignment", `nytimesToken = "5fbbd6p84oe7ut4qrttebiwar77s63do"`, "5fbbd6p84oe7ut4qrttebiwar77s63do"),
 	},
 })

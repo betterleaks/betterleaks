@@ -94,8 +94,7 @@ func TestHashes(t *testing.T) {
 		{"config metadata", func(c *Config) {
 			c.Title, c.Description, c.Path, c.MinVersion = "new", "new", "/elsewhere/config.toml", "v99.0.0"
 		}, true, true},
-		{"authoring metadata", func(c *Config) {
-			c.Provider = "example"
+		{"rule tests", func(c *Config) {
 			c.Rules[0].Tests = []RuleTest{{Name: "negative", Input: "ordinary text", Expect: []ExpectedFinding{}}}
 		}, true, true},
 		{"nil and empty slices", func(c *Config) {

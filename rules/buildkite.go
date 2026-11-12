@@ -1,9 +1,8 @@
 package rules
 
 import (
-	"strings"
-
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
 // https://buildkite.com/docs/apis/rest-api/access-token
@@ -68,7 +67,7 @@ const buildkiteRevokeExpr = `let r = http.delete("https://api.buildkite.com/v2/a
   "result": "revoked"
 } : revoke.unknown(r)`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "buildkite-user-access-token",
 	Confidence:   "high",
 	Description:  "Detected a Buildkite user access token, which may expose pipelines, builds, and organization data.",
@@ -77,16 +76,16 @@ var _ = Add(config.Rule{
 	ValidateExpr: buildkiteValidateExpr,
 	AnalyzeExpr:  buildkiteAnalyzeExpr,
 	RevokeExpr:   buildkiteRevokeExpr,
-	FilterExpr:   MinEntropy(3.5),
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "BUILDKITE_TOKEN=bkua_hqlh73m51jtho0jh12wcf2758c8fcdbv05z023ly", "bkua_hqlh73m51jtho0jh12wcf2758c8fcdbv05z023ly"),
-		Match("true positive 2", "BUILDKITE_TOKEN=bkua_q9xk4pt8cw1zl6gh3sd5fj0ab7nm2qv9xk4pt8cw1zl6gh3sd5fj0", "bkua_q9xk4pt8cw1zl6gh3sd5fj0ab7nm2qv9xk4pt8cw1zl6gh3sd5fj0"),
-		NoMatch("false positive 1", "BUILDKITE_TOKEN=bkua_short"),
-		NoMatch("false positive 2", "BUILDKITE_TOKEN=bkua_hqlh73m51jtho0jh12wcf2758c8fcdbv05z023ly_extra"),
+		rulebuilder.Match("true positive 1", "BUILDKITE_TOKEN=bkua_hqlh73m51jtho0jh12wcf2758c8fcdbv05z023ly", "bkua_hqlh73m51jtho0jh12wcf2758c8fcdbv05z023ly"),
+		rulebuilder.Match("true positive 2", "BUILDKITE_TOKEN=bkua_q9xk4pt8cw1zl6gh3sd5fj0ab7nm2qv9xk4pt8cw1zl6gh3sd5fj0", "bkua_q9xk4pt8cw1zl6gh3sd5fj0ab7nm2qv9xk4pt8cw1zl6gh3sd5fj0"),
+		rulebuilder.NoMatch("false positive 1", "BUILDKITE_TOKEN=bkua_short"),
+		rulebuilder.NoMatch("false positive 2", "BUILDKITE_TOKEN=bkua_hqlh73m51jtho0jh12wcf2758c8fcdbv05z023ly_extra"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "buildkite-service-token",
 	Confidence:  "high",
 	Description: "Detected a Buildkite agent, package, or portal token, which may expose CI/CD workloads or packages.",
@@ -100,22 +99,17 @@ var _ = Add(config.Rule{
 		`bkps_[A-Za-z0-9_-]{64}` +
 		`)(?:$|[^A-Za-z0-9_-])`,
 	Keywords:   []string{"bkaa_", "bkaj_", "bkar_", "bkct_", "bkpt_", "bkpat_", "bkps_"},
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "BUILDKITE_AGENT_TOKEN=bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK", "bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK"),
-		Match("true positive 2", "BUILDKITE_JOB_TOKEN=bkaj_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2m", "bkaj_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2m"),
-		Match("true positive 3", "BUILDKITE_REGISTRATION_TOKEN=bkar_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9", "bkar_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9"),
-		Match("true positive 4", "BUILDKITE_CLUSTER_TOKEN=bkct_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9", "bkct_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9"),
-		Match("true positive 5", "BUILDKITE_PACKAGE_TOKEN=bkpt_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6g", "bkpt_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6g"),
-		Match("true positive 6", "BUILDKITE_PORTAL_TOKEN=bkpat_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1x", "bkpat_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1x"),
-		Match("true positive 7", "BUILDKITE_PORTAL_SECRET=bkps_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iL", "bkps_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iL"),
-		Match("true positive 8", "BUILDKITE_AGENT_TOKEN=bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9j-]", "bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9j-"),
-		NoMatch("false positive 1", "BUILDKITE_AGENT_TOKEN=bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9j"),
-		NoMatch("false positive 2", "BUILDKITE_AGENT_TOKEN=bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9j-extra"),
+		rulebuilder.Match("true positive 1", "BUILDKITE_AGENT_TOKEN=bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK", "bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK"),
+		rulebuilder.Match("true positive 2", "BUILDKITE_JOB_TOKEN=bkaj_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2m", "bkaj_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2m"),
+		rulebuilder.Match("true positive 3", "BUILDKITE_REGISTRATION_TOKEN=bkar_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9", "bkar_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9"),
+		rulebuilder.Match("true positive 4", "BUILDKITE_CLUSTER_TOKEN=bkct_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9", "bkct_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9"),
+		rulebuilder.Match("true positive 5", "BUILDKITE_PACKAGE_TOKEN=bkpt_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6g", "bkpt_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6g"),
+		rulebuilder.Match("true positive 6", "BUILDKITE_PORTAL_TOKEN=bkpat_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1x", "bkpat_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1x"),
+		rulebuilder.Match("true positive 7", "BUILDKITE_PORTAL_SECRET=bkps_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iL", "bkps_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iL"),
+		rulebuilder.Match("true positive 8", "BUILDKITE_AGENT_TOKEN=bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9j-]", "bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9j-"),
+		rulebuilder.NoMatch("false positive 1", "BUILDKITE_AGENT_TOKEN=bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9j"),
+		rulebuilder.NoMatch("false positive 2", "BUILDKITE_AGENT_TOKEN=bkaa_aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iLaB3dE6gH9j-extra"),
 	},
 })
-
-func buildkiteTestToken(length int) string {
-	const alphabet = "aB3dE6gH9jK2mN5qR8tV1xY4zC7fG0iL"
-	return strings.Repeat(alphabet, length/len(alphabet)+1)[:length]
-}

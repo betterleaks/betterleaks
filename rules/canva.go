@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "canva-client-id",
 	Confidence:  "high",
 	Description: "Detected a Canva Connect API client ID, used as a component of the canva-client-secret composite rule.",
@@ -11,38 +14,14 @@ var _ = Add(config.Rule{
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) < 2.5`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "canva client id: OC-AZ2dqZiY_lec",
-			Expect: []config.ExpectedFinding{
-				{Secret: "OC-AZ2dqZiY_lec"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: "CANVA_CLIENT_ID=OC-FAB12-AbCdEf",
-			Expect: []config.ExpectedFinding{
-				{Secret: "OC-FAB12-AbCdEf"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "client id: OC-AZ2dqZiY_lec",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "CANVA_CLIENT_ID=OC-short",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "canva client id: OC-AZ2dqZiY_lec", "OC-AZ2dqZiY_lec"),
+		rulebuilder.MatchComponent("true positive 2", "CANVA_CLIENT_ID=OC-FAB12-AbCdEf", "OC-FAB12-AbCdEf"),
+		rulebuilder.NoMatchComponent("false positive 1", "client id: OC-AZ2dqZiY_lec"),
+		rulebuilder.NoMatchComponent("false positive 2", "CANVA_CLIENT_ID=OC-short"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "canva-client-secret",
 	Confidence:  "high",
 	Description: "Detected a Canva Connect API client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
@@ -72,6 +51,6 @@ var _ = Add(config.Rule{
 				{Secret: "cnvcav3RRFkl36rsXClN3-Dsygjl_oGT1-xMhXV70oxnGi6s811bfada", ComponentSets: []map[string]string{{"canva-client-id": "OC-AZ2dqZiY_lec"}}},
 			},
 		},
-		NoMatch("false positive 1", "CANVA_CLIENT_SECRET=cnvcav3RRFkl36rsXClN3-Dsygjl_oGT1-xMhXV70oxnGi6s811bfad"),
+		rulebuilder.NoMatch("false positive 1", "CANVA_CLIENT_SECRET=cnvcav3RRFkl36rsXClN3-Dsygjl_oGT1-xMhXV70oxnGi6s811bfad"),
 	},
 })

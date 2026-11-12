@@ -1,4 +1,4 @@
-package rules
+package rulebuilder
 
 import (
 	"fmt"
@@ -21,15 +21,15 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "exprruntime.New: %v\n", err)
 		os.Exit(1)
 	}
-	globalFilterProgram, err = exprRuntime.CompileFilter(GlobalFilter, nil)
+	globalFilterProgram, err = exprRuntime.CompileFilter(globalFilter, nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "compile GlobalFilter: %v\n", err)
+		fmt.Fprintf(os.Stderr, "compile globalFilter: %v\n", err)
 		os.Exit(1)
 	}
 
-	globalPrefilterProgram, err = exprRuntime.CompilePrefilter(GlobalPrefilter)
+	globalPrefilterProgram, err = exprRuntime.CompilePrefilter(globalPrefilter)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "compile GlobalPrefilter: %v\n", err)
+		fmt.Fprintf(os.Stderr, "compile globalPrefilter: %v\n", err)
 		os.Exit(1)
 	}
 

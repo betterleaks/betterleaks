@@ -2,6 +2,7 @@ package rules
 
 import (
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
 // overview with all GitLab tokens:
@@ -87,7 +88,7 @@ let can_admin = intersects(grants, ["sudo", "admin_mode"]);
   } : validate.unknown(r)`
 )
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "gitlab-cicd-job-token",
 	Confidence:   "high",
 	Description:  "Identified a GitLab CI/CD Job Token, potential access to projects and some APIs on behalf of a user while the CI job is running.",
@@ -96,11 +97,11 @@ var _ = Add(config.Rule{
 	ValidateExpr: gitlabUserExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glcbt-5fbbd_5fbbd6p84oe7ut4qrtte"`, "glcbt-5fbbd_5fbbd6p84oe7ut4qrtte"),
+		rulebuilder.Match("assignment", `gitlabToken = "glcbt-5fbbd_5fbbd6p84oe7ut4qrtte"`, "glcbt-5fbbd_5fbbd6p84oe7ut4qrtte"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	Description:  "Identified a GitLab Deploy Token, risking access to repositories, packages and containers with write access.",
 	ID:           "gitlab-deploy-token",
 	Confidence:   "high",
@@ -109,11 +110,11 @@ var _ = Add(config.Rule{
 	ValidateExpr: gitlabUserExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", `gitlab_api_token = "gldt-5fbbd6p84oe7ut4qrtte"`, "gldt-5fbbd6p84oe7ut4qrtte"),
+		rulebuilder.Match("true positive 1", `gitlab_api_token = "gldt-5fbbd6p84oe7ut4qrtte"`, "gldt-5fbbd6p84oe7ut4qrtte"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitlab-feature-flag-client-token",
 	Confidence:  "high",
 	Description: "Identified a GitLab feature flag client token, risks exposing user lists and features flags used by an application.",
@@ -121,11 +122,11 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"glffct-"},
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glffct-5fbbd6p84oe7ut4qrtte"`, "glffct-5fbbd6p84oe7ut4qrtte"),
+		rulebuilder.Match("assignment", `gitlabToken = "glffct-5fbbd6p84oe7ut4qrtte"`, "glffct-5fbbd6p84oe7ut4qrtte"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitlab-feed-token",
 	Confidence:  "high",
 	Description: "Identified a GitLab feed token, risking exposure of user data.",
@@ -133,11 +134,11 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"glft-"},
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glft-5fbbd6p84oe7ut4qrtte"`, "glft-5fbbd6p84oe7ut4qrtte"),
+		rulebuilder.Match("assignment", `gitlabToken = "glft-5fbbd6p84oe7ut4qrtte"`, "glft-5fbbd6p84oe7ut4qrtte"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitlab-incoming-mail-token",
 	Confidence:  "high",
 	Description: "Identified a GitLab incoming mail token, risking manipulation of data sent by mail.",
@@ -145,14 +146,14 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"glimt-"},
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glimt-5fbbd6p84oe7ut4qrttebiwar"`, "glimt-5fbbd6p84oe7ut4qrttebiwar"),
+		rulebuilder.Match("assignment", `gitlabToken = "glimt-5fbbd6p84oe7ut4qrttebiwar"`, "glimt-5fbbd6p84oe7ut4qrttebiwar"),
 	},
 })
 
 // GitlabIncomingMailAddressToken finds incoming-mail tokens embedded in GitLab
 // reply-by-email addresses. Prefer gitlab-incoming-mail-token (glimt- prefix)
 // when both match; this rule covers legacy tokens and arbitrary prefixes.
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitlab-incoming-mail-address-token",
 	Confidence:  "high",
 	Description: "Identified a GitLab incoming mail token embedded in an email address, risking manipulation of data sent by mail.",
@@ -161,14 +162,14 @@ var _ = Add(config.Rule{
 	Specificity: -50,
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", "incoming+gitlab-org-project-123-5fbbd6p84oe7ut4qrttebiwar-issue@example.com", "5fbbd6p84oe7ut4qrttebiwar"),
-		Match("true positive 2", "incoming+my.group_path-456-5fbbd6p84oe7ut4qrttebiwar-merge-request@gitlab.example.com", "5fbbd6p84oe7ut4qrttebiwar"),
-		Match("true positive 3", "incoming+project.path-789-5fbbd6p84oe7ut4qrttebiwar-issue-42@example.com", "5fbbd6p84oe7ut4qrttebiwar"),
-		Match("true positive 4", "incoming+gitlab-org-gitlab-foss-20-glimt-5fbbd6p84oe7ut4qrttebiwar-issue@example.com", "glimt-5fbbd6p84oe7ut4qrttebiwar"),
+		rulebuilder.Match("true positive 1", "incoming+gitlab-org-project-123-5fbbd6p84oe7ut4qrttebiwar-issue@example.com", "5fbbd6p84oe7ut4qrttebiwar"),
+		rulebuilder.Match("true positive 2", "incoming+my.group_path-456-5fbbd6p84oe7ut4qrttebiwar-merge-request@gitlab.example.com", "5fbbd6p84oe7ut4qrttebiwar"),
+		rulebuilder.Match("true positive 3", "incoming+project.path-789-5fbbd6p84oe7ut4qrttebiwar-issue-42@example.com", "5fbbd6p84oe7ut4qrttebiwar"),
+		rulebuilder.Match("true positive 4", "incoming+gitlab-org-gitlab-foss-20-glimt-5fbbd6p84oe7ut4qrttebiwar-issue@example.com", "glimt-5fbbd6p84oe7ut4qrttebiwar"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitlab-kubernetes-agent-token",
 	Confidence:  "high",
 	Description: "Identified a GitLab Kubernetes Agent token, risking access to repos and registry of projects connected via agent.",
@@ -176,11 +177,11 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"glagent-"},
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glagent-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl"`, "glagent-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl"),
+		rulebuilder.Match("assignment", `gitlabToken = "glagent-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl"`, "glagent-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitlab-oauth-app-secret",
 	Confidence:  "high",
 	Description: "Identified a GitLab OIDC Application Secret, risking access to apps using GitLab as authentication provider.",
@@ -188,7 +189,7 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"gloas-"},
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "gloas-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lc"`, "gloas-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lc"),
+		rulebuilder.Match("assignment", `gitlabToken = "gloas-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lc"`, "gloas-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lc"),
 	},
 })
 
@@ -200,7 +201,7 @@ let r = http.delete(base_url + "/api/v4/personal_access_tokens/self", {
   "result": "revoked"
 } : revoke.unknown(r)`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "gitlab-pat",
 	Confidence:   "high",
 	Description:  "Identified a GitLab Personal Access Token, risking unauthorized access to GitLab repositories and codebase exposure.",
@@ -211,12 +212,12 @@ var _ = Add(config.Rule{
 	RevokeExpr:   gitlabPatRevokeExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glpat-5fbbd6p84oe7ut4qrtte"`, "glpat-5fbbd6p84oe7ut4qrtte"),
-		NoMatch("false positive 1", "glpat-XXXXXXXXXXX-XXXXXXXX"),
+		rulebuilder.Match("assignment", `gitlabToken = "glpat-5fbbd6p84oe7ut4qrtte"`, "glpat-5fbbd6p84oe7ut4qrtte"),
+		rulebuilder.NoMatch("false positive 1", "glpat-XXXXXXXXXXX-XXXXXXXX"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "gitlab-pat-routable",
 	Confidence:   "high",
 	Description:  "Identified a GitLab Personal Access Token (routable), risking unauthorized access to GitLab repositories and codebase exposure.",
@@ -227,12 +228,12 @@ var _ = Add(config.Rule{
 	RevokeExpr:   gitlabPatRevokeExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 4.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glpat-5fbbd6p84oe7ut4qrttebiwar77.5f5fbbd6p"`, "glpat-5fbbd6p84oe7ut4qrttebiwar77.5f5fbbd6p"),
-		NoMatch("false positive 1", "glpat-xxxxxxxx-xxxxxxxxxxxxxxxxxx.xxxxxxxxx"),
+		rulebuilder.Match("assignment", `gitlabToken = "glpat-5fbbd6p84oe7ut4qrttebiwar77.5f5fbbd6p"`, "glpat-5fbbd6p84oe7ut4qrttebiwar77.5f5fbbd6p"),
+		rulebuilder.NoMatch("false positive 1", "glpat-xxxxxxxx-xxxxxxxxxxxxxxxxxx.xxxxxxxxx"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "gitlab-pat-routable-versioned",
 	Confidence:   "high",
 	Description:  "Identified a GitLab Personal Access Token (routable, versioned), risking unauthorized access to GitLab repositories and codebase exposure.",
@@ -243,12 +244,12 @@ var _ = Add(config.Rule{
 	RevokeExpr:   gitlabPatRevokeExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 4.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glpat-5fbbd6p84oe7ut4qrttebiwar77.0r.5fbbd6p84"`, "glpat-5fbbd6p84oe7ut4qrttebiwar77.0r.5fbbd6p84"),
-		NoMatch("false positive 1", "glpat-xxxxxxxx-xxxxxxxxxxxxxxxxxx.xx.xxxxxxx"),
+		rulebuilder.Match("assignment", `gitlabToken = "glpat-5fbbd6p84oe7ut4qrttebiwar77.0r.5fbbd6p84"`, "glpat-5fbbd6p84oe7ut4qrttebiwar77.0r.5fbbd6p84"),
+		rulebuilder.NoMatch("false positive 1", "glpat-xxxxxxxx-xxxxxxxxxxxxxxxxxx.xx.xxxxxxx"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "gitlab-ptt",
 	Confidence:   "high",
 	Description:  "Found a GitLab Pipeline Trigger Token, potentially compromising continuous integration workflows and project security.",
@@ -257,27 +258,27 @@ var _ = Add(config.Rule{
 	ValidateExpr: gitlabUserExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glptt-1f7b169c846f218ab552fa82fbf86758bf5c97d2"`, "glptt-1f7b169c846f218ab552fa82fbf86758bf5c97d2"),
-		NoMatch("false positive 1", "glptt-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("assignment", `gitlabToken = "glptt-1f7b169c846f218ab552fa82fbf86758bf5c97d2"`, "glptt-1f7b169c846f218ab552fa82fbf86758bf5c97d2"),
+		rulebuilder.NoMatch("false positive 1", "glptt-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "gitlab-rrt",
 	Confidence:   "high",
 	Description:  "Discovered a GitLab Runner Registration Token, posing a risk to CI/CD pipeline integrity and unauthorized access.",
 	Regex:        `GR1348941[\w-]{20}`,
-	Keywords:     []string{"GR1348941"},
+	Keywords:     []string{"gr1348941"},
 	ValidateExpr: gitlabRunnerRegistrationExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "GR13489415fbbd6p84oe7ut4qrtte"`, "GR13489415fbbd6p84oe7ut4qrtte"),
-		NoMatch("false positive 1", "GR134894112312312312312312312"),
-		NoMatch("false positive 2", "GR1348941XXXXXXXXXXXXXXXXXXXX"),
+		rulebuilder.Match("assignment", `gitlabToken = "GR13489415fbbd6p84oe7ut4qrtte"`, "GR13489415fbbd6p84oe7ut4qrtte"),
+		rulebuilder.NoMatch("false positive 1", "GR134894112312312312312312312"),
+		rulebuilder.NoMatch("false positive 2", "GR1348941XXXXXXXXXXXXXXXXXXXX"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "gitlab-runner-authentication-token",
 	Confidence:   "high",
 	Description:  "Discovered a GitLab Runner Authentication Token, posing a risk to CI/CD pipeline integrity and unauthorized access.",
@@ -286,11 +287,11 @@ var _ = Add(config.Rule{
 	ValidateExpr: gitlabUserExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glrt-5fbbd6p84oe7ut4qrtte"`, "glrt-5fbbd6p84oe7ut4qrtte"),
+		rulebuilder.Match("assignment", `gitlabToken = "glrt-5fbbd6p84oe7ut4qrtte"`, "glrt-5fbbd6p84oe7ut4qrtte"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "gitlab-runner-authentication-token-routable",
 	Confidence:   "high",
 	Description:  "Discovered a GitLab Runner Authentication Token (Routable), posing a risk to CI/CD pipeline integrity and unauthorized access.",
@@ -299,12 +300,12 @@ var _ = Add(config.Rule{
 	ValidateExpr: gitlabUserExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 4.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glrt-t1_5fbbd6p84oe7ut4qrttebiwar77.5f5fbbd6p"`, "glrt-t1_5fbbd6p84oe7ut4qrttebiwar77.5f5fbbd6p"),
-		NoMatch("false positive 1", "glrt-tx_xxxxxxxxxxxxxxxxxxxxxxxxxxx.xxxxxxxxx"),
+		rulebuilder.Match("assignment", `gitlabToken = "glrt-t1_5fbbd6p84oe7ut4qrttebiwar77.5f5fbbd6p"`, "glrt-t1_5fbbd6p84oe7ut4qrttebiwar77.5f5fbbd6p"),
+		rulebuilder.NoMatch("false positive 1", "glrt-tx_xxxxxxxxxxxxxxxxxxxxxxxxxxx.xxxxxxxxx"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitlab-scim-token",
 	Confidence:  "high",
 	Description: "Discovered a GitLab SCIM Token, posing a risk to unauthorized access for a organization or instance.",
@@ -312,11 +313,11 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"glsoat-"},
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "glsoat-5fbbd6p84oe7ut4qrtte"`, "glsoat-5fbbd6p84oe7ut4qrtte"),
+		rulebuilder.Match("assignment", `gitlabToken = "glsoat-5fbbd6p84oe7ut4qrtte"`, "glsoat-5fbbd6p84oe7ut4qrtte"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitlab-session-cookie",
 	Confidence:  "high",
 	Description: "Discovered a GitLab Session Cookie, posing a risk to unauthorized access to a user account.",
@@ -324,6 +325,6 @@ var _ = Add(config.Rule{
 	Keywords:    []string{"_gitlab_session="},
 	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("gitlab assignment", `gitlabToken = "_gitlab_session=5fbbd6p84oe7ut4qrttebiwar77s63do"`, "_gitlab_session=5fbbd6p84oe7ut4qrttebiwar77s63do"),
+		rulebuilder.Match("assignment", `gitlabToken = "_gitlab_session=5fbbd6p84oe7ut4qrttebiwar77s63do"`, "_gitlab_session=5fbbd6p84oe7ut4qrttebiwar77s63do"),
 	},
 })

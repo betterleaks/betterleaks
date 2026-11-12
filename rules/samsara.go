@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "samsara-api-token.1",
 	Confidence:  "high",
 	Description: "Samsara API token.",
-	Regex:       Token(`samsara_api_[A-Za-z0-9]{26,32}`),
+	Regex:       rulebuilder.Token(`samsara_api_[A-Za-z0-9]{26,32}`),
 	Keywords:    []string{"samsara_api_"},
 	ValidateExpr: `let r = http.get("https://api.samsara.com/fleet/vehicles", {
     "Authorization": "Bearer " + finding["secret"],
@@ -20,10 +23,10 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Invalid token"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.0),
+	FilterExpr: rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "SAMSARA_API_TOKEN=samsara_api_5fbbd6p84oe7ut4qrttebiwar77s63", "samsara_api_5fbbd6p84oe7ut4qrttebiwar77s63"),
-		NoMatch("false positive 1", "SAMSARA_API_TOKEN=samsara_api_short"),
-		NoMatch("false positive 2", "SAMSARA_API_TOKEN=samsara_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("true positive 1", "SAMSARA_API_TOKEN=samsara_api_5fbbd6p84oe7ut4qrttebiwar77s63", "samsara_api_5fbbd6p84oe7ut4qrttebiwar77s63"),
+		rulebuilder.NoMatch("false positive 1", "SAMSARA_API_TOKEN=samsara_api_short"),
+		rulebuilder.NoMatch("false positive 2", "SAMSARA_API_TOKEN=samsara_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })

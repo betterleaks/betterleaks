@@ -1,41 +1,30 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "alibaba-access-key-id",
 	Confidence:  "high",
 	Description: "Detected an Alibaba Cloud AccessKey ID, posing a risk of unauthorized cloud resource access and potential data compromise.",
 	Regex:       `\b(LTAI[A-Za-z0-9]{17,21})\b`,
-	Keywords:    []string{"LTAI"},
+	Keywords:    []string{"ltai"},
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "bare secret",
-			Mode:  "match",
-			Input: "LTAI8x2NiGqfyJGx7eLDhp12",
-			Expect: []config.ExpectedFinding{
-				{Secret: "LTAI8x2NiGqfyJGx7eLDhp12"},
-			},
-		},
-		{
-			Name:  "bare secret 2",
-			Mode:  "match",
-			Input: "LTAI5GqyJGhp12ad31L5hpix",
-			Expect: []config.ExpectedFinding{
-				{Secret: "LTAI5GqyJGhp12ad31L5hpix"},
-			},
-		},
+		rulebuilder.MatchComponent("bare secret", "LTAI8x2NiGqfyJGx7eLDhp12", "LTAI8x2NiGqfyJGx7eLDhp12"),
+		rulebuilder.MatchComponent("bare secret 2", "LTAI5GqyJGhp12ad31L5hpix", "LTAI5GqyJGhp12ad31L5hpix"),
 	},
 })
 
 // TODO
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "alibaba-secret-key",
 	Confidence:  "high",
 	Description: "Discovered a potential Alibaba Cloud Secret Key, potentially allowing unauthorized operations and data access within Alibaba Cloud.",
-	Regex:       Assignment([]string{"alibaba", "aliyun", "secret", "key"}, `(?i)[A-Za-z0-9]{30}`),
+	Regex:       rulebuilder.Assignment([]string{"alibaba", "aliyun", "secret", "key"}, `(?i)[A-Za-z0-9]{30}`),
 	Keywords:    []string{"alibaba", "aliyun"},
 	Components: []config.Component{
 		{
@@ -56,7 +45,7 @@ var _ = Add(config.Rule{
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "alibaba-sts-access-key-id",
 	Confidence:  "high",
 	Description: "Detected an Alibaba Cloud STS AccessKey ID, used as a component of the alibaba-sts-access-key-secret composite rule.",
@@ -65,71 +54,33 @@ var _ = Add(config.Rule{
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) < 3.0`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "alibaba_sts_access_key_id = STS.NTKaenSkmLhG4HpM576UV",
-			Expect: []config.ExpectedFinding{
-				{Secret: "STS.NTKaenSkmLhG4HpM576UV"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: "alibaba cloud sts access key id: STS.FJ6EMcS1JLZgAcBJSTDG1Z4CE",
-			Expect: []config.ExpectedFinding{
-				{Secret: "STS.FJ6EMcS1JLZgAcBJSTDG1Z4CE"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "STS.short",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "alibaba_sts_access_key_id = STS.NTKaenSkmLhG4HpM576UV", "STS.NTKaenSkmLhG4HpM576UV"),
+		rulebuilder.MatchComponent("true positive 2", "alibaba cloud sts access key id: STS.FJ6EMcS1JLZgAcBJSTDG1Z4CE", "STS.FJ6EMcS1JLZgAcBJSTDG1Z4CE"),
+		rulebuilder.NoMatchComponent("false positive 1", "STS.short"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "alibaba-sts-security-token",
 	Confidence:  "high",
 	Description: "Detected an Alibaba Cloud STS security token, used as a component of the alibaba-sts-access-key-secret composite rule.",
 	// Regex:       regexp.MustCompile(`(?i)\b(?:security[\s_-]*token|sts[\s_-]*token|x[\s_-]*oss[\s_-]*security[\s_-]*token|alibaba[\s_-]*cloud[\s_-]*security[\s_-]*token|aliyun[\s_-]*security[\s_-]*token)(?:.|[\n\r]){0,16}?(?:=|:|["']\s*:\s*["'])\s*["']?(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})(?:["'\s,;}&\]]|$)`),
-	Regex:      Assignment([]string{"alibaba", "aliyun", "secret", "key"}, `(?i)CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24}`),
+	Regex:      rulebuilder.Assignment([]string{"alibaba", "aliyun", "secret", "key"}, `(?i)CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24}`),
 	Keywords:   []string{"alibaba", "aliyun", "cais"},
 	SkipReport: true,
 	FilterExpr: `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: `alibaba_token = "CAISuwJ1q6Ft5B2yu9Kiaa5E0VnVJ8q2o3P4r5S6t7U8v9W0xYz"`,
-			Expect: []config.ExpectedFinding{
-				{Secret: "CAISuwJ1q6Ft5B2yu9Kiaa5E0VnVJ8q2o3P4r5S6t7U8v9W0xYz"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: "ALIBABA__TOKEN=CAIS/gF1q6Ft5B2yfSjIr5eDA9xjJCcl57eKC7A3ThnJA",
-			Expect: []config.ExpectedFinding{
-				{Secret: "CAIS/gF1q6Ft5B2yfSjIr5eDA9xjJCcl57eKC7A3ThnJA"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  `token = "CAISuwJ1q6Ft5B2yu9Kiaa5E0VnVJ8q2o3P4r5S6t7U8v9W0xYz"`,
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", `alibaba_token = "CAISuwJ1q6Ft5B2yu9Kiaa5E0VnVJ8q2o3P4r5S6t7U8v9W0xYz"`, "CAISuwJ1q6Ft5B2yu9Kiaa5E0VnVJ8q2o3P4r5S6t7U8v9W0xYz"),
+		rulebuilder.MatchComponent("true positive 2", "ALIBABA__TOKEN=CAIS/gF1q6Ft5B2yfSjIr5eDA9xjJCcl57eKC7A3ThnJA", "CAIS/gF1q6Ft5B2yfSjIr5eDA9xjJCcl57eKC7A3ThnJA"),
+		rulebuilder.NoMatchComponent("false positive 1", `token = "CAISuwJ1q6Ft5B2yu9Kiaa5E0VnVJ8q2o3P4r5S6t7U8v9W0xYz"`),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "alibaba-sts-access-key-secret",
 	Confidence:  "high",
 	Description: "Detected an Alibaba Cloud STS AccessKey secret, which may allow temporary Alibaba Cloud API access when paired with an STS AccessKey ID and security token.",
-	Regex:       Assignment([]string{"alibaba", "aliyun", "secret", "key"}, `(?i)[A-Za-z0-9]{30,64}`),
+	Regex:       rulebuilder.Assignment([]string{"alibaba", "aliyun", "secret", "key"}, `(?i)[A-Za-z0-9]{30,64}`),
 	Keywords:    []string{"alibaba", "aliyun"},
 	Components: []config.Component{
 		{
@@ -152,7 +103,7 @@ var _ = Add(config.Rule{
 				{Secret: "CAISuwJ1q6Ft5B2yu9Kiaa5E0VnVJ8q2o3P4r5S6t7U8v9W0xYz", ComponentSets: []map[string]string{{"alibaba-sts-access-key-id": "STS.NTKaenSkmLhG4HpM576UV", "alibaba-sts-security-token": "CAISuwJ1q6Ft5B2yu9Kiaa5E0VnVJ8q2o3P4r5S6t7U8v9W0xYz"}}},
 			},
 		},
-		NoMatch("false positive 1", "AccessKeySecret=short"),
+		rulebuilder.NoMatch("false positive 1", "AccessKeySecret=short"),
 	},
 })
 

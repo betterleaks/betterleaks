@@ -1,4 +1,4 @@
-package rules
+package generic
 
 import (
 	"strconv"
@@ -20,7 +20,7 @@ var genericAPIKeyFilter = buildGenericAPIKeyFilter()
 
 func buildGenericAPIKeyFilter() string {
 	return `matchesAny(finding["secret"], [` + "`^[a-zA-Z_.-]+$`" + `])
-|| (containsAny(finding["secret"], ` + exprStringList(DefaultStopWords) + `) || matchesAny(genericMatchContext, [` + "`" + genericAPIKeyMatchFilter + "`" + `]))
+|| (containsAny(finding["secret"], ` + exprStringList(genericStopWords) + `) || matchesAny(genericMatchContext, [` + "`" + genericAPIKeyMatchFilter + "`" + `]))
 || matchesAny(finding["line"], [
   ` + "`--mount=type=secret,`" + `,
   ` + "`import[ \\t]+{[ \\t\\w,]+}[ \\t]+from[ \\t]+['\"][^'\"]+['\"]`" + `

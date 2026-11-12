@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "pinterest-access-token",
 	Confidence:  "high",
 	Description: "Pinterest access token.",
-	Regex:       Token(`pina_[A-Za-z0-9_-]{20,200}`),
+	Regex:       rulebuilder.Token(`pina_[A-Za-z0-9_-]{20,200}`),
 	Keywords:    []string{"pina_"},
 	ValidateExpr: `let r = http.get("https://api.pinterest.com/v5/user_account", {
     "Authorization": "Bearer " + finding["secret"],
@@ -20,10 +23,10 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Authentication failed"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "PINTEREST_ACCESS_TOKEN=pina_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH", "pina_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH"),
-		NoMatch("false positive 1", "PINTEREST_ACCESS_TOKEN=pina_short"),
-		NoMatch("false positive 2", "PINTEREST_ACCESS_TOKEN=pina_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("true positive 1", "PINTEREST_ACCESS_TOKEN=pina_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH", "pina_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxH"),
+		rulebuilder.NoMatch("false positive 1", "PINTEREST_ACCESS_TOKEN=pina_short"),
+		rulebuilder.NoMatch("false positive 2", "PINTEREST_ACCESS_TOKEN=pina_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })

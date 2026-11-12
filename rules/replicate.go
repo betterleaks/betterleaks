@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://replicate.com/docs/reference/http#account.get
 const replicateValidateExpr = `let r = http.get("https://api.replicate.com/v1/account", {
@@ -23,20 +26,20 @@ r.status == 200 && type(r.json) == "map" && (r.json?.username ?? "") != "" && (r
   "result": "invalid", "reason": "Unauthorized"
 } : validate.unknown(r)`
 
-const replicateAnalyzeExpr = identityOnlyAnalyzeExpr
+const replicateAnalyzeExpr = rulebuilder.IdentityOnlyAnalyzeExpr
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "replicate-api-token",
 	Confidence:   "high",
 	Description:  "Detected a Replicate API Token, which may expose AI model hosting and inference services to unauthorized access.",
-	Regex:        Token(`(?i)r8_[A-Za-z0-9]{37}`),
+	Regex:        rulebuilder.Token(`(?i)r8_[A-Za-z0-9]{37}`),
 	Keywords:     []string{"r8_"},
 	ValidateExpr: replicateValidateExpr,
 	AnalyzeExpr:  replicateAnalyzeExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("replicate assignment", `replicateToken = "r8_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s5"`, "r8_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s5"),
-		NoMatch("Too short", "r8_WesXNvqsCpq7r1gpQABpB3NJvdR"),
-		NoMatch("Wrong prefix", "r9_WesXNvqsCpq7r1gpQABpB3NJvdR21nb2s7HVy"),
+		rulebuilder.Match("assignment", `replicateToken = "r8_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s5"`, "r8_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s5"),
+		rulebuilder.NoMatch("Too short", "r8_WesXNvqsCpq7r1gpQABpB3NJvdR"),
+		rulebuilder.NoMatch("Wrong prefix", "r9_WesXNvqsCpq7r1gpQABpB3NJvdR21nb2s7HVy"),
 	},
 })

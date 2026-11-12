@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "https://api.github.com"); (let r = http.get(base_url + "/user", {
       "Accept": "application/vnd.github+json",
@@ -81,7 +84,7 @@ r.status == 202 ? {
   "metadata": {"submitted": true}
 } : revoke.unknown(r)`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "github-pat",
 	Confidence:   "high",
 	Description:  "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.",
@@ -93,12 +96,12 @@ var _ = Add(config.Rule{
 	FilterExpr: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	Tests: []config.RuleTest{
-		Match("github assignment", `githubToken = "ghp_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "ghp_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
-		NoMatch("false positive 1", "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("assignment", `githubToken = "ghp_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "ghp_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
+		rulebuilder.NoMatch("false positive 1", "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "github-fine-grained-pat",
 	Confidence:   "high",
 	Description:  "Found a GitHub Fine-Grained Personal Access Token, risking unauthorized repository access and code manipulation.",
@@ -109,12 +112,12 @@ var _ = Add(config.Rule{
 	RevokeExpr:   githubRevokeExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("github assignment", `githubToken = "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"`, "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"),
-		NoMatch("false positive 1", "github_pat_xxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("assignment", `githubToken = "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"`, "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"),
+		rulebuilder.NoMatch("false positive 1", "github_pat_xxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "github-oauth",
 	Confidence:   "high",
 	Description:  "Discovered a GitHub OAuth Access Token, posing a risk of compromised GitHub account integrations and data leaks.",
@@ -125,8 +128,8 @@ var _ = Add(config.Rule{
 	RevokeExpr:   githubRevokeExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("github assignment", `githubToken = "gho_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "gho_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
-		NoMatch("false positive 1", "gho_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("assignment", `githubToken = "gho_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "gho_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
+		rulebuilder.NoMatch("false positive 1", "gho_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })
 
@@ -142,7 +145,7 @@ const githubAppTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "
       "reason": "Unauthorized"
     } : validate.unknown(r))`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "github-app-token",
 	Confidence:   "high",
 	Description:  "Identified a GitHub App Token, which may compromise GitHub application integrations and source code security.",
@@ -152,14 +155,14 @@ var _ = Add(config.Rule{
 	FilterExpr: `entropy(finding["secret"]) <= 3.0
 || ` + githubPathFilter,
 	Tests: []config.RuleTest{
-		Match("github assignment", `githubToken = "ghs_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "ghs_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
-		Match("github assignment 2", `githubToken = "ghu_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "ghu_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
-		NoMatch("false positive 1", "ghu_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
-		NoMatch("false positive 2", "ghs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("assignment", `githubToken = "ghs_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "ghs_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
+		rulebuilder.Match("github assignment 2", `githubToken = "ghu_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "ghu_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
+		rulebuilder.NoMatch("false positive 1", "ghu_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.NoMatch("false positive 2", "ghs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:           "github-refresh-token",
 	Confidence:   "high",
 	Description:  "Detected a GitHub Refresh Token, which could allow prolonged unauthorized access to GitHub services.",
@@ -169,7 +172,7 @@ var _ = Add(config.Rule{
 	RevokeExpr:   githubRevokeExpr,
 	FilterExpr:   `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("github assignment", `githubToken = "ghr_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "ghr_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
-		NoMatch("false positive 1", "ghr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.Match("assignment", `githubToken = "ghr_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"`, "ghr_5fbbd6p84oe7ut4qrttebiwar77s63donnl8"),
+		rulebuilder.NoMatch("false positive 1", "ghr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
 	},
 })

@@ -1,10 +1,13 @@
-package rules
+package generic
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(GenericPassword())
+var _ = rulebuilder.Add(genericPassword())
 
-func GenericPassword() config.Rule {
+func genericPassword() config.Rule {
 	quotedPassword := `"((?:\\.|[^"\\\r\n]){5,250})"`
 	// Newline/container padding is only for quoted literals. Applying it to
 	// unquoted values would turn YAML child fields into passwords.
@@ -220,21 +223,21 @@ matchesAny(finding["secret"], [
 )`,
 	}
 	r.Tests = []config.RuleTest{
-		Match("true positive 1", "password: hunter2", "hunter2"),
-		Match("true positive 2", "password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB", "Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"),
-		Match("true positive 3", `password = "the quick brown fox jumps over lazy dogs"`, "the quick brown fox jumps over lazy dogs"),
-		Match("true positive 4", `password = "MyPassword123!"`, "MyPassword123!"),
-		Match("true positive 5", `password = "myAES256_GCMpassword"`, "myAES256_GCMpassword"),
-		Match("true positive 6", `password = "rsa-admin-2026"`, "rsa-admin-2026"),
-		Match("true positive 7", `password = "sha256-is-not-my-password"`, "sha256-is-not-my-password"),
-		Match("true positive 8", `encrypted_password: "hunter2"`, "hunter2"),
-		Match("true positive 9", `enc_password: "hunter2"`, "hunter2"),
-		Match("true positive 10", `vault_password: "hunter2"`, "hunter2"),
-		Match("true positive 11", `encrypted_password: "Blowfish"`, "Blowfish"),
-		Match("true positive 12", `password = "hunter2" # development password`, "hunter2"),
-		Match("true positive 13", `password = "hunter2" // TODO: move to vault`, "hunter2"),
-		Match("true positive 14", `password: "hunter2" -- local database`, "hunter2"),
-		Match("true positive 15", `password = "PASSWORD"`, "PASSWORD"),
+		rulebuilder.Match("true positive 1", "password: hunter2", "hunter2"),
+		rulebuilder.Match("true positive 2", "password: Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB", "Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"),
+		rulebuilder.Match("true positive 3", `password = "the quick brown fox jumps over lazy dogs"`, "the quick brown fox jumps over lazy dogs"),
+		rulebuilder.Match("true positive 4", `password = "MyPassword123!"`, "MyPassword123!"),
+		rulebuilder.Match("true positive 5", `password = "myAES256_GCMpassword"`, "myAES256_GCMpassword"),
+		rulebuilder.Match("true positive 6", `password = "rsa-admin-2026"`, "rsa-admin-2026"),
+		rulebuilder.Match("true positive 7", `password = "sha256-is-not-my-password"`, "sha256-is-not-my-password"),
+		rulebuilder.Match("true positive 8", `encrypted_password: "hunter2"`, "hunter2"),
+		rulebuilder.Match("true positive 9", `enc_password: "hunter2"`, "hunter2"),
+		rulebuilder.Match("true positive 10", `vault_password: "hunter2"`, "hunter2"),
+		rulebuilder.Match("true positive 11", `encrypted_password: "Blowfish"`, "Blowfish"),
+		rulebuilder.Match("true positive 12", `password = "hunter2" # development password`, "hunter2"),
+		rulebuilder.Match("true positive 13", `password = "hunter2" // TODO: move to vault`, "hunter2"),
+		rulebuilder.Match("true positive 14", `password: "hunter2" -- local database`, "hunter2"),
+		rulebuilder.Match("true positive 15", `password = "PASSWORD"`, "PASSWORD"),
 		{
 			Name:  "true positive 16",
 			Input: "credentials: {\nusername: alice\npassword: hunter2\n}",
@@ -249,52 +252,52 @@ matchesAny(finding["secret"], [
 				{Secret: "hunter2", ComponentSets: []map[string]string{{"generic-username": "alice@example.com"}}},
 			},
 		},
-		Match("true positive 18", "login({\nusername = process.env.USERNAME\npasswd = \"g4F!mQ8#vZ2@rT6$xK9\"\n})", "g4F!mQ8#vZ2@rT6$xK9"),
-		Match("true positive 19", "auth_config: {\npsw: hunter2\n}", "hunter2"),
-		Match("true positive 20", "database.host = db.internal\ndatabase_pw = \"J8s!vR4#qL7@nT2$xM6\"", "J8s!vR4#qL7@nT2$xM6"),
-		Match("true positive 21", "service.connect(\n  service-pw: Qv7D0LXCM3EIMbgJpUNnkRtOfOueHznB\n)", "Qv7D0LXCM3EIMbgJpUNnkRtOfOueHznB"),
-		Match("true positive 22", "dsn: postgres://db.internal/app\nclient.pw = \"m4F!qK8#zR2@tV6$xN9\"", "m4F!qK8#zR2@tV6$xN9"),
-		Match("true positive 23", "login({\n  \"password\": \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n})", "#exFfrbtEpo&RaTkZ#%*zFgS"),
-		Match("true positive 24", `smtp.login(username, "hunter2")`, "hunter2"),
-		Match("true positive 25", `login(user, "root")`, "root"),
-		Match("true positive 26", `login(user, "PASSWD")`, "PASSWD"),
-		Match("true positive 27", `client.authenticate(user, "password1")`, "password1"),
-		Match("true positive 28", `client.authenticate(request, "basic")`, "basic"),
-		Match("true positive 29", "service.log_in(account, 'correct horse battery staple')", "correct horse battery staple"),
-		NoMatch("false positive 1", "password: four"),
-		NoMatch("false positive 2", "username: alice\npassword = process.env.PASSWORD"),
-		NoMatch("false positive 3", "database.host = db.internal\ndatabase_pw = undefined"),
-		NoMatch("false positive 4", "username: alice\npassword = \"your_password\""),
-		NoMatch("false positive 5", "postgres://user:hunter2@example.com/db"),
-		NoMatch("false positive 6", `ldap.bind(user, "hunter2")`),
-		NoMatch("false positive 7", `log.in(user, "hunter2")`),
-		NoMatch("false positive 8", `log-in(user, "hunter2")`),
-		NoMatch("false positive 9", "enc_sssd_sa_password: ENC[AES256_GCM,data:XYZ,iv:ABC,tag:DEF,type:str]"),
-		NoMatch("false positive 10", `password: "AES-256-GCM"`),
-		NoMatch("false positive 11", `password: "AES_256_CBC_HMAC_SHA_256"`),
-		NoMatch("false positive 12", `password: "AES/GCM"`),
-		NoMatch("false positive 13", `password: "AESWrap_256"`),
-		NoMatch("false positive 14", `password: "CAMELLIA-256-CBC"`),
-		NoMatch("false positive 15", `password: "ARIA_192_GCM"`),
-		NoMatch("false positive 16", `password: "CHACHA20-POLY1305"`),
-		NoMatch("false positive 17", `password: "XSALSA20-POLY1305"`),
-		NoMatch("false positive 18", `password: "DES-EDE3-CBC"`),
-		NoMatch("false positive 19", `password: "SM4-CTR"`),
-		NoMatch("false positive 20", `password: "RSA/ECB/OAEPWithSHA-256AndMGF1Padding"`),
-		NoMatch("false positive 21", `password: "PBEWithHmacSHA256AndAES_256"`),
-		NoMatch("false positive 22", `password: "PBES2-HS256+A128KW"`),
-		NoMatch("false positive 23", `password: "$ANSIBLE_VAULT;1.2;AES256;dev"`),
-		NoMatch("false positive 24", `password: "{cipher}AQB4aLongEncryptedValue"`),
-		NoMatch("false positive 25", `password: "ENC(VeryLongEncryptedPayload123==)"`),
-		NoMatch("false positive 26", `password: "U2FsdGVkX19hbG90b2ZjaXBoZXJ0ZXh0"`),
-		NoMatch("false positive 27", `password: "vault:v1:AbCdEfGhIjKlMnOpQrStUvWxYz012345"`),
-		NoMatch("false positive 28", `password: "$argon2id$v=19$m=65536,t=3,p=4$YWJj$ZGVm"`),
-		NoMatch("false positive 29", `password: "SCRAM-SHA-512$4096:c2FsdA==$c3RvcmVkOnNlcnZlcg=="`),
+		rulebuilder.Match("true positive 18", "login({\nusername = process.env.USERNAME\npasswd = \"g4F!mQ8#vZ2@rT6$xK9\"\n})", "g4F!mQ8#vZ2@rT6$xK9"),
+		rulebuilder.Match("true positive 19", "auth_config: {\npsw: hunter2\n}", "hunter2"),
+		rulebuilder.Match("true positive 20", "database.host = db.internal\ndatabase_pw = \"J8s!vR4#qL7@nT2$xM6\"", "J8s!vR4#qL7@nT2$xM6"),
+		rulebuilder.Match("true positive 21", "service.connect(\n  service-pw: Qv7D0LXCM3EIMbgJpUNnkRtOfOueHznB\n)", "Qv7D0LXCM3EIMbgJpUNnkRtOfOueHznB"),
+		rulebuilder.Match("true positive 22", "dsn: postgres://db.internal/app\nclient.pw = \"m4F!qK8#zR2@tV6$xN9\"", "m4F!qK8#zR2@tV6$xN9"),
+		rulebuilder.Match("true positive 23", "login({\n  \"password\": \"#exFfrbtEpo&RaTkZ#%*zFgS\"\n})", "#exFfrbtEpo&RaTkZ#%*zFgS"),
+		rulebuilder.Match("true positive 24", `smtp.login(username, "hunter2")`, "hunter2"),
+		rulebuilder.Match("true positive 25", `login(user, "root")`, "root"),
+		rulebuilder.Match("true positive 26", `login(user, "PASSWD")`, "PASSWD"),
+		rulebuilder.Match("true positive 27", `client.authenticate(user, "password1")`, "password1"),
+		rulebuilder.Match("true positive 28", `client.authenticate(request, "basic")`, "basic"),
+		rulebuilder.Match("true positive 29", "service.log_in(account, 'correct horse battery staple')", "correct horse battery staple"),
+		rulebuilder.NoMatch("false positive 1", "password: four"),
+		rulebuilder.NoMatch("false positive 2", "username: alice\npassword = process.env.PASSWORD"),
+		rulebuilder.NoMatch("false positive 3", "database.host = db.internal\ndatabase_pw = undefined"),
+		rulebuilder.NoMatch("false positive 4", "username: alice\npassword = \"your_password\""),
+		rulebuilder.NoMatch("false positive 5", "postgres://user:hunter2@example.com/db"),
+		rulebuilder.NoMatch("false positive 6", `ldap.bind(user, "hunter2")`),
+		rulebuilder.NoMatch("false positive 7", `log.in(user, "hunter2")`),
+		rulebuilder.NoMatch("false positive 8", `log-in(user, "hunter2")`),
+		rulebuilder.NoMatch("false positive 9", "enc_sssd_sa_password: ENC[AES256_GCM,data:XYZ,iv:ABC,tag:DEF,type:str]"),
+		rulebuilder.NoMatch("false positive 10", `password: "AES-256-GCM"`),
+		rulebuilder.NoMatch("false positive 11", `password: "AES_256_CBC_HMAC_SHA_256"`),
+		rulebuilder.NoMatch("false positive 12", `password: "AES/GCM"`),
+		rulebuilder.NoMatch("false positive 13", `password: "AESWrap_256"`),
+		rulebuilder.NoMatch("false positive 14", `password: "CAMELLIA-256-CBC"`),
+		rulebuilder.NoMatch("false positive 15", `password: "ARIA_192_GCM"`),
+		rulebuilder.NoMatch("false positive 16", `password: "CHACHA20-POLY1305"`),
+		rulebuilder.NoMatch("false positive 17", `password: "XSALSA20-POLY1305"`),
+		rulebuilder.NoMatch("false positive 18", `password: "DES-EDE3-CBC"`),
+		rulebuilder.NoMatch("false positive 19", `password: "SM4-CTR"`),
+		rulebuilder.NoMatch("false positive 20", `password: "RSA/ECB/OAEPWithSHA-256AndMGF1Padding"`),
+		rulebuilder.NoMatch("false positive 21", `password: "PBEWithHmacSHA256AndAES_256"`),
+		rulebuilder.NoMatch("false positive 22", `password: "PBES2-HS256+A128KW"`),
+		rulebuilder.NoMatch("false positive 23", `password: "$ANSIBLE_VAULT;1.2;AES256;dev"`),
+		rulebuilder.NoMatch("false positive 24", `password: "{cipher}AQB4aLongEncryptedValue"`),
+		rulebuilder.NoMatch("false positive 25", `password: "ENC(VeryLongEncryptedPayload123==)"`),
+		rulebuilder.NoMatch("false positive 26", `password: "U2FsdGVkX19hbG90b2ZjaXBoZXJ0ZXh0"`),
+		rulebuilder.NoMatch("false positive 27", `password: "vault:v1:AbCdEfGhIjKlMnOpQrStUvWxYz012345"`),
+		rulebuilder.NoMatch("false positive 28", `password: "$argon2id$v=19$m=65536,t=3,p=4$YWJj$ZGVm"`),
+		rulebuilder.NoMatch("false positive 29", `password: "SCRAM-SHA-512$4096:c2FsdA==$c3RvcmVkOnNlcnZlcg=="`),
 	}
 	return r
 }
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "generic-username",
 	Confidence:  "low",
 	Description: "Detected a username-like value used as a component of the generic-password rule.",
@@ -340,55 +343,12 @@ isUnquotedCodeValue
   ` + "`^(?:[^a-zA-Z0-9])?(?i:username|user|login(?:[_.-]?name)?|email(?:[_.-]?address)?|uid|account(?:[_.-]name)?|client(?:[_.-]?(?:id|name))?)\\b[ \\t'\"\\\\]{0,3}(?:=>|:=|=|:)[ \\t]*(?:[$@][A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|:[A-Za-z_][A-Za-z0-9_]*|(?:::)?[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*::[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*|(?i:process\\.env|config|settings|credentials?|secrets?|var|local|module|data)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\])+|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*(?:\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*|\\[[^]\\r\\n]+\\]|\\([^,\\r\\n)]*\\)?)*|[A-Za-z_][A-Za-z0-9_]*(?:(?:\\.|::)[A-Za-z_][A-Za-z0-9_]*)*\\.(?i:(?:[a-z0-9]+_)*(?:username|user|login(?:_name)?|email(?:_address)?|uid|account(?:_name)?|client(?:_(?:id|name))?|id)))[)}\\]]*\\\\?(?:[ \\t]*[,;)}\\]\\r\\n]|[ \\t]*$|\\\\[nr])`" + `
 ])`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "username: alice",
-			Expect: []config.ExpectedFinding{
-				{Secret: "alice"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: `login = "alice@example.com"`,
-			Expect: []config.ExpectedFinding{
-				{Secret: "alice@example.com"},
-			},
-		},
-		{
-			Name:  "true positive 3",
-			Mode:  "match",
-			Input: "client_id: service-client",
-			Expect: []config.ExpectedFinding{
-				{Secret: "service-client"},
-			},
-		},
-		{
-			Name:  "true positive 4",
-			Mode:  "match",
-			Input: "clientId: service-client",
-			Expect: []config.ExpectedFinding{
-				{Secret: "service-client"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "user: me",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "username = process.env.USERNAME",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 3",
-			Mode:   "match",
-			Input:  `username = "your_username"`,
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "username: alice", "alice"),
+		rulebuilder.MatchComponent("true positive 2", `login = "alice@example.com"`, "alice@example.com"),
+		rulebuilder.MatchComponent("true positive 3", "client_id: service-client", "service-client"),
+		rulebuilder.MatchComponent("true positive 4", "clientId: service-client", "service-client"),
+		rulebuilder.NoMatchComponent("false positive 1", "user: me"),
+		rulebuilder.NoMatchComponent("false positive 2", "username = process.env.USERNAME"),
+		rulebuilder.NoMatchComponent("false positive 3", `username = "your_username"`),
 	},
 })

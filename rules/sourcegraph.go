@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "sourcegraph-access-token",
 	Confidence:  "high",
 	Description: "Sourcegraph is a code search and navigation engine.",
-	Regex:       Token(`(?i)sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40}`),
+	Regex:       rulebuilder.Token(`(?i)sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40}`),
 	Keywords:    []string{"sgp_"},
 	ValidateExpr: `let r = http.post("https://sourcegraph.com/.api/graphql", {
     "Authorization": "token " + finding["secret"],
@@ -20,13 +23,13 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("bare secret", "sgp_AaD80dc6E02eCAE1_d3cba16CC0F18fA14A2EFB61CbDFceEBf9fAD16b", "sgp_AaD80dc6E02eCAE1_d3cba16CC0F18fA14A2EFB61CbDFceEBf9fAD16b"),
-		Match("bare secret 2", "sgp_0D697F54cb24238EefB29af05Abf1b505E90950F", "sgp_0D697F54cb24238EefB29af05Abf1b505E90950F"),
-		Match("bare secret 3", "sgp_local_d7dfFD43cF2503B1da673EB560aAa3e80f16FA42", "sgp_local_d7dfFD43cF2503B1da673EB560aAa3e80f16FA42"),
-		Match("bare secret 4", "sgp_local_bcD1DA18de0d6476Be0f3BD7Ef9Da4f09b479aE5", "sgp_local_bcD1DA18de0d6476Be0f3BD7Ef9Da4f09b479aE5"),
-		NoMatch("low entropy", "sgp_5555555dAAAAA7777777CcccCFaaaaaaaaaaaaaa"),
-		NoMatch("invalid case", "sgp_local_d45b6G86aBb0F2Cee943902dbaDBCFCFDD1dA089"),
-		NoMatch("invalid character", "sgp_652d9a2e48FC7E!FcDbEA1BC2E2A6CE23cFe7F7D"),
-		NoMatch("invalid length", "sgp_78Ad84a5B6e8A2fE5B_4085FB0ccaDDd29DB66Fd7FE9bA2C1cdCE8400CD"),
+		rulebuilder.Match("bare secret", "sgp_AaD80dc6E02eCAE1_d3cba16CC0F18fA14A2EFB61CbDFceEBf9fAD16b", "sgp_AaD80dc6E02eCAE1_d3cba16CC0F18fA14A2EFB61CbDFceEBf9fAD16b"),
+		rulebuilder.Match("bare secret 2", "sgp_0D697F54cb24238EefB29af05Abf1b505E90950F", "sgp_0D697F54cb24238EefB29af05Abf1b505E90950F"),
+		rulebuilder.Match("bare secret 3", "sgp_local_d7dfFD43cF2503B1da673EB560aAa3e80f16FA42", "sgp_local_d7dfFD43cF2503B1da673EB560aAa3e80f16FA42"),
+		rulebuilder.Match("bare secret 4", "sgp_local_bcD1DA18de0d6476Be0f3BD7Ef9Da4f09b479aE5", "sgp_local_bcD1DA18de0d6476Be0f3BD7Ef9Da4f09b479aE5"),
+		rulebuilder.NoMatch("low entropy", "sgp_5555555dAAAAA7777777CcccCFaaaaaaaaaaaaaa"),
+		rulebuilder.NoMatch("invalid case", "sgp_local_d45b6G86aBb0F2Cee943902dbaDBCFCFDD1dA089"),
+		rulebuilder.NoMatch("invalid character", "sgp_652d9a2e48FC7E!FcDbEA1BC2E2A6CE23cFe7F7D"),
+		rulebuilder.NoMatch("invalid length", "sgp_78Ad84a5B6e8A2fE5B_4085FB0ccaDDd29DB66Fd7FE9bA2C1cdCE8400CD"),
 	},
 })

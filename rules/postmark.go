@@ -1,15 +1,18 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // Server and account tokens share the UUID shape. Try the read-only server
 // endpoint first, then the account endpoint, and reject the token only when
 // both authentication schemes return Postmark's documented 401 response.
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "postmark-api-token.1",
 	Confidence:  "high",
 	Description: "Postmark server or account API token, which may allow access to email delivery and account configuration.",
-	Regex:       Assignment([]string{"postmark"}, `(?i)`+Hex8_4_4_4_12()),
+	Regex:       rulebuilder.Assignment([]string{"postmark"}, `(?i)`+rulebuilder.Hex8_4_4_4_12()),
 	Keywords:    []string{"postmark"},
 	ValidateExpr: `let server = http.get("https://api.postmarkapp.com/server", {
     "X-Postmark-Server-Token": finding["secret"],
@@ -27,13 +30,13 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(account))`,
-	FilterExpr: MinEntropy(3.0),
+	FilterExpr: rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "POSTMARK_SERVER_TOKEN=1f7b169c-846f-218a-b552-fa82fbf86758", "1f7b169c-846f-218a-b552-fa82fbf86758"),
-		Match("true positive 2", `postmark: "1f7b169c-846f-218a-b552-fa82fbf86758"`, "1f7b169c-846f-218a-b552-fa82fbf86758"),
-		Match("true positive 3", "postmark_account_api_token=1f7b169c-846f-218a-b552-fa82fbf86758", "1f7b169c-846f-218a-b552-fa82fbf86758"),
-		NoMatch("false positive 1", "SERVER_TOKEN=1f7b169c-846f-218a-b552-fa82fbf86758"),
-		NoMatch("false positive 2", "POSTMARK_SERVER_TOKEN=00000000-0000-0000-0000-000000000000"),
-		NoMatch("false positive 3", "POSTMARK_SERVER_TOKEN=short"),
+		rulebuilder.Match("true positive 1", "POSTMARK_SERVER_TOKEN=1f7b169c-846f-218a-b552-fa82fbf86758", "1f7b169c-846f-218a-b552-fa82fbf86758"),
+		rulebuilder.Match("true positive 2", `postmark: "1f7b169c-846f-218a-b552-fa82fbf86758"`, "1f7b169c-846f-218a-b552-fa82fbf86758"),
+		rulebuilder.Match("true positive 3", "postmark_account_api_token=1f7b169c-846f-218a-b552-fa82fbf86758", "1f7b169c-846f-218a-b552-fa82fbf86758"),
+		rulebuilder.NoMatch("false positive 1", "SERVER_TOKEN=1f7b169c-846f-218a-b552-fa82fbf86758"),
+		rulebuilder.NoMatch("false positive 2", "POSTMARK_SERVER_TOKEN=00000000-0000-0000-0000-000000000000"),
+		rulebuilder.NoMatch("false positive 3", "POSTMARK_SERVER_TOKEN=short"),
 	},
 })

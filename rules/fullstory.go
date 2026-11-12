@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://developer.fullstory.com/server/authentication/
 // /me reports the key role, not merely the owning user role. Basic takes the
@@ -24,20 +27,20 @@ let known = role in ["USER", "ARCHITECT", "ADMIN"];
   "reason": known ? "" : "Fullstory returned an unrecognized API key role"
 }`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "fullstory-api-key",
 	Confidence:  "medium",
 	Description: "FullStory API key.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`(?:fullstory|fs_api|fullstory_api)`},
 		`(?i)(?:na1|eu1)\.[A-Za-z0-9]{20,}`,
 	),
 	Keywords:     []string{"fullstory", "fs_api"},
 	ValidateExpr: fullstoryValidateExpr,
 	AnalyzeExpr:  fullstoryAnalyzeExpr,
-	FilterExpr:   MinEntropy(3.3),
+	FilterExpr:   rulebuilder.MinEntropy(3.3),
 	Tests: []config.RuleTest{
-		Match("true positive 1", `fullstory_api_token = "na1.5fbbd6p84oe7ut4qrttebiwar77s63do"`, "na1.5fbbd6p84oe7ut4qrttebiwar77s63do"),
-		NoMatch("false positive 1", "FULLSTORY_API_KEY=na1.short"),
+		rulebuilder.Match("true positive 1", `fullstory_api_token = "na1.5fbbd6p84oe7ut4qrttebiwar77s63do"`, "na1.5fbbd6p84oe7ut4qrttebiwar77s63do"),
+		rulebuilder.NoMatch("false positive 1", "FULLSTORY_API_KEY=na1.short"),
 	},
 })

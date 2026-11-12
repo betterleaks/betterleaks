@@ -1,44 +1,30 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "ramp-client-id",
 	Confidence:  "high",
 	Description: "Ramp client ID, used as a component of the Ramp client-secret composite rule.",
-	Regex:       Token(`ramp_id_[A-Za-z0-9]{40}`),
+	Regex:       rulebuilder.Token(`ramp_id_[A-Za-z0-9]{40}`),
 	Keywords:    []string{"ramp_id_"},
 	SkipReport:  true,
-	FilterExpr:  MinEntropy(3.0),
+	FilterExpr:  rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "RAMP_CLIENT_ID=ramp_id_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k",
-			Expect: []config.ExpectedFinding{
-				{Secret: "ramp_id_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "RAMP_CLIENT_ID=ramp_id_short",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "RAMP_CLIENT_ID=ramp_id_0000000000000000000000000000000000000000",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "RAMP_CLIENT_ID=ramp_id_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k", "ramp_id_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k"),
+		rulebuilder.NoMatchComponent("false positive 1", "RAMP_CLIENT_ID=ramp_id_short"),
+		rulebuilder.NoMatchComponent("false positive 2", "RAMP_CLIENT_ID=ramp_id_0000000000000000000000000000000000000000"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "ramp-client-secret",
 	Confidence:  "high",
 	Description: "Ramp OAuth client secret.",
-	Regex:       Token(`ramp_sec_[A-Za-z0-9]{48}`),
+	Regex:       rulebuilder.Token(`ramp_sec_[A-Za-z0-9]{48}`),
 	Keywords:    []string{"ramp_sec_"},
 	Components: []config.Component{
 		{RuleID: "ramp-client-id"},
@@ -57,7 +43,7 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Invalid client credentials"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -66,7 +52,7 @@ var _ = Add(config.Rule{
 				{Secret: "ramp_sec_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyK", ComponentSets: []map[string]string{{"ramp-client-id": "ramp_id_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k"}}},
 			},
 		},
-		NoMatch("false positive 1", "RAMP_CLIENT_SECRET=ramp_sec_short"),
-		NoMatch("false positive 2", "RAMP_CLIENT_SECRET=ramp_sec_000000000000000000000000000000000000000000000000"),
+		rulebuilder.NoMatch("false positive 1", "RAMP_CLIENT_SECRET=ramp_sec_short"),
+		rulebuilder.NoMatch("false positive 2", "RAMP_CLIENT_SECRET=ramp_sec_000000000000000000000000000000000000000000000000"),
 	},
 })

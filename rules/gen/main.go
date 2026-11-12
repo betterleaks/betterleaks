@@ -4,66 +4,16 @@ package main
 import (
 	"bytes"
 	_ "embed"
-	"fmt"
 	"os"
-	"sort"
-	"strings"
 	"text/template"
 
 	"github.com/betterleaks/betterleaks/v2/internal/logging"
-	"github.com/betterleaks/betterleaks/v2/rules"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+	_ "github.com/betterleaks/betterleaks/v2/rules"
 )
 
 //go:embed config.tmpl
 var configTemplate string
-
-// tomlKeyQuote quotes a TOML key if it contains characters that require quoting
-// (e.g. dots, spaces). Bare keys only allow [A-Za-z0-9_-].
-func tomlKeyQuote(key string) string {
-	if strings.ContainsAny(key, ". \t") {
-		return fmt.Sprintf("%q", key)
-	}
-	return key
-}
-
-// tomlQuote returns a TOML-safe quoted string. Values containing liquid
-// template syntax ({{ ... }}) use TOML literal strings (single quotes) to
-// avoid escaping inner double quotes used by filters like append/b64enc.
-func tomlQuote(s string) string {
-	if strings.Contains(s, "{{") {
-		return "'" + s + "'"
-	}
-	return fmt.Sprintf("%q", s)
-}
-
-func tomlValue(v any) string {
-	switch val := v.(type) {
-	case string:
-		return fmt.Sprintf("%q", val)
-	case bool:
-		if val {
-			return "true"
-		}
-		return "false"
-	case int:
-		return fmt.Sprintf("%d", val)
-	case int64:
-		return fmt.Sprintf("%d", val)
-	case float64:
-		if val == float64(int64(val)) {
-			return fmt.Sprintf("%d", int64(val))
-		}
-		return fmt.Sprintf("%g", val)
-	case []any:
-		parts := make([]string, 0, len(val))
-		for _, item := range val {
-			parts = append(parts, tomlValue(item))
-		}
-		return "[" + strings.Join(parts, ", ") + "]"
-	default:
-		return fmt.Sprintf("%q", fmt.Sprintf("%v", v))
-	}
-}
 
 func main() {
 	if len(os.Args) != 2 {
@@ -72,42 +22,15 @@ func main() {
 	}
 	path := os.Args[1]
 
-	cfg, err := rules.Config()
+	cfg, err := rulebuilder.Config()
 	if err != nil {
 		logging.Fatal("Invalid rules", "error", err)
 	}
 
 	funcMap := template.FuncMap{
-		"tomlQuote": tomlQuote,
-		"tomlExpr": func(s string) string {
-			// Always use TOML multi-line literal strings for filter/prefilter
-			// expressions. This avoids quoting issues and improves readability.
-			return "'''\n" + s + "\n'''"
-		},
-		"tomlInlineTable": func(m map[string]string) string {
-			keys := make([]string, 0, len(m))
-			for k := range m {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			parts := make([]string, 0, len(keys))
-			for _, k := range keys {
-				parts = append(parts, fmt.Sprintf("%s = %s", tomlKeyQuote(k), tomlQuote(m[k])))
-			}
-			return "{ " + strings.Join(parts, ", ") + " }"
-		},
-		"tomlInlineTableAny": func(m map[string]any) string {
-			keys := make([]string, 0, len(m))
-			for k := range m {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			parts := make([]string, 0, len(keys))
-			for _, k := range keys {
-				parts = append(parts, fmt.Sprintf("%s = %s", tomlKeyQuote(k), tomlValue(m[k])))
-			}
-			return "{ " + strings.Join(parts, ", ") + " }"
-		},
+		// Expressions are always TOML multi-line literal strings, which need
+		// no escaping and keep multi-line expressions readable.
+		"tomlExpr": func(s string) string { return "'''\n" + s + "\n'''" },
 	}
 	tmpl, err := template.New("config").Funcs(funcMap).Parse(configTemplate)
 	if err != nil {

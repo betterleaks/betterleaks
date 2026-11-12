@@ -1,24 +1,27 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "private-key",
 	Confidence:  "high",
 	Description: "Identified a Private Key, which may compromise cryptographic security and sensitive data encryption.",
 	Regex:       `(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]{64,}?KEY(?: BLOCK)?-----`,
-	Keywords:    []string{"-----BEGIN"},
+	Keywords:    []string{"-----begin"},
 	Tests: []config.RuleTest{
-		Match("validate", "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDAC4AWkdwKYSd8\nKs14IReLcYgADhoXk56ZzXI=\n-----END PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDAC4AWkdwKYSd8\nKs14IReLcYgADhoXk56ZzXI=\n-----END PRIVATE KEY-----"),
-		Match("true positive 1", "-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAn6/O8li+SX4m98LLYt/PKSzEmQ++ZBD7Loh9P13f4yQ92EF3\nyxR5MsXFu9PRsrYQA7/4UTPHiC4y2sAVCBg4C2yyBpUEtMQjyCESi6Y=\n-----END RSA PRIVATE KEY-----\n", "-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAn6/O8li+SX4m98LLYt/PKSzEmQ++ZBD7Loh9P13f4yQ92EF3\nyxR5MsXFu9PRsrYQA7/4UTPHiC4y2sAVCBg4C2yyBpUEtMQjyCESi6Y=\n-----END RSA PRIVATE KEY-----"),
-		Match("bare secret", "-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQWGBGSVV4YBDAClvRnxezIRy2Yv7SFlzC0iFiRF/O/jePSw+XYhvcrTaqSYTGic\n=8xQN\n-----END PGP PRIVATE KEY BLOCK-----", "-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQWGBGSVV4YBDAClvRnxezIRy2Yv7SFlzC0iFiRF/O/jePSw+XYhvcrTaqSYTGic\n=8xQN\n-----END PGP PRIVATE KEY BLOCK-----"),
-		NoMatch("false positive 1", "-----BEGIN PRIVATE KEY-----\nanything\n-----END PRIVATE KEY-----"),
-		NoMatch("false positive 2", "-----BEGIN OPENSSH PRIVATE KEY----------END OPENSSH PRIVATE KEY-----"),
+		rulebuilder.Match("validate", "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDAC4AWkdwKYSd8\nKs14IReLcYgADhoXk56ZzXI=\n-----END PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDAC4AWkdwKYSd8\nKs14IReLcYgADhoXk56ZzXI=\n-----END PRIVATE KEY-----"),
+		rulebuilder.Match("true positive 1", "-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAn6/O8li+SX4m98LLYt/PKSzEmQ++ZBD7Loh9P13f4yQ92EF3\nyxR5MsXFu9PRsrYQA7/4UTPHiC4y2sAVCBg4C2yyBpUEtMQjyCESi6Y=\n-----END RSA PRIVATE KEY-----\n", "-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAn6/O8li+SX4m98LLYt/PKSzEmQ++ZBD7Loh9P13f4yQ92EF3\nyxR5MsXFu9PRsrYQA7/4UTPHiC4y2sAVCBg4C2yyBpUEtMQjyCESi6Y=\n-----END RSA PRIVATE KEY-----"),
+		rulebuilder.Match("bare secret", "-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQWGBGSVV4YBDAClvRnxezIRy2Yv7SFlzC0iFiRF/O/jePSw+XYhvcrTaqSYTGic\n=8xQN\n-----END PGP PRIVATE KEY BLOCK-----", "-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQWGBGSVV4YBDAClvRnxezIRy2Yv7SFlzC0iFiRF/O/jePSw+XYhvcrTaqSYTGic\n=8xQN\n-----END PGP PRIVATE KEY BLOCK-----"),
+		rulebuilder.NoMatch("false positive 1", "-----BEGIN PRIVATE KEY-----\nanything\n-----END PRIVATE KEY-----"),
+		rulebuilder.NoMatch("false positive 2", "-----BEGIN OPENSSH PRIVATE KEY----------END OPENSSH PRIVATE KEY-----"),
 	},
 })
 
 // https://en.wikipedia.org/wiki/PKCS_12
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "pkcs12-file",
 	Confidence:  "high",
 	Description: "Found a PKCS #12 file, which commonly contain bundled private keys.",

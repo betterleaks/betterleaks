@@ -135,7 +135,7 @@ regex = "valid"
 }
 
 func TestRuleTestSchema(t *testing.T) {
-	const rule = "provider='example'\n[[rules]]\nid='key'\nregex='TOKEN'\n"
+	const rule = "[[rules]]\nid='key'\nregex='TOKEN'\n"
 	for _, tc := range []struct{ name, ruleFields, test, want string }{
 		{"negative", "", "name='negative'\ninput=''\nexpect=[]", ""},
 		{"positive", "", "name='positive'\ninput='TOKEN'\nexpect=[{secret='TOKEN'}]", ""},
@@ -158,7 +158,6 @@ func TestRuleTestSchema(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, "example", cfg.Provider)
 			require.NotNil(t, cfg.Rules[0].Tests[0].Expect)
 		})
 	}

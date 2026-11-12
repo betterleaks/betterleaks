@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key
 // https://openrouter.ai/docs/api/api-reference/api-keys/create-keys
@@ -31,18 +34,18 @@ let accountID = (input["organization_id"] ?? "") != "" ? input["organization_id"
   "reason": management ? "" : "OpenRouter did not return effective permissions for this key"
 }`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ValidateExpr: openrouterValidateExpr,
 	AnalyzeExpr:  openrouterAnalyzeExpr,
 	ID:           "openrouter-api-key",
 	Confidence:   "high",
 	Description:  "Detected an OpenRouter API Key, which may expose access to multiple AI models through the OpenRouter gateway.",
-	Regex:        Token(`(?i)sk-or-v1-[0-9a-f]{64}`),
+	Regex:        rulebuilder.Token(`(?i)sk-or-v1-[0-9a-f]{64}`),
 	Keywords:     []string{"sk-or-v1-"},
 	FilterExpr:   `entropy(finding["secret"]) <= 3.5`,
 	Tests: []config.RuleTest{
-		Match("openrouter assignment", `openrouterToken = "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"`, "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"),
-		NoMatch("Too short", "sk-or-v1-0e6f44a47a05f1dad2ad7e88c4c1d6b7"),
-		NoMatch("Wrong prefix", "sk-v1-0e6f44a47a05f1dad2ad7e88c4c1d6b77688157716fb1a5271146f7464951c96"),
+		rulebuilder.Match("assignment", `openrouterToken = "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"`, "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"),
+		rulebuilder.NoMatch("Too short", "sk-or-v1-0e6f44a47a05f1dad2ad7e88c4c1d6b7"),
+		rulebuilder.NoMatch("Wrong prefix", "sk-v1-0e6f44a47a05f1dad2ad7e88c4c1d6b77688157716fb1a5271146f7464951c96"),
 	},
 })

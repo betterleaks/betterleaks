@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "microsoft-teams-webhook",
 	Confidence:  "high",
 	Description: "Uncovered a Microsoft Teams Webhook, which could lead to unauthorized access to team collaboration tools and data leaks.",
@@ -10,9 +13,9 @@ var _ = Add(config.Rule{
 	Keywords: []string{
 		"webhook.office.com",
 		"webhookb2",
-		"IncomingWebhook",
+		"incomingwebhook",
 	},
 	Tests: []config.RuleTest{
-		Match("true positive 1", "https://mycompany.webhook.office.com/webhookb2/5fbbd6p8-4oe7-ut4q-rtte-biwar77s63do@nnl8x7li-pmar-1rys-jl9p-9f4p8u7nz6lc/IncomingWebhook/a8hqn2j0qefi1vg8f9p1t7tnza246j0v/crp2lv3h-n2ad-us61-vq0d-nd3i2a93m65m", "rtte-"),
+		rulebuilder.Match("true positive 1", "https://mycompany.webhook.office.com/webhookb2/5fbbd6p8-4oe7-ut4q-rtte-biwar77s63do@nnl8x7li-pmar-1rys-jl9p-9f4p8u7nz6lc/IncomingWebhook/a8hqn2j0qefi1vg8f9p1t7tnza246j0v/crp2lv3h-n2ad-us61-vq0d-nd3i2a93m65m", "rtte-"),
 	},
 })

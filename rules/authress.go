@@ -1,10 +1,13 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // Rule Definition
 // When changes are made to this rule, regenerate and commit config/betterleaks.toml.
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "authress-service-client-access-key",
 	Confidence:  "high",
 	Description: "Uncovered a possible Authress Service Client Access Key, which may compromise access control services and sensitive data.",
@@ -22,7 +25,7 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) < 4.0`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", `authress_access_key = "sc_a6DTktFwMEvh87xstYV1BXl.ihwj.acc-0xd1a47h1rr0f.MC4CAQAwBQYDKAVwBCIEIB1wYB62EK24FKxEPHbW0ishcstwp2qs30uLXdWgu4V0"`, "sc_a6DTktFwMEvh87xstYV1BXl.ihwj.acc-0xd1a47h1rr0f.MC4CAQAwBQYDKAVwBCIEIB1wYB62EK24FKxEPHbW0ishcstwp2qs30uLXdWgu4V0"),
-		NoMatch("false positive 1", `authress_access_key = "sc_bad.ihwj.acc-0xd1a47h1rr0f.MC4CAQAwBQYDKAVwBCIEIB1wYB62EK24FKxEPHbW0ishcstwp2qs30uLXdWgu4V0"`),
+		rulebuilder.Match("true positive 1", `authress_access_key = "sc_a6DTktFwMEvh87xstYV1BXl.ihwj.acc-0xd1a47h1rr0f.MC4CAQAwBQYDKAVwBCIEIB1wYB62EK24FKxEPHbW0ishcstwp2qs30uLXdWgu4V0"`, "sc_a6DTktFwMEvh87xstYV1BXl.ihwj.acc-0xd1a47h1rr0f.MC4CAQAwBQYDKAVwBCIEIB1wYB62EK24FKxEPHbW0ishcstwp2qs30uLXdWgu4V0"),
+		rulebuilder.NoMatch("false positive 1", `authress_access_key = "sc_bad.ihwj.acc-0xd1a47h1rr0f.MC4CAQAwBQYDKAVwBCIEIB1wYB62EK24FKxEPHbW0ishcstwp2qs30uLXdWgu4V0"`),
 	},
 })

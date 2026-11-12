@@ -1,8 +1,11 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "amplitude-secret-key",
 	Confidence:  "medium",
 	Description: "Detected an Amplitude secret key, which may allow unauthorized event ingestion or access to Amplitude API functionality.",
@@ -27,10 +30,10 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", "amplitude_api_key=8b6f8d6594749cb659b1be03e6a0a2e7", "8b6f8d6594749cb659b1be03e6a0a2e7"),
-		Match("true positive 2", "AMPLITUDE_API_KEY=ef929907c3923e8f3da83c24f0255aa6", "ef929907c3923e8f3da83c24f0255aa6"),
-		Match("true positive 3", "AMPLITUDE_SECRET_KEY=8b6f8d6594749cb659b1be03e6a0a2e7", "8b6f8d6594749cb659b1be03e6a0a2e7"),
-		NoMatch("false positive 1", "api_key=8b6f8d6594749cb659b1be03e6a0a2e7"),
-		NoMatch("false positive 2", "AMPLITUDE_SECRET_KEY=8b6f8d6594749cb659b1be03e6a0a2e"),
+		rulebuilder.Match("true positive 1", "amplitude_api_key=8b6f8d6594749cb659b1be03e6a0a2e7", "8b6f8d6594749cb659b1be03e6a0a2e7"),
+		rulebuilder.Match("true positive 2", "AMPLITUDE_API_KEY=ef929907c3923e8f3da83c24f0255aa6", "ef929907c3923e8f3da83c24f0255aa6"),
+		rulebuilder.Match("true positive 3", "AMPLITUDE_SECRET_KEY=8b6f8d6594749cb659b1be03e6a0a2e7", "8b6f8d6594749cb659b1be03e6a0a2e7"),
+		rulebuilder.NoMatch("false positive 1", "api_key=8b6f8d6594749cb659b1be03e6a0a2e7"),
+		rulebuilder.NoMatch("false positive 2", "AMPLITUDE_SECRET_KEY=8b6f8d6594749cb659b1be03e6a0a2e"),
 	},
 })

@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "kagi-api-key",
 	Confidence:  "high",
 	Description: "Detected a Kagi API key, which may expose Kagi API usage.",
-	Regex:       Assignment([]string{"kagi"}, `(?i)`+AlphaNumericExtendedShort("11")+`\.`+AlphaNumericExtendedShort("43")),
+	Regex:       rulebuilder.Assignment([]string{"kagi"}, `(?i)`+rulebuilder.AlphaNumericExtendedShort("11")+`\.`+rulebuilder.AlphaNumericExtendedShort("43")),
 	Keywords:    []string{"kagi"},
 	ValidateExpr: `let r = http.get("https://kagi.com/api/v0/search?q=test", {
     "Authorization": "Bot " + finding["secret"]
@@ -16,8 +19,8 @@ var _ = Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: MinEntropy(3.5),
+	FilterExpr: rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
-		Match("true positive 1", "KAGI_API_KEY='AQAAUPJ-iQc.yLFDzC5RRHzPNDThhulREdoG0Bn3PiZMwJ6yqC6uJLE'", "AQAAUPJ-iQc.yLFDzC5RRHzPNDThhulREdoG0Bn3PiZMwJ6yqC6uJLE"),
+		rulebuilder.Match("true positive 1", "KAGI_API_KEY='AQAAUPJ-iQc.yLFDzC5RRHzPNDThhulREdoG0Bn3PiZMwJ6yqC6uJLE'", "AQAAUPJ-iQc.yLFDzC5RRHzPNDThhulREdoG0Bn3PiZMwJ6yqC6uJLE"),
 	},
 })

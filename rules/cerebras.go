@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "cerebras-api-key",
 	Confidence:  "high",
 	Description: "Identified a Cerebras AI API Key, which may expose AI inference services to unauthorized access.",
-	Regex:       Token(`(?i)csk-[a-z0-9]{48}`),
+	Regex:       rulebuilder.Token(`(?i)csk-[a-z0-9]{48}`),
 	Keywords:    []string{"csk-"},
 	ValidateExpr: `let r = http.get("https://api.cerebras.ai/v1/models", {
     "Authorization": "Bearer " + finding["secret"]
@@ -18,8 +21,8 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
 	Tests: []config.RuleTest{
-		Match("cerebras assignment", `cerebrasToken = "csk-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rys"`, "csk-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rys"),
-		NoMatch("Too short", "csk-6nptf4w5cx36fw58t3hkx"),
-		NoMatch("Wrong prefix", "bsk-6nptf4w5cx36fw58t3hkx48jvm52wm693pex5tjm29kn55yt"),
+		rulebuilder.Match("assignment", `cerebrasToken = "csk-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rys"`, "csk-5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rys"),
+		rulebuilder.NoMatch("Too short", "csk-6nptf4w5cx36fw58t3hkx"),
+		rulebuilder.NoMatch("Wrong prefix", "bsk-6nptf4w5cx36fw58t3hkx48jvm52wm693pex5tjm29kn55yt"),
 	},
 })

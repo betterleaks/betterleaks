@@ -1,6 +1,9 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
 // Algolia's public Search API key includes these four read-only ACLs.
 // "settings" reads index settings; "editSettings" is the write permission.
@@ -51,51 +54,27 @@ let can_write = intersects(acl, [
   "capabilities": analysis.capabilities({"read": can_read, "write": can_write})
 }`
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	Description: "Detected an Algolia application ID, used as a component of the algolia-api-key composite rule.",
 	ID:          "algolia-application-id",
 	Confidence:  "high",
-	Regex:       Assignment([]string{"algolia"}, `(?i)[a-z0-9]{10}`),
+	Regex:       rulebuilder.Assignment([]string{"algolia"}, `(?i)[a-z0-9]{10}`),
 	Keywords:    []string{"algolia"},
 	SkipReport:  true,
 	FilterExpr:  `entropy(finding["secret"]) < 2.75 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		{
-			Name:  "true positive 1",
-			Mode:  "match",
-			Input: "ALGOLIA_APPLICATION_ID=AB12CD34EF",
-			Expect: []config.ExpectedFinding{
-				{Secret: "AB12CD34EF"},
-			},
-		},
-		{
-			Name:  "true positive 2",
-			Mode:  "match",
-			Input: `algoliaAppId: "a1b2c3d4e5"`,
-			Expect: []config.ExpectedFinding{
-				{Secret: "a1b2c3d4e5"},
-			},
-		},
-		{
-			Name:   "false positive 1",
-			Mode:   "match",
-			Input:  "ALGOLIA_APPLICATION_ID=ABC123",
-			Expect: []config.ExpectedFinding{},
-		},
-		{
-			Name:   "false positive 2",
-			Mode:   "match",
-			Input:  "ALGOLIA_APPLICATION_ID=ABC123456789",
-			Expect: []config.ExpectedFinding{},
-		},
+		rulebuilder.MatchComponent("true positive 1", "ALGOLIA_APPLICATION_ID=AB12CD34EF", "AB12CD34EF"),
+		rulebuilder.MatchComponent("true positive 2", `algoliaAppId: "a1b2c3d4e5"`, "a1b2c3d4e5"),
+		rulebuilder.NoMatchComponent("false positive 1", "ALGOLIA_APPLICATION_ID=ABC123"),
+		rulebuilder.NoMatchComponent("false positive 2", "ALGOLIA_APPLICATION_ID=ABC123456789"),
 	},
 })
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	Description: "Identified an Algolia API Key, which could result in unauthorized search operations and data exposure on Algolia-managed platforms.",
 	ID:          "algolia-api-key",
 	Confidence:  "high",
-	Regex:       Assignment([]string{"algolia"}, `(?i)[a-z0-9]{32}`),
+	Regex:       rulebuilder.Assignment([]string{"algolia"}, `(?i)[a-z0-9]{32}`),
 	Keywords:    []string{"algolia"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Components: []config.Component{
@@ -105,7 +84,7 @@ var _ = Add(config.Rule{
 	AnalyzeExpr:  algoliaAnalyzeExpr,
 	Tests: []config.RuleTest{
 		{
-			Name:  "algolia assignment",
+			Name:  "assignment",
 			Input: "algoliaToken = \"bf5c97d2d2a313e4f95957818a7b3edc\"\nALGOLIA_APPLICATION_ID=AB12CD34EF",
 			Expect: []config.ExpectedFinding{
 				{Secret: "bf5c97d2d2a313e4f95957818a7b3edc", ComponentSets: []map[string]string{{"algolia-application-id": "AB12CD34EF"}}},

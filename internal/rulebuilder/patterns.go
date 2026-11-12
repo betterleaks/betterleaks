@@ -1,4 +1,4 @@
-package rules
+package rulebuilder
 
 import "fmt"
 
@@ -31,24 +31,4 @@ func AlphaNumericExtendedLong(size string) string {
 
 func Hex8_4_4_4_12() string {
 	return `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`
-}
-
-func MinEntropy(threshold float64) string {
-	return fmt.Sprintf(`entropy(finding["secret"]) < %.1f`, threshold)
-}
-
-const MinEntropyAndTokenEfficiency = `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`
-
-func BearerGetValidationExpr(url string, successCheck string) string {
-	return `let r = http.get("` + url + `", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  });
-r.status == 200 && (` + successCheck + `) ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-`
 }

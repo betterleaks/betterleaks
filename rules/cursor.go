@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "cursor-api-key",
 	Confidence:  "medium",
 	Description: "Detected a Cursor Integrations API Key, which may expose AI-assisted development services to unauthorized access.",
-	Regex:       Assignment([]string{"cursor"}, `(?i)key_[0-9a-f]{64}`),
+	Regex:       rulebuilder.Assignment([]string{"cursor"}, `(?i)key_[0-9a-f]{64}`),
 	Keywords:    []string{"cursor"},
 	ValidateExpr: `let r = http.get("https://api.cursor.com/v0/me", {
     "Accept": "application/json",
@@ -19,8 +22,8 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	Tests: []config.RuleTest{
-		Match("cursor assignment", `cursorToken = "key_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc"`, "key_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc"),
-		NoMatch("Too short", "cursor_key = key_8c5a7657fc397e114def1b51dd52041"),
-		NoMatch("Wrong prefix", "cursor_key = tok_8c5a7657fc397e114def1b51dd520410ad50ece61e30b64261ff369ab275ef29"),
+		rulebuilder.Match("assignment", `cursorToken = "key_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc"`, "key_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc"),
+		rulebuilder.NoMatch("Too short", "cursor_key = key_8c5a7657fc397e114def1b51dd52041"),
+		rulebuilder.NoMatch("Wrong prefix", "cursor_key = tok_8c5a7657fc397e114def1b51dd520410ad50ece61e30b64261ff369ab275ef29"),
 	},
 })

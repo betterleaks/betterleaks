@@ -1,12 +1,15 @@
 package rules
 
-import "github.com/betterleaks/betterleaks/v2/config"
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
 
-var _ = Add(config.Rule{
+var _ = rulebuilder.Add(config.Rule{
 	ID:          "weatherstack-api-key.1",
 	Confidence:  "medium",
 	Description: "Weatherstack API key.",
-	Regex: Assignment(
+	Regex: rulebuilder.Assignment(
 		[]string{`weatherstack(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token)`},
 		`[0-9a-z]{32}`,
 	),
@@ -21,9 +24,9 @@ var _ = Add(config.Rule{
   } : validate.unknown(r)`,
 	FilterExpr: `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
-		Match("true positive 1", "WEATHERSTACK_API_KEY=5fbbd6p84oe7ut4qrttebiwar77s63do", "5fbbd6p84oe7ut4qrttebiwar77s63do"),
-		NoMatch("false positive 1", "API_KEY=abcdef0123456789abcdef0123456789"),
-		NoMatch("false positive 2", "WEATHERSTACK_API_KEY=short"),
-		NoMatch("false positive 3", "WEATHERSTACK_API_KEY=00000000000000000000000000000000"),
+		rulebuilder.Match("true positive 1", "WEATHERSTACK_API_KEY=5fbbd6p84oe7ut4qrttebiwar77s63do", "5fbbd6p84oe7ut4qrttebiwar77s63do"),
+		rulebuilder.NoMatch("false positive 1", "API_KEY=abcdef0123456789abcdef0123456789"),
+		rulebuilder.NoMatch("false positive 2", "WEATHERSTACK_API_KEY=short"),
+		rulebuilder.NoMatch("false positive 3", "WEATHERSTACK_API_KEY=00000000000000000000000000000000"),
 	},
 })
