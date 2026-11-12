@@ -14,8 +14,9 @@ var _ = rulebuilder.Add(config.Rule{
 	SkipReport:  true,
 	FilterExpr:  rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
-		rulebuilder.MatchComponent("true positive 1", "EBAY_CLIENT_ID=MyApp-MyApp-PRD-1a2b3c4d-567890ab", "MyApp-MyApp-PRD-1a2b3c4d-567890ab"),
-		rulebuilder.NoMatchComponent("false positive 1", "EBAY_CLIENT_ID=MyApp-MyApp-SBX-1a2b3c4d-567890ab"),
+		rulebuilder.MatchComponent("production client ID", "EBAY_CLIENT_ID=MyApp-MyApp-PRD-1a2b3c4d-567890ab", "MyApp-MyApp-PRD-1a2b3c4d-567890ab"),
+		rulebuilder.NoMatchComponent("sandbox client ID", "EBAY_CLIENT_ID=MyApp-MyApp-SBX-1a2b3c4d-567890ab"),
+		rulebuilder.NoMatch("hidden when scanned alone", "EBAY_CLIENT_ID=MyApp-MyApp-PRD-1a2b3c4d-567890ab"),
 	},
 })
 
@@ -32,26 +33,45 @@ var _ = rulebuilder.Add(config.Rule{
 		{RuleID: "ebay-client-id"},
 	},
 	ValidateExpr: `let clientID = (components["ebay-client-id"]?.secret ?? "");
-let r = http.post("https://api.ebay.com/identity/v1/oauth2/token/introspect", {
-  "Authorization": "Basic " + base64.encode(bytes(clientID + ":" + finding["secret"])),
+let secret = finding["secret"];
+let url = "https://api.ebay.com/identity/v1/oauth2/token";
+let payload = "grant_type=refresh_token&refresh_token=betterleaks-validation-token";
+let r = http.post(url, {
+  "Authorization": "Basic " + base64.encode(bytes(clientID + ":" + secret)),
   "Content-Type": "application/x-www-form-urlencoded",
   "Accept": "application/json"
-}, "token=betterleaks-validation-token&token_type_hint=access_token");
-r.status == 200 && (r.json?.active ?? true) == false ? {
-  "result": "valid"
-} : r.status == 401 && (r.json?.error ?? "") == "invalid_client" ? {
+}, payload);
+let isJSON = lower(trim(split(r.headers["content-type"] ?? "", ";")[0])) == "application/json";
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 401 && isJSON && (body?.error ?? "") == "invalid_client" ? {
   "result": "invalid",
   "reason": "Invalid client"
-} : validate.unknown(r)`,
+} : r.status == 400 && isJSON && (body?.error ?? "") == "invalid_grant" ? (
+  let altered = secret[:len(secret)-1] + (secret[len(secret)-1:] == "0" ? "1" : "0");
+  let control = http.post(url, {
+    "Authorization": "Basic " + base64.encode(bytes(clientID + ":" + altered)),
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json"
+  }, payload);
+  let controlBody = type(control.json) == "map" ? control.json : {};
+  control.status == 401 && lower(trim(split(control.headers["content-type"] ?? "", ";")[0])) == "application/json" &&
+    (controlBody?.error ?? "") == "invalid_client" ? {
+    "result": "valid"
+  } : {
+    "result": "unknown",
+    "reason": "Refresh-token rejection did not establish client authentication"
+  }
+) : validate.unknown(r)`,
 	FilterExpr: rulebuilder.MinEntropy(3.0),
 	Tests: []config.RuleTest{
 		{
-			Name:  "true positive 1",
+			Name:  "secret with client ID",
 			Input: "EBAY_CLIENT_SECRET=PRD-1f7b169c-1f7b-1f7b-1f7b-1f7b169c\nEBAY_CLIENT_ID=MyApp-MyApp-PRD-1a2b3c4d-567890ab",
 			Expect: []config.ExpectedFinding{
 				{Secret: "PRD-1f7b169c-1f7b-1f7b-1f7b-1f7b169c", ComponentSets: []map[string]string{{"ebay-client-id": "MyApp-MyApp-PRD-1a2b3c4d-567890ab"}}},
 			},
 		},
-		rulebuilder.NoMatch("false positive 1", "EBAY_CLIENT_SECRET=SBX-1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b"),
+		rulebuilder.NoMatch("secret without client ID", "EBAY_CLIENT_SECRET=PRD-1f7b169c-1f7b-1f7b-1f7b-1f7b169c"),
+		rulebuilder.NoMatch("sandbox secret", "EBAY_CLIENT_SECRET=SBX-1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b\nEBAY_CLIENT_ID=MyApp-MyApp-PRD-1a2b3c4d-567890ab"),
 	},
 })

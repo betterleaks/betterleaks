@@ -703,14 +703,18 @@ regex = '''\bAKCp[A-Za-z0-9]{68,70}\b'''
 confidence = "high"
 keywords = ["akcp"]
 validate = '''
-let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/repositories", {
-    "X-JFrog-Art-Api": finding["secret"]
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/security/apiKey", {
+  "X-JFrog-Art-Api": finding["secret"],
+  "Accept": "application/json"
+});
+let isJSON = lower(trim(split(r.headers["content-type"] ?? "", ";")[0])) == "application/json";
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 200 && isJSON && (body?.apiKey ?? "") == finding["secret"] ? {
+  "result": "valid"
+} : r.status == 401 && isJSON && type(body?.errors) == "array" && any(body.errors, { type(#) == "map" && (#.status ?? 0) == 401 }) ? {
+  "result": "invalid",
+  "reason": "Invalid API key"
+} : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -743,14 +747,26 @@ regex = '''\bcmVmd[A-Za-z0-9]{59}\b'''
 confidence = "high"
 keywords = ["cmvmd"]
 validate = '''
-let r = http.get("https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/repositories", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 ? {
+let secret = finding["secret"];
+let url = "https://" + (components["artifactory-jfrog-url"]?.secret ?? "") + "/artifactory/api/system/ping";
+let r = http.get(url, {"Authorization": "Bearer " + secret, "Accept": "text/plain"});
+let contentType = lower(trim(split(r.headers["content-type"] ?? "", ";")[0]));
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 401 && contentType == "application/json" && type(body?.errors) == "array" && any(body.errors, { type(#) == "map" && (#.status ?? 0) == 401 }) ? {
+  "result": "invalid",
+  "reason": "Invalid reference token"
+} : r.status == 200 && contentType == "text/plain" && trim(r.body) == "OK" ? (
+  let altered = secret[:len(secret)-1] + (secret[len(secret)-1:] == "A" ? "B" : "A");
+  let control = http.get(url, {"Authorization": "Bearer " + altered, "Accept": "text/plain"});
+  let controlBody = type(control.json) == "map" ? control.json : {};
+  control.status == 401 && lower(trim(split(control.headers["content-type"] ?? "", ";")[0])) == "application/json" &&
+    type(controlBody?.errors) == "array" && any(controlBody.errors, { type(#) == "map" && (#.status ?? 0) == 401 }) ? {
     "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  } : {
+    "result": "unknown",
+    "reason": "Ping did not establish credential-specific authentication"
+  }
+) : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -3151,17 +3167,35 @@ confidence = "high"
 keywords = ["ebay"]
 validate = '''
 let clientID = (components["ebay-client-id"]?.secret ?? "");
-let r = http.post("https://api.ebay.com/identity/v1/oauth2/token/introspect", {
-  "Authorization": "Basic " + base64.encode(bytes(clientID + ":" + finding["secret"])),
+let secret = finding["secret"];
+let url = "https://api.ebay.com/identity/v1/oauth2/token";
+let payload = "grant_type=refresh_token&refresh_token=betterleaks-validation-token";
+let r = http.post(url, {
+  "Authorization": "Basic " + base64.encode(bytes(clientID + ":" + secret)),
   "Content-Type": "application/x-www-form-urlencoded",
   "Accept": "application/json"
-}, "token=betterleaks-validation-token&token_type_hint=access_token");
-r.status == 200 && (r.json?.active ?? true) == false ? {
-  "result": "valid"
-} : r.status == 401 && (r.json?.error ?? "") == "invalid_client" ? {
+}, payload);
+let isJSON = lower(trim(split(r.headers["content-type"] ?? "", ";")[0])) == "application/json";
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 401 && isJSON && (body?.error ?? "") == "invalid_client" ? {
   "result": "invalid",
   "reason": "Invalid client"
-} : validate.unknown(r)
+} : r.status == 400 && isJSON && (body?.error ?? "") == "invalid_grant" ? (
+  let altered = secret[:len(secret)-1] + (secret[len(secret)-1:] == "0" ? "1" : "0");
+  let control = http.post(url, {
+    "Authorization": "Basic " + base64.encode(bytes(clientID + ":" + altered)),
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json"
+  }, payload);
+  let controlBody = type(control.json) == "map" ? control.json : {};
+  control.status == 401 && lower(trim(split(control.headers["content-type"] ?? "", ";")[0])) == "application/json" &&
+    (controlBody?.error ?? "") == "invalid_client" ? {
+    "result": "valid"
+  } : {
+    "result": "unknown",
+    "reason": "Refresh-token rejection did not establish client authentication"
+  }
+) : validate.unknown(r)
 '''
 filter = '''
 entropy(finding["secret"]) < 3.0
