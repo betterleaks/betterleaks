@@ -966,6 +966,16 @@ repositories with deep delta chains; `0` disables it and the maximum is 4096.
 These three tuning fields have no CLI flags. `RemoteURL` overrides the fetch
 remote used for finding links. Don't change a Source while it is scanning.
 
+`CommitParents(ctx, rev)` returns a commit's parent object IDs, first parent
+first. A root commit has none and a merge has more than one, so a pre-receive
+hook can skip merges in-process instead of running `git rev-list --parents -n 1`.
+`rev` names a single commit (an object ID, ref, tag, or a bounded `^`/`~`
+suffix), not a range, and message-search suffixes are rejected because resolving
+them would walk history. Reading the resolved commit's parents does not. It
+reads objects under the same confinement as a scan (a quarantine named by
+`GIT_OBJECT_DIRECTORY` needs `AllowExternalObjects`) and requires a local
+`RepoPath`.
+
 For a complete program that applies the configuration's source prefilter and
 reports warnings, see [`examples/git.go`](../examples/git.go).
 
