@@ -633,6 +633,9 @@ description = "Found an Anthropic OAuth access token, which grants access to a C
 regex = '''\b(sk-ant-oat01-[a-zA-Z0-9_\-]{80,})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["sk-ant-oat01"]
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # anthropic-oauth-refresh-token
@@ -643,6 +646,9 @@ description = "Found an Anthropic OAuth refresh token, which can be used to mint
 regex = '''\b(sk-ant-ort01-[a-zA-Z0-9_\-]{80,})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["sk-ant-ort01"]
+filter = '''
+entropy(finding["secret"]) < 3.5
+'''
 
 # ──────────────────────────────────────────────────────────────────────────────
 # apify-api-token
