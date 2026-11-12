@@ -123,8 +123,10 @@ impl ScannerBuilder {
         self
     }
 
-    /// Origin path for custom TOML, used when resolving relative extensions.
-    /// Requires `config_toml`. Config extensions may read the local filesystem.
+    /// Origin label for custom TOML, used in configuration diagnostics.
+    /// Requires `config_toml`. Note that a relative `[extend].path` inside the
+    /// TOML is read from the process working directory (matching the CLI), not
+    /// from this path; config extensions may read the local filesystem.
     pub fn config_path(mut self, path: impl Into<String>) -> Self {
         self.config_path = Some(path.into());
         self

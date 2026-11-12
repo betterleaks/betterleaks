@@ -82,11 +82,35 @@ fn build_archive() -> PathBuf {
         root.display()
     );
 
+    // Follow Cargo's target, not the host: `cargo build --target ...` must not
+    // produce a host-architecture archive. Cross builds need a C compiler for
+    // the target, taken from the `cc` crate's conventional variables.
+    let goos = match env::var("CARGO_CFG_TARGET_OS").unwrap().as_str() {
+        "macos" => "darwin",
+        "linux" => "linux",
+        other => panic!("unsupported Betterleaks target OS {other}"),
+    };
+    let goarch = match env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => panic!("unsupported Betterleaks target architecture {other}"),
+    };
+    let triple = env::var("TARGET").unwrap();
+    let target_cc = env::var(format!("CC_{}", triple.replace('-', "_")))
+        .or_else(|_| env::var("TARGET_CC"));
+
     let archive = out_dir.join("libbetterleaks.a");
-    let status = Command::new("go")
+    let mut command = Command::new("go");
+    command
         .current_dir(&root)
         .env("CGO_ENABLED", "1")
-        .args(["build", "-mod=readonly", "-trimpath"])
+        .env("GOOS", goos)
+        .env("GOARCH", goarch)
+        .args(["build", "-mod=readonly", "-trimpath"]);
+    if let Ok(cc) = target_cc {
+        command.env("CC", cc);
+    }
+    let status = command
         .args(["-tags", "betterleaks_ffi", "-buildmode=c-archive"])
         .arg("-o")
         .arg(&archive)

@@ -98,8 +98,11 @@ export BETTERLEAKS_LIB_DIR="$PWD/dist/native/lib"
 ```
 
 An archive must match the consumer's full target triple, including libc; a
-glibc archive is not usable from an Alpine/musl application. Cross builds
-require `CC` set to a compiler for the target. The earlier `exp/rust-bindings`
+glibc archive is not usable from an Alpine/musl application. The bundled build
+follows Cargo's `--target` (same-OS cross builds like macOS ARM64 → x86-64
+work out of the box); crossing to another OS or libc requires a target C
+compiler in `CC_<target-triple>` or `TARGET_CC` (bundled) or `CC` (manual
+`go build`). The earlier `exp/rust-bindings`
 branch carries a full artifact builder (manifests, checksums, CI workflow) to
 resurrect when prebuilt distribution becomes real.
 

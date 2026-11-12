@@ -192,11 +192,22 @@ func (s *nativeScanner) scan(input, attributeJSON []byte) ([]byte, error) {
 		ConfigHash:    s.configHash,
 		Findings:      []report.Finding{},
 	}
+	// Budget the serialized size while findings accumulate; a permissive
+	// max_findings must not allocate an oversized response before the final
+	// size check. Marshaling findings twice only costs on finding-heavy scans.
+	resultBytes := 0
 	summary, err := s.scanner.Scan(context.Background(), &sources.Reader{
 		Content: bytes.NewReader(input), Attributes: attributes, Prefilter: s.prefilter,
 	}, func(finding report.Finding) error {
 		if len(response.Findings) == s.maxFindings {
 			return failure(statusLimit, "scan exceeds max_findings")
+		}
+		encoded, err := json.Marshal(finding)
+		if err != nil {
+			return &apiError{statusInternal, err}
+		}
+		if resultBytes += len(encoded) + 1; resultBytes > maxResultBytes {
+			return failure(statusLimit, "serialized results exceed 64 MiB")
 		}
 		response.Findings = append(response.Findings, finding)
 		return nil
