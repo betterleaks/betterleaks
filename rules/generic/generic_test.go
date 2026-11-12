@@ -1,6 +1,8 @@
 package generic
 
 import (
+	"fmt"
+	"os"
 	"slices"
 	"testing"
 
@@ -9,6 +11,16 @@ import (
 	"github.com/betterleaks/betterleaks/v2/config"
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
+
+// TestMain reports an invalid rule, such as an unfinished make newrule
+// scaffold, once instead of in every test that loads the rules.
+func TestMain(m *testing.M) {
+	if _, err := rulebuilder.Config(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
 
 // testConfig returns the global policy with the generic rules ids, in order.
 // Only this package's rules are registered in its tests.

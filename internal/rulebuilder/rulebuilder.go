@@ -90,7 +90,7 @@ func baseConfig() *config.Config {
 // in lowercase, for the source to read the same as the generated config.
 func checkRule(rule config.Rule) error {
 	if strings.HasPrefix(strings.TrimSpace(rule.Description), "TODO") {
-		return fmt.Errorf("rule %q: description still starts with TODO; replace the make newrule placeholders", rule.ID)
+		return fmt.Errorf("rule %q: description still starts with TODO; finish this make newrule scaffold or delete the file", rule.ID)
 	}
 	for i, keyword := range rule.Keywords {
 		if keyword != strings.ToLower(keyword) {

@@ -2,6 +2,8 @@ package rules
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"slices"
 	"testing"
 
@@ -20,6 +22,16 @@ import (
 )
 
 var engines = []regexp.Engine{regexp.Stdlib{}, re2.RE2{}}
+
+// TestMain reports an invalid rule, such as an unfinished make newrule
+// scaffold, once instead of in every test that loads the rules.
+func TestMain(m *testing.M) {
+	if _, err := rulebuilder.Config(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
 
 // TestRules runs every rule's tests. Focus on one provider with:
 //

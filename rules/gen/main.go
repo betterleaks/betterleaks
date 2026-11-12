@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"fmt"
 	"os"
 	"text/template"
 
@@ -24,7 +25,8 @@ func main() {
 
 	cfg, err := rulebuilder.Config()
 	if err != nil {
-		logging.Fatal("Invalid rules", "error", err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 
 	funcMap := template.FuncMap{
