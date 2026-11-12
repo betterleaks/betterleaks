@@ -625,6 +625,26 @@ let r = http.get("https://api.anthropic.com/v1/models", {
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# anthropic-oauth-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "anthropic-oauth-access-token"
+description = "Found an Anthropic OAuth access token, which grants access to a Claude subscription and its usage."
+regex = '''\b(sk-ant-oat01-[a-zA-Z0-9_\-]{80,})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["sk-ant-oat01"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# anthropic-oauth-refresh-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "anthropic-oauth-refresh-token"
+description = "Found an Anthropic OAuth refresh token, which can be used to mint new access tokens for a Claude subscription."
+regex = '''\b(sk-ant-ort01-[a-zA-Z0-9_\-]{80,})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["sk-ant-ort01"]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # apify-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
