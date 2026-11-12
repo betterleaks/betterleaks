@@ -201,6 +201,8 @@ func TestUniqueTokenRegex(t *testing.T) {
 				"```abc```",
 				"my abc's",
 				".com?abc",
+				"(abc)", // command wrappers, e.g. Bash(export KEY=abc)
+				`Bash(curl -H \"X: abc\")`,
 			},
 			invalidStrings: []string{
 				"abcabc",
