@@ -304,6 +304,10 @@ See the [scanning guide](docs/scanning.md#ignore-exact-secret-values) for
 
 Test out your rules in the [Betterleaks Playground](https://betterleaks.com/playground)
 
+API providers can use the [provider guide](docs/provider_guide.md) to design
+detectable credentials, expose validation and revocation APIs, and contribute
+tested rules.
+
 ### Who uses Betterleaks?
 Projects and organizations that run Betterleaks. Open a pull request to add yours!
 - [Aikido Security](https://www.aikido.dev/)

@@ -7,6 +7,10 @@ Unknown keys are errors at every level, including inherited configurations.
 Errors identify the field and its line and column; a misspelled key is never
 silently ignored.
 
+For credential design and provider integration, see the
+[provider guide](provider_guide.md), covering token formats, checksums,
+validation, revocation, and rule testing.
+
 Configuration selection follows this order:
 
 1. `--config` / `-c`.
