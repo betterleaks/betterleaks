@@ -54,6 +54,9 @@ More test files and more assertions are not goals in themselves.
 
 ## Adding new Betterleaks rules
 
+See the [provider guide](../docs/provider_guide.md) for credential design,
+validation and revocation API contracts, and testing the credential lifecycle.
+
 Rules for the [default configuration](../config/betterleaks.toml) live in
 [`rules/`](../rules), one file per provider. Rules that are not specific to a
 provider, such as generic API keys and passwords, live in
