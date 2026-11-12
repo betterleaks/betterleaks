@@ -54,6 +54,7 @@ source prefilters and finding filters are honored. Configuration errors fail at
 construction. Scan errors and exceeded limits return `Err`, without partial
 findings. Match values can contain secrets; they are omitted from `Match`'s
 `Debug` representation, but other metadata is not automatically sanitized.
+Finding and JSON result limits bound returned output, not peak process memory.
 
 This is a synchronous detection API. Provider validation, filesystem traversal,
 streaming, and cancellation are not exposed. Input is UTF-8 text, including NULs;

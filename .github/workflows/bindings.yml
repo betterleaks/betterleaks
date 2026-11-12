@@ -5,10 +5,14 @@ on:
     paths:
       - "bindings/**"
       - "examples/rust/**"
+      - "scan/**"
       - "go.mod"
       - "go.sum"
       - ".github/workflows/bindings.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   native:
@@ -19,6 +23,8 @@ jobs:
     steps:
       # v6.0.2 (https://github.com/actions/checkout/releases/tag/v6.0.2)
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         # v6.3.0 (https://github.com/actions/setup-go/releases/tag/v6.3.0)
@@ -28,9 +34,8 @@ jobs:
 
       - name: Set up Rust
         run: |
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-          fi
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Test the C bridge against the Go SDK

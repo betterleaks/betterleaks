@@ -1,9 +1,11 @@
 package scan
 
 import (
+	"maps"
+
+	"github.com/betterleaks/betterleaks/v2/internal/confidence"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
-	"maps"
 )
 
 // exprAttributes returns the source attributes used by rule expressions, including
@@ -13,8 +15,12 @@ func exprAttributes(f report.Finding) map[string]string {
 	attrs := make(map[string]string, len(f.Attributes)+1)
 	maps.Copy(attrs, f.Attributes)
 	delete(attrs, sources.AttrPath)
+	delete(attrs, confidence.Attribute)
 	if f.Location.Path != "" {
 		attrs[sources.AttrPath] = f.Location.Path
+	}
+	if link := findingSCMLink(f); link != "" {
+		attrs[sources.AttrURL] = link
 	}
 	return attrs
 }
