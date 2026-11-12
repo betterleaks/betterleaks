@@ -20,9 +20,12 @@ var _ = rulebuilder.Add(config.Rule{
     "result": "invalid",
     "reason": "Unauthorized"
   } : validate.unknown(r)`,
-	FilterExpr: rulebuilder.MinEntropy(3.5),
+	// Word-built names, such as a C macro in a USB_VENDOR_ID_IBM device
+	// table, tokenize efficiently; generated keys do not.
+	FilterExpr: rulebuilder.MinEntropyAndTokenEfficiency,
 	Tests: []config.RuleTest{
-		rulebuilder.Match("true positive 1", "ibmcloud_apikey = abcdef0123_56789abcdef0123456789abcdef01234", "abcdef0123_56789abcdef0123456789abcdef01234"),
+		rulebuilder.Match("true positive 1", "ibmcloud_apikey = q7xv0dk2m9rj5t_nb3fw8hz1ycp46sg0aue7ridk29j", "q7xv0dk2m9rj5t_nb3fw8hz1ycp46sg0aue7ridk29j"),
 		rulebuilder.Match("true positive 2", `ibm_platform_key="f-_RrJDVnuVh07HNTcmnQx_b6CbcQsxmEarVm9P_RWtF"`, "f-_RrJDVnuVh07HNTcmnQx_b6CbcQsxmEarVm9P_RWtF"),
+		rulebuilder.NoMatch("macro argument", `{ HID_USB_DEVICE(USB_VENDOR_ID_IBM, USB_DEVICE_ID_IBM_SCROLLPOINT_800DPI_OPTICAL) },`),
 	},
 })
