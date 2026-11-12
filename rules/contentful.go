@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Discovered a Contentful delivery API token, posing a risk to content management systems and data integrity.",
 	ID:          "contentful-delivery-api-token",
 	Confidence:  "medium",
-	Regex:       rulebuilder.Assignment([]string{"contentful"}, `(?i)`+rulebuilder.AlphaNumericExtended("43")),
+	Regex:       rulebuilder.Assignment([]string{"contentful"}, `(?i)[a-z0-9=_\-]{43}`),
 	Keywords:    []string{"contentful"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

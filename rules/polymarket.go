@@ -48,7 +48,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "polymarket-api-key",
 	Confidence:  "high",
 	Description: "Identified a Polymarket API key, potentially compromising access to the Polymarket trading platform.",
-	Regex:       rulebuilder.Assignment([]string{"poly.{0,20}key"}, rulebuilder.Hex8_4_4_4_12()),
+	Regex:       rulebuilder.Assignment([]string{"poly.{0,20}key"}, `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`),
 	Keywords:    []string{"poly"},
 	Components: []config.Component{
 		{

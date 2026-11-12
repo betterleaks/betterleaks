@@ -60,7 +60,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:           "twitch-api-token",
 	Confidence:   "medium",
 	Description:  "Discovered a Twitch API token, which could compromise streaming services and account integrations.",
-	Regex:        rulebuilder.Assignment([]string{"twitch"}, `(?i)`+rulebuilder.AlphaNumeric("30")),
+	Regex:        rulebuilder.Assignment([]string{"twitch"}, `(?i)[a-z0-9]{30}`),
 	RevokeExpr:   twitchRevokeExpr,
 	Keywords: []string{
 		"twitch",

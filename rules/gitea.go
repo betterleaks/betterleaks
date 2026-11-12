@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitea-access-token",
 	Confidence:  "high",
 	Description: "Detected a Gitea Access Token, which may expose self-hosted Git repositories and associated code to unauthorized access.",
-	Regex:       rulebuilder.Assignment([]string{"gitea[_.-]?(?:token|key|secret|access)"}, `(?i)`+rulebuilder.Hex("40")),
+	Regex:       rulebuilder.Assignment([]string{"gitea[_.-]?(?:token|key|secret|access)"}, `(?i)[a-f0-9]{40}`),
 	Keywords:    []string{"gitea"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

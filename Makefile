@@ -32,9 +32,16 @@ clean:
 profile: build
 	./scripts/profile.sh './betterleaks' '.'
 
+# The config package embeds config/betterleaks.toml, so nothing that imports
+# it, the generator included, builds while the file is missing. Bootstrap it
+# from an empty placeholder, and remove the placeholder if generation fails so
+# a build can't silently embed an empty default config.
+BOOTSTRAP_CONFIG = test -f config/betterleaks.toml || { touch config/betterleaks.toml && go generate ./rules || { rm -f config/betterleaks.toml; exit 1; }; }
+
 # Test every rule, then regenerate the default config from rules/.
 config:
-	go test ./rules/...
+	@$(BOOTSTRAP_CONFIG)
+	go test ./rules/... ./internal/rulebuilder
 	go generate ./rules
 
 # Scaffold a provider's rule file: make newrule NAME=acme
@@ -48,4 +55,6 @@ newrule:
 	@echo '  make config'
 
 config/betterleaks.toml: $(wildcard rules/*.go rules/generic/*.go rules/gen/*.go rules/gen/config.tmpl internal/rulebuilder/*.go)
+	@$(BOOTSTRAP_CONFIG)
 	go generate ./rules
+	@touch $@ # the generator leaves an unchanged file alone; mark it current

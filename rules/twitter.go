@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Identified a Twitter API Key, which may compromise Twitter application integrations and user data security.",
 	ID:          "twitter-api-key",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"twitter"}, `(?i)`+rulebuilder.AlphaNumeric("25")),
+	Regex:       rulebuilder.Assignment([]string{"twitter"}, `(?i)[a-z0-9]{25}`),
 	Keywords:    []string{"twitter"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
@@ -21,7 +21,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Found a Twitter API Secret, risking the security of Twitter app integrations and sensitive data access.",
 	ID:          "twitter-api-secret",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"twitter"}, `(?i)`+rulebuilder.AlphaNumeric("50")),
+	Regex:       rulebuilder.Assignment([]string{"twitter"}, `(?i)[a-z0-9]{50}`),
 	Keywords:    []string{"twitter"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
@@ -57,7 +57,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Uncovered a Twitter Access Secret, potentially risking unauthorized Twitter integrations and data breaches.",
 	ID:          "twitter-access-secret",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"twitter"}, `(?i)`+rulebuilder.AlphaNumeric("45")),
+	Regex:       rulebuilder.Assignment([]string{"twitter"}, `(?i)[a-z0-9]{45}`),
 	Keywords:    []string{"twitter"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

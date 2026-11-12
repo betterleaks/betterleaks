@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Identified a potential Adafruit API Key, which could lead to unauthorized access to Adafruit services and sensitive data exposure.",
 	ID:          "adafruit-api-key",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"adafruit"}, `(?i)`+rulebuilder.AlphaNumericExtendedShort("32")),
+	Regex:       rulebuilder.Assignment([]string{"adafruit"}, `(?i)[a-z0-9_-]{32}`),
 	Keywords:    []string{"adafruit"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

@@ -57,7 +57,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description:  "Uncovered a Fastly API token, which may compromise CDN and edge cloud services, leading to content delivery and security issues.",
 	ID:           "fastly-api-token",
 	Confidence:   "high",
-	Regex:        rulebuilder.Assignment([]string{"fastly"}, `(?i)`+rulebuilder.AlphaNumericExtendedShort("32")),
+	Regex:        rulebuilder.Assignment([]string{"fastly"}, `(?i)[a-z0-9_-]{32}`),
 	Keywords:     []string{"fastly"},
 	ValidateExpr: fastlyValidateExpr,
 	AnalyzeExpr:  fastlyAnalyzeExpr,

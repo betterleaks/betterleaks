@@ -30,7 +30,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:           "box-api-access-token",
 	Confidence:   "medium",
 	Description:  "Detected a Box API access token, which may expose Box files and account data.",
-	Regex:        rulebuilder.Assignment([]string{"box"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
+	Regex:        rulebuilder.Assignment([]string{"box"}, `(?i)[a-z0-9]{32}`),
 	Keywords:     []string{"box_", "box-", "boxt", "boxk", "boxa"},
 	ValidateExpr: boxValidateExpr,
 	AnalyzeExpr:  boxAnalyzeExpr,

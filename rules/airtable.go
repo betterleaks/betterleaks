@@ -38,7 +38,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Uncovered a possible Airtable API Key, potentially compromising database access and leading to data leakage or alteration.",
 	ID:          "airtable-api-key",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"airtable"}, `(?i)`+rulebuilder.AlphaNumeric("17")),
+	Regex:       rulebuilder.Assignment([]string{"airtable"}, `(?i)[a-z0-9]{17}`),
 	Keywords:    []string{"airtable"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

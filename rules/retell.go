@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "retell-api-key.1",
 	Confidence:  "high",
 	Description: "Retell AI API key, which may allow access to agents, calls, and account configuration.",
-	Regex:       rulebuilder.Assignment([]string{"retell"}, `key_`+rulebuilder.Hex("28")),
+	Regex:       rulebuilder.Assignment([]string{"retell"}, `key_[a-f0-9]{28}`),
 	Keywords:    []string{"retell"},
 	ValidateExpr: `let r = http.get("https://api.retellai.com/get-concurrency", {
     "Authorization": "Bearer " + finding["secret"],

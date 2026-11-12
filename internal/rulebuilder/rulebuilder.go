@@ -1,5 +1,5 @@
 // Package rulebuilder is the toolkit for writing Betterleaks' default rules in
-// rules/: a registry, regex wrappers, shared patterns, and test constructors.
+// rules/: a registry, regex wrappers, shared expressions, and test constructors.
 // Each provider file registers its rules with Add, and go generate renders
 // them into config/betterleaks.toml.
 package rulebuilder

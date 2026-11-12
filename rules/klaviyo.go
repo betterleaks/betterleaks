@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "klaviyo-api-key",
 	Confidence:  "high",
 	Description: "Detected a Klaviyo API key, which may expose Klaviyo account and marketing data.",
-	Regex:       rulebuilder.Assignment([]string{"klaviyo"}, `(?i)pk_`+rulebuilder.AlphaNumeric("34")),
+	Regex:       rulebuilder.Assignment([]string{"klaviyo"}, `(?i)pk_[a-z0-9]{34}`),
 	Keywords:    []string{"klaviyo"},
 	ValidateExpr: `let r = http.get("https://a.klaviyo.com/api/accounts", {
     "Revision": "2023-02-22",

@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "mattermost-access-token",
 	Confidence:  "medium",
 	Description: "Identified a Mattermost Access Token, which may compromise team communication channels and data privacy.",
-	Regex:       rulebuilder.Assignment([]string{"mattermost"}, `(?i)`+rulebuilder.AlphaNumeric("26")),
+	Regex:       rulebuilder.Assignment([]string{"mattermost"}, `(?i)[a-z0-9]{26}`),
 	Keywords: []string{
 		"mattermost",
 	},

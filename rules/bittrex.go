@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Identified a Bittrex Access Key, which could lead to unauthorized access to cryptocurrency trading accounts and financial loss.",
 	ID:          "bittrex-access-key",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"bittrex"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
+	Regex:       rulebuilder.Assignment([]string{"bittrex"}, `(?i)[a-z0-9]{32}`),
 	Keywords:    []string{"bittrex"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
@@ -21,7 +21,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Detected a Bittrex Secret Key, potentially compromising cryptocurrency transactions and financial security.",
 	ID:          "bittrex-secret-key",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"bittrex"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
+	Regex:       rulebuilder.Assignment([]string{"bittrex"}, `(?i)[a-z0-9]{32}`),
 	Keywords:    []string{"bittrex"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

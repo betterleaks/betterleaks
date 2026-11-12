@@ -23,7 +23,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "hashicorp-tf-password",
 	Confidence:  "medium",
 	Description: "Identified a HashiCorp Terraform password field, risking unauthorized infrastructure configuration and security breaches.",
-	Regex:       rulebuilder.Assignment([]string{"administrator_login_password", "password"}, `(?i)"`+rulebuilder.AlphaNumericExtended("8,20")+`"`),
+	Regex:       rulebuilder.Assignment([]string{"administrator_login_password", "password"}, `(?i)"[a-z0-9=_\-]{8,20}"`),
 	Path:        `(?i)\.(?:tf|hcl)$`,
 	Keywords:    []string{"administrator_login_password", "password"},
 	FilterExpr:  `entropy(finding["secret"]) <= 2.0`,

@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Uncovered a Snyk API token, potentially compromising software vulnerability scanning and code security.",
 	ID:          "snyk-api-token",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"snyk[_.-]?(?:(?:api|oauth)[_.-]?)?(?:key|token)"}, `(?i)`+rulebuilder.Hex8_4_4_4_12()),
+	Regex:       rulebuilder.Assignment([]string{"snyk[_.-]?(?:(?:api|oauth)[_.-]?)?(?:key|token)"}, `(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`),
 	Keywords:    []string{"snyk"},
 	Tests: []config.RuleTest{
 		rulebuilder.Match("assignment", `snykToken = "12345678-ABCD-ABCD-ABCD-1234567890AB"`, "12345678-ABCD-ABCD-ABCD-1234567890AB"),

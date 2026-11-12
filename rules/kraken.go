@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "kraken-access-token",
 	Confidence:  "medium",
 	Description: "Identified a Kraken Access Token, potentially compromising cryptocurrency trading accounts and financial security.",
-	Regex:       rulebuilder.Assignment([]string{"kraken"}, `(?i)`+rulebuilder.AlphaNumericExtendedLong("80,90")),
+	Regex:       rulebuilder.Assignment([]string{"kraken"}, `(?i)[a-z0-9\/=_\+\-]{80,90}`),
 	Keywords: []string{
 		"kraken",
 	},

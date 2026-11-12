@@ -12,7 +12,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "opsgenie-api-key.1",
 	Confidence:  "high",
 	Description: "Opsgenie API key, which may allow access to alerts, incidents, and account configuration.",
-	Regex:       rulebuilder.Assignment([]string{"opsgenie"}, `(?i)`+rulebuilder.Hex8_4_4_4_12()),
+	Regex:       rulebuilder.Assignment([]string{"opsgenie"}, `(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`),
 	Keywords:    []string{"opsgenie"},
 	ValidateExpr: `let us = http.get("https://api.opsgenie.com/v2/account", {
     "Authorization": "GenieKey " + finding["secret"],

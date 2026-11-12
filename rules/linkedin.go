@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "linkedin-client-id",
 	Confidence:  "medium",
 	Description: "Found a LinkedIn Client ID, risking unauthorized access to LinkedIn integrations and professional data exposure.",
-	Regex:       rulebuilder.Assignment([]string{"linked[_-]?in"}, `(?i)`+rulebuilder.AlphaNumeric("14")),
+	Regex:       rulebuilder.Assignment([]string{"linked[_-]?in"}, `(?i)[a-z0-9]{14}`),
 	Keywords: []string{
 		"linkedin",
 		"linked_in",
@@ -25,7 +25,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "linkedin-client-secret",
 	Confidence:  "medium",
 	Description: "Discovered a LinkedIn Client secret, potentially compromising LinkedIn application integrations and user data.",
-	Regex:       rulebuilder.Assignment([]string{"linked[_-]?in"}, `(?i)`+rulebuilder.AlphaNumeric("16")),
+	Regex:       rulebuilder.Assignment([]string{"linked[_-]?in"}, `(?i)[a-z0-9]{16}`),
 	Keywords: []string{
 		"linkedin",
 		"linked_in",

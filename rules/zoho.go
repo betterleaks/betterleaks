@@ -13,7 +13,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "zoho-oauth-token.1",
 	Confidence:  "high",
 	Description: "Zoho OAuth access or refresh token, which may allow access to Zoho APIs or minting of new access tokens.",
-	Regex:       rulebuilder.Assignment([]string{"zoho"}, `(?i)1000\.`+rulebuilder.Hex("32")+`\.`+rulebuilder.Hex("32")),
+	Regex:       rulebuilder.Assignment([]string{"zoho"}, `(?i)1000\.[a-f0-9]{32}\.[a-f0-9]{32}`),
 	Keywords:    []string{"zoho"},
 	ValidateExpr: `let r = http.get("https://www.zohoapis.com/crm/v8/users?type=CurrentUser", {
     "Authorization": "Zoho-oauthtoken " + finding["secret"],
@@ -37,7 +37,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "zoho-client-id.1",
 	Confidence:  "medium",
 	Description: "Zoho OAuth client ID, used as a component of the zoho-client-secret.1 composite rule.",
-	Regex:       rulebuilder.Assignment([]string{"zoho"}, `(?i)1000\.`+rulebuilder.AlphaNumeric("30")),
+	Regex:       rulebuilder.Assignment([]string{"zoho"}, `(?i)1000\.[a-z0-9]{30}`),
 	Keywords:    []string{"zoho"},
 	SkipReport:  true,
 	FilterExpr:  rulebuilder.MinEntropy(3.0),
@@ -60,7 +60,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "zoho-client-secret.1",
 	Confidence:  "high",
 	Description: "Zoho OAuth client secret, which may allow OAuth client authentication when paired with the associated client ID.",
-	Regex:       rulebuilder.Assignment([]string{"zoho"}, `(?i)`+rulebuilder.Hex("42")),
+	Regex:       rulebuilder.Assignment([]string{"zoho"}, `(?i)[a-f0-9]{42}`),
 	Keywords:    []string{"zoho"},
 	Components: []config.Component{
 		{RuleID: "zoho-client-id.1", Within: "5L"},
@@ -107,7 +107,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Zoho ZAPI key, which may authorize CRM functions, extensions, webhooks, or other Zoho APIs.",
 	Regex: rulebuilder.Assignment(
 		[]string{"zoho"},
-		`(?i)(?:1001\.`+rulebuilder.Hex("32")+`\.`+rulebuilder.Hex("32")+`(?:-d)?|1003\.`+rulebuilder.Hex("32,64")+`)`,
+		`(?i)(?:1001\.[a-f0-9]{32}\.[a-f0-9]{32}(?:-d)?|1003\.[a-f0-9]{32,64})`,
 	),
 	Keywords:   []string{"zoho"},
 	FilterExpr: rulebuilder.MinEntropy(3.5),

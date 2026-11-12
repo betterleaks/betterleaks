@@ -29,7 +29,7 @@ var _ = rulebuilder.Add(config.Rule{
 			"newrelic",
 			"new_relic",
 		},
-		`(?i)`+rulebuilder.AlphaNumeric("64"),
+		`(?i)[a-z0-9]{64}`,
 	),
 	Keywords: []string{
 		"new-relic",

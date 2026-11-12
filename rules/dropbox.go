@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Identified a Dropbox API secret, which could lead to unauthorized file access and data breaches in Dropbox storage.",
 	ID:          "dropbox-api-token",
 	Confidence:  "medium",
-	Regex:       rulebuilder.Assignment([]string{"dropbox"}, `(?i)`+rulebuilder.AlphaNumeric("15")),
+	Regex:       rulebuilder.Assignment([]string{"dropbox"}, `(?i)[a-z0-9]{15}`),
 	FilterExpr:  rulebuilder.MinEntropyAndTokenEfficiency,
 	Keywords:    []string{"dropbox"},
 	Tests: []config.RuleTest{

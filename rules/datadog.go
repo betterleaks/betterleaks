@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "datadog-api-key",
 	Confidence:  "high",
 	Description: "Detected a Datadog API key, potentially risking monitoring and analytics data exposure and manipulation.",
-	Regex:       rulebuilder.Assignment([]string{"datadog"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
+	Regex:       rulebuilder.Assignment([]string{"datadog"}, `(?i)[a-z0-9]{32}`),
 	Keywords: []string{
 		"datadog",
 	},

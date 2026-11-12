@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "adobe-client-id",
 	Confidence:  "high",
 	Description: "Detected a pattern that resembles an Adobe OAuth Web Client ID, posing a risk of compromised Adobe integrations and data breaches.",
-	Regex:       rulebuilder.Assignment([]string{"adobe"}, `(?i)`+rulebuilder.Hex("32")),
+	Regex:       rulebuilder.Assignment([]string{"adobe"}, `(?i)[a-f0-9]{32}`),
 	Keywords:    []string{"adobe"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

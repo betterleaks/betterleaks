@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Uncovered a Sonar API token, potentially compromising software vulnerability scanning and code security.",
 	ID:          "sonar-api-token",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"sonar[_.-]?(login|token)"}, "(?i)(?:squ_|sqp_|sqa_)?"+rulebuilder.AlphaNumericExtended("40")),
+	Regex:       rulebuilder.Assignment([]string{"sonar[_.-]?(login|token)"}, `(?i)(?:squ_|sqp_|sqa_)?[a-z0-9=_\-]{40}`),
 	Keywords:    []string{"sonar"},
 	ValueGroup:  2,
 	Tests: []config.RuleTest{

@@ -66,7 +66,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "miro-client-id",
 	Confidence:  "medium",
 	Description: "Detected a Miro OAuth client ID, used as a component of the miro-client-secret composite rule.",
-	Regex:       rulebuilder.Assignment([]string{`miro[_. -]*client[_. -]*id`}, `(?i)`+rulebuilder.Numeric("15,21")),
+	Regex:       rulebuilder.Assignment([]string{`miro[_. -]*client[_. -]*id`}, `(?i)[0-9]{15,21}`),
 	Keywords:    []string{"miro"},
 	SkipReport:  true,
 	FilterExpr:  rulebuilder.MinEntropy(2.5),
@@ -86,7 +86,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "miro-client-secret",
 	Confidence:  "high",
 	Description: "Detected a Miro OAuth client secret, which may allow unauthorized OAuth client authentication when paired with a client ID.",
-	Regex:       rulebuilder.Assignment([]string{"miro"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
+	Regex:       rulebuilder.Assignment([]string{"miro"}, `(?i)[a-z0-9]{32}`),
 	Keywords:    []string{"miro"},
 	Components: []config.Component{
 		{RuleID: "miro-client-id", Within: "5L"},

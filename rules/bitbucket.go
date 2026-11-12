@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Discovered a potential Bitbucket Client ID, risking unauthorized repository access and potential codebase exposure.",
 	ID:          "bitbucket-client-id",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"bitbucket"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
+	Regex:       rulebuilder.Assignment([]string{"bitbucket"}, `(?i)[a-z0-9]{32}`),
 	Keywords:    []string{"bitbucket"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
@@ -21,7 +21,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Discovered a potential Bitbucket Client Secret, posing a risk of compromised code repositories and unauthorized access.",
 	ID:          "bitbucket-client-secret",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"bitbucket"}, `(?i)`+rulebuilder.AlphaNumericExtended("64")),
+	Regex:       rulebuilder.Assignment([]string{"bitbucket"}, `(?i)[a-z0-9=_\-]{64}`),
 	Keywords:    []string{"bitbucket"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

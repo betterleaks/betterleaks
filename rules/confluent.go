@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "confluent-secret-key",
 	Confidence:  "high",
 	Description: "Found a Confluent Secret Key, potentially risking unauthorized operations and data access within Confluent services.",
-	Regex:       rulebuilder.Assignment([]string{"confluent"}, `(?i)`+rulebuilder.AlphaNumeric("64")),
+	Regex:       rulebuilder.Assignment([]string{"confluent"}, `(?i)[a-z0-9]{64}`),
 	Keywords: []string{
 		"confluent",
 	},
@@ -23,7 +23,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "confluent-access-token",
 	Confidence:  "high",
 	Description: "Identified a Confluent Access Token, which could compromise access to streaming data platforms and sensitive data flow.",
-	Regex:       rulebuilder.Assignment([]string{"confluent"}, `(?i)`+rulebuilder.AlphaNumeric("16")),
+	Regex:       rulebuilder.Assignment([]string{"confluent"}, `(?i)[a-z0-9]{16}`),
 	FilterExpr:  rulebuilder.MinEntropyAndTokenEfficiency,
 	Keywords: []string{
 		"confluent",

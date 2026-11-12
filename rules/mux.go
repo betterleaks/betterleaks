@@ -11,7 +11,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Mux access-token ID, used as a component of the Mux access-token-secret composite rule.",
 	Regex: rulebuilder.Assignment(
 		[]string{`mux[_.-]?(?:access[_.-]?)?token[_.-]?(?:id|identifier)`},
-		`(?i)`+rulebuilder.Hex8_4_4_4_12(),
+		`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`,
 	),
 	Keywords:   []string{"mux"},
 	SkipReport: true,

@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Identified an Intercom API Token, which could compromise customer communication channels and data privacy.",
 	ID:          "intercom-api-key",
 	Confidence:  "medium",
-	Regex:       rulebuilder.Assignment([]string{"intercom"}, `(?i)`+rulebuilder.AlphaNumericExtended("60")),
+	Regex:       rulebuilder.Assignment([]string{"intercom"}, `(?i)[a-z0-9=_\-]{60}`),
 	Keywords:    []string{"intercom"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

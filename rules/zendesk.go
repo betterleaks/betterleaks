@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "zendesk-secret-key",
 	Confidence:  "high",
 	Description: "Detected a Zendesk Secret Key, risking unauthorized access to customer support services and sensitive ticketing data.",
-	Regex:       rulebuilder.Assignment([]string{"zendesk"}, `(?i)`+rulebuilder.AlphaNumeric("40")),
+	Regex:       rulebuilder.Assignment([]string{"zendesk"}, `(?i)[a-z0-9]{40}`),
 	Keywords: []string{
 		"zendesk",
 	},

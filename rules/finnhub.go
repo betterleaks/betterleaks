@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "finnhub-access-token",
 	Confidence:  "high",
 	Description: "Found a Finnhub Access Token, risking unauthorized access to financial market data and analytics.",
-	Regex:       rulebuilder.Assignment([]string{"finnhub"}, `(?i)`+rulebuilder.AlphaNumeric("20")),
+	Regex:       rulebuilder.Assignment([]string{"finnhub"}, `(?i)[a-z0-9]{20}`),
 	Keywords: []string{
 		"finnhub",
 	},

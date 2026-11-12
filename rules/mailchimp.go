@@ -34,7 +34,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "mailchimp-api-key",
 	Confidence:  "high",
 	Description: "Identified a Mailchimp API key, potentially compromising email marketing campaigns and subscriber data.",
-	Regex:       rulebuilder.Assignment([]string{"MailchimpSDK.initialize", "mailchimp"}, `(?i)`+rulebuilder.Hex("32")+`-us\d\d`),
+	Regex:       rulebuilder.Assignment([]string{"MailchimpSDK.initialize", "mailchimp"}, `(?i)[a-f0-9]{32}-us\d\d`),
 	Keywords: []string{
 		"mailchimp",
 	},

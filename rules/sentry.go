@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "sentry-access-token",
 	Confidence:  "medium",
 	Description: "Found a Sentry.io Access Token (old format), risking unauthorized access to error tracking services and sensitive application data.",
-	Regex:       rulebuilder.Assignment([]string{"sentry"}, `(?i)`+rulebuilder.Hex("64")),
+	Regex:       rulebuilder.Assignment([]string{"sentry"}, `(?i)[a-f0-9]{64}`),
 	Keywords: []string{
 		"sentry",
 	},

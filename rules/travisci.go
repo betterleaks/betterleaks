@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "travisci-access-token",
 	Confidence:  "medium",
 	Description: "Identified a Travis CI Access Token, potentially compromising continuous integration services and codebase security.",
-	Regex:       rulebuilder.Assignment([]string{"travis"}, `(?i)`+rulebuilder.AlphaNumeric("22")),
+	Regex:       rulebuilder.Assignment([]string{"travis"}, `(?i)[a-z0-9]{22}`),
 	Keywords: []string{
 		"travis",
 	},

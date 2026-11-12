@@ -11,7 +11,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Identified a standalone Scaleway Secret Key. This can be used to authenticate API requests.",
 	Regex: rulebuilder.Assignment(
 		[]string{`(?:scaleway|scw).{0,20}?(?:secret|token)`},
-		`(?i)`+rulebuilder.Hex8_4_4_4_12(),
+		`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`,
 	),
 	FilterExpr: rulebuilder.MinEntropy(3),
 	Keywords:   []string{"scaleway", "scw"},

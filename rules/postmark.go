@@ -12,7 +12,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "postmark-api-token.1",
 	Confidence:  "high",
 	Description: "Postmark server or account API token, which may allow access to email delivery and account configuration.",
-	Regex:       rulebuilder.Assignment([]string{"postmark"}, `(?i)`+rulebuilder.Hex8_4_4_4_12()),
+	Regex:       rulebuilder.Assignment([]string{"postmark"}, `(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`),
 	Keywords:    []string{"postmark"},
 	ValidateExpr: `let server = http.get("https://api.postmarkapp.com/server", {
     "X-Postmark-Server-Token": finding["secret"],

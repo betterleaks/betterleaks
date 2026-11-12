@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "assemblyai-api-key",
 	Confidence:  "medium",
 	Description: "Detected an AssemblyAI API Key, which may expose speech-to-text services and associated audio data to unauthorized access.",
-	Regex:       rulebuilder.Assignment([]string{"assemblyai"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
+	Regex:       rulebuilder.Assignment([]string{"assemblyai"}, `(?i)[a-z0-9]{32}`),
 	Keywords:    []string{"assemblyai"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "ibm-cloud-user-api-key",
 	Confidence:  "high",
 	Description: "Detected an IBM Cloud user API key, which may expose IBM Cloud account resources.",
-	Regex:       rulebuilder.Assignment([]string{"ibm(?:cloud)?", "bx"}, `(?i)`+rulebuilder.AlphaNumericExtendedShort("42,44")),
+	Regex:       rulebuilder.Assignment([]string{"ibm(?:cloud)?", "bx"}, `(?i)[a-z0-9_-]{42,44}`),
 	Keywords:    []string{"ibm"},
 	ValidateExpr: `let r = http.get("https://iam.cloud.ibm.com/v1/apikeys/details?apikey=" + finding["secret"], {
     "Authorization": "Basic Yng6Yng=",

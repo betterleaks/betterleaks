@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "netlify-access-token",
 	Confidence:  "high",
 	Description: "Detected a Netlify Access Token, potentially compromising web hosting services and site management.",
-	Regex:       rulebuilder.Assignment([]string{"netlify"}, `(?i)`+rulebuilder.AlphaNumericExtended("40,46")),
+	Regex:       rulebuilder.Assignment([]string{"netlify"}, `(?i)[a-z0-9=_\-]{40,46}`),
 	Keywords: []string{
 		"netlify",
 	},

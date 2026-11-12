@@ -11,7 +11,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "woocommerce-consumer-secret.1",
 	Confidence:  "high",
 	Description: "WooCommerce REST API consumer secret, which may allow read or write access to a store with the associated consumer key.",
-	Regex:       rulebuilder.Assignment([]string{"woo"}, `(?i)cs_`+rulebuilder.Hex("40")),
+	Regex:       rulebuilder.Assignment([]string{"woo"}, `(?i)cs_[a-f0-9]{40}`),
 	Keywords:    []string{"wooc", "woo-", "woo_", "cs_"},
 	FilterExpr:  rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{

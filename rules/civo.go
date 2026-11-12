@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "civo-api-key",
 	Confidence:  "high",
 	Description: "Detected a Civo Cloud API key, which may expose Kubernetes clusters and compute resources to unauthorized access.",
-	Regex:       rulebuilder.Assignment([]string{"civo"}, `(?i)`+rulebuilder.AlphaNumeric("50")),
+	Regex:       rulebuilder.Assignment([]string{"civo"}, `(?i)[a-z0-9]{50}`),
 	Keywords:    []string{"civo"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	ValidateExpr: `let r = http.get("https://api.civo.com/v2/instances", {

@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "coinbase-access-token",
 	Confidence:  "medium",
 	Description: "Detected a Coinbase Access Token, posing a risk of unauthorized access to cryptocurrency accounts and financial transactions.",
-	Regex:       rulebuilder.Assignment([]string{"coinbase"}, `(?i)`+rulebuilder.AlphaNumericExtendedShort("64")),
+	Regex:       rulebuilder.Assignment([]string{"coinbase"}, `(?i)[a-z0-9_-]{64}`),
 	Keywords: []string{
 		"coinbase",
 	},

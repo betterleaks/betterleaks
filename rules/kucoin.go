@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "kucoin-access-token",
 	Confidence:  "high",
 	Description: "Found a Kucoin Access Token, risking unauthorized access to cryptocurrency exchange services and transactions.",
-	Regex:       rulebuilder.Assignment([]string{"kucoin"}, `(?i)`+rulebuilder.Hex("24")),
+	Regex:       rulebuilder.Assignment([]string{"kucoin"}, `(?i)[a-f0-9]{24}`),
 	Keywords: []string{
 		"kucoin",
 	},
@@ -23,7 +23,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "kucoin-secret-key",
 	Confidence:  "high",
 	Description: "Discovered a Kucoin Secret Key, which could lead to compromised cryptocurrency operations and financial data breaches.",
-	Regex:       rulebuilder.Assignment([]string{"kucoin"}, `(?i)`+rulebuilder.Hex8_4_4_4_12()),
+	Regex:       rulebuilder.Assignment([]string{"kucoin"}, `(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`),
 	Keywords: []string{
 		"kucoin",
 	},

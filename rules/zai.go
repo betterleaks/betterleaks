@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "zai-api-key",
 	Confidence:  "medium",
 	Description: "Detected a Z.ai API key, which may expose GLM model access and usage to unauthorized parties.",
-	Regex:       rulebuilder.Assignment([]string{"zai", "z_ai", `z\.ai`, "glm", "zlm"}, `(?i)`+rulebuilder.Hex("32")+`\.`+rulebuilder.AlphaNumeric("16")),
+	Regex:       rulebuilder.Assignment([]string{"zai", "z_ai", `z\.ai`, "glm", "zlm"}, `(?i)[a-f0-9]{32}\.[a-z0-9]{16}`),
 	Keywords:    []string{"zai", "z_ai", "z.ai", "glm", "zlm"},
 	ValidateExpr: `let r = http.post("https://api.z.ai/api/paas/v4/tokenizer", {
     "Authorization": "Bearer " + finding["secret"],

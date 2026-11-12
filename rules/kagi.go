@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "kagi-api-key",
 	Confidence:  "high",
 	Description: "Detected a Kagi API key, which may expose Kagi API usage.",
-	Regex:       rulebuilder.Assignment([]string{"kagi"}, `(?i)`+rulebuilder.AlphaNumericExtendedShort("11")+`\.`+rulebuilder.AlphaNumericExtendedShort("43")),
+	Regex:       rulebuilder.Assignment([]string{"kagi"}, `(?i)[a-z0-9_-]{11}\.[a-z0-9_-]{43}`),
 	Keywords:    []string{"kagi"},
 	ValidateExpr: `let r = http.get("https://kagi.com/api/v0/search?q=test", {
     "Authorization": "Bot " + finding["secret"]

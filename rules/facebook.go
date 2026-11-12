@@ -11,7 +11,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "facebook-secret",
 	Confidence:  "high",
 	Description: "Discovered a Facebook Application secret, posing a risk of unauthorized access to Facebook accounts and personal data exposure.",
-	Regex:       rulebuilder.Assignment([]string{"facebook"}, `(?i)`+rulebuilder.Hex("32")),
+	Regex:       rulebuilder.Assignment([]string{"facebook"}, `(?i)[a-f0-9]{32}`),
 	Keywords:    []string{"facebook"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

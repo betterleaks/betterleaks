@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "freshbooks-access-token",
 	Confidence:  "high",
 	Description: "Discovered a Freshbooks Access Token, posing a risk to accounting software access and sensitive financial data exposure.",
-	Regex:       rulebuilder.Assignment([]string{"freshbooks"}, `(?i)`+rulebuilder.AlphaNumeric("64")),
+	Regex:       rulebuilder.Assignment([]string{"freshbooks"}, `(?i)[a-z0-9]{64}`),
 	Keywords: []string{
 		"freshbooks",
 	},

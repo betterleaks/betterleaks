@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "datagov-api-key",
 	Confidence:  "high",
 	Description: "Detected a Data.gov API key, which may expose usage of Data.gov-backed APIs.",
-	Regex:       rulebuilder.Assignment([]string{`data\.gov`}, `(?i)`+rulebuilder.AlphaNumeric("40")),
+	Regex:       rulebuilder.Assignment([]string{`data\.gov`}, `(?i)[a-z0-9]{40}`),
 	Keywords:    []string{"data.gov"},
 	ValidateExpr: `let r = http.get("https://developer.nrel.gov/api/alt-fuel-stations/v1.json?limit=1&api_key=" + finding["secret"], {
     "Accept": "application/json"

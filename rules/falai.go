@@ -11,7 +11,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Fal.ai API key, which may allow access to model execution, billing, and platform APIs.",
 	Regex: rulebuilder.Assignment(
 		[]string{"falai", "fal_ai", "fal-ai", "fal.ai", "fal-api", "fal_api", "fal_key", "fal-key"},
-		rulebuilder.Hex("8")+`-`+rulebuilder.Hex("4")+`-`+rulebuilder.Hex("4")+`-`+rulebuilder.Hex("4")+`-`+rulebuilder.Hex("12")+`:`+rulebuilder.Hex("32"),
+		`[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}:[a-f0-9]{32}`,
 	),
 	Keywords: []string{"falai", "fal_ai", "fal-ai", "fal.ai", "fal-api", "fal_api", "fal_key", "fal-key"},
 	ValidateExpr: `let r = http.get("https://api.fal.ai/v1/models/pricing?endpoint_id=fal-ai%2Fflux%2Fdev", {

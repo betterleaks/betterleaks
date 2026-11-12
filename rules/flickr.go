@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "flickr-access-token",
 	Confidence:  "high",
 	Description: "Discovered a Flickr Access Token, posing a risk of unauthorized photo management and potential data leakage.",
-	Regex:       rulebuilder.Assignment([]string{"flickr"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
+	Regex:       rulebuilder.Assignment([]string{"flickr"}, `(?i)[a-z0-9]{32}`),
 	Keywords: []string{
 		"flickr",
 	},

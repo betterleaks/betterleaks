@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "disqus-api-key",
 	Confidence:  "high",
 	Description: "Detected a Disqus API key, which may expose Disqus thread and account data.",
-	Regex:       rulebuilder.Assignment([]string{"disqus"}, `(?i)`+rulebuilder.AlphaNumeric("64")),
+	Regex:       rulebuilder.Assignment([]string{"disqus"}, `(?i)[a-z0-9]{64}`),
 	Keywords:    []string{"disqus"},
 	ValidateExpr: `let r = http.get("https://disqus.com/api/3.0/threads/list.json?limit=1&api_secret=" + finding["secret"], {
     "Accept": "application/json"

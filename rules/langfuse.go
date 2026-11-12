@@ -53,5 +53,5 @@ var _ = rulebuilder.Add(config.Rule{
 })
 
 func uuidPattern() string {
-	return rulebuilder.Hex("8") + `-` + rulebuilder.Hex("4") + `-` + rulebuilder.Hex("4") + `-` + rulebuilder.Hex("4") + `-` + rulebuilder.Hex("12")
+	return `[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`
 }

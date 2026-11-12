@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "deepgram-api-key",
 	Confidence:  "high",
 	Description: "Detected a Deepgram API Key, which may expose speech recognition services and audio data to unauthorized access.",
-	Regex:       rulebuilder.Assignment([]string{"deepgram"}, `(?i)`+rulebuilder.Hex("40")),
+	Regex:       rulebuilder.Assignment([]string{"deepgram"}, `(?i)[a-f0-9]{40}`),
 	Keywords:    []string{"deepgram"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

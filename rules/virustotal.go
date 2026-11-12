@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "virustotal-api-key.1",
 	Confidence:  "high",
 	Description: "VirusTotal API key, which may expose private submissions, intelligence, or account API access.",
-	Regex:       rulebuilder.Assignment([]string{"virustotal"}, `(?i)`+rulebuilder.Hex("64")),
+	Regex:       rulebuilder.Assignment([]string{"virustotal"}, `(?i)[a-f0-9]{64}`),
 	Keywords:    []string{"virustotal"},
 	ValidateExpr: `let r = http.get("https://www.virustotal.com/api/v3/domains/google.com", {
     "x-apikey": finding["secret"],

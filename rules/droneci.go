@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "droneci-access-token",
 	Confidence:  "high",
 	Description: "Detected a Droneci Access Token, potentially compromising continuous integration and deployment workflows.",
-	Regex:       rulebuilder.Assignment([]string{"droneci"}, `(?i)`+rulebuilder.AlphaNumeric("32")),
+	Regex:       rulebuilder.Assignment([]string{"droneci"}, `(?i)[a-z0-9]{32}`),
 	Keywords: []string{
 		"droneci",
 	},

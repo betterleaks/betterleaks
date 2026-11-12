@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "vultr-api-key.1",
 	Confidence:  "medium",
 	Description: "Vultr API key, which may allow management of cloud account resources.",
-	Regex:       rulebuilder.Assignment([]string{"vultr"}, `(?i)`+rulebuilder.Hex("36")),
+	Regex:       rulebuilder.Assignment([]string{"vultr"}, `(?i)[a-f0-9]{36}`),
 	Keywords:    []string{"vultr"},
 	ValidateExpr: `let r = http.get("https://api.vultr.com/v2/account", {
     "Authorization": "Bearer " + finding["secret"],

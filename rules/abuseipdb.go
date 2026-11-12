@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "abuseipdb-api-key.1",
 	Confidence:  "high",
 	Description: "AbuseIPDB API key, which may allow access to IP reputation data and abuse-reporting APIs.",
-	Regex:       rulebuilder.Assignment([]string{"abuseipdb"}, `(?i)`+rulebuilder.Hex("80")),
+	Regex:       rulebuilder.Assignment([]string{"abuseipdb"}, `(?i)[a-f0-9]{80}`),
 	Keywords:    []string{"abuseipdb"},
 	ValidateExpr: `let r = http.get("https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8&maxAgeInDays=1", {
     "Key": finding["secret"],

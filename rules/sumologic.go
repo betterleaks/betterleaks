@@ -38,7 +38,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "sumologic-access-token",
 	Confidence:  "medium",
 	Description: "Uncovered a SumoLogic Access Token, which could lead to unauthorized access to log data and analytics insights.",
-	Regex:       rulebuilder.Assignment([]string{"(?-i:[Ss]umo|SUMO)"}, `(?i)`+rulebuilder.AlphaNumeric("64")),
+	Regex:       rulebuilder.Assignment([]string{"(?-i:[Ss]umo|SUMO)"}, `(?i)[a-z0-9]{64}`),
 	Keywords: []string{
 		"sumo",
 	},

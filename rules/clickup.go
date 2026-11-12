@@ -34,7 +34,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:           "clickup-personal-api-token",
 	Confidence:   "high",
 	Description:  "Detected a ClickUp personal API token, which may allow unauthorized access to ClickUp workspaces and user data.",
-	Regex:        rulebuilder.Assignment([]string{"clickup"}, `(?i)pk_`+rulebuilder.Numeric("8,9")+`_`+rulebuilder.AlphaNumeric("32")),
+	Regex:        rulebuilder.Assignment([]string{"clickup"}, `(?i)pk_[0-9]{8,9}_[a-z0-9]{32}`),
 	Keywords:     []string{"clickup"},
 	ValidateExpr: clickupValidateExpr,
 	AnalyzeExpr:  clickupAnalyzeExpr,

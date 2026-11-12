@@ -58,7 +58,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:           "honeycomb-api-key",
 	Confidence:   "medium",
 	Description:  "Detected a Honeycomb API key, which may expose Honeycomb telemetry and environment data.",
-	Regex:        rulebuilder.Assignment([]string{"honeycomb"}, `(?i)(?:`+rulebuilder.Hex("32")+`|`+rulebuilder.AlphaNumeric("22")+`)`),
+	Regex:        rulebuilder.Assignment([]string{"honeycomb"}, `(?i)(?:[a-f0-9]{32}|[a-z0-9]{22})`),
 	Keywords:     []string{"honeycomb"},
 	ValidateExpr: honeycombValidateExpr,
 	AnalyzeExpr:  honeycombAnalyzeExpr,

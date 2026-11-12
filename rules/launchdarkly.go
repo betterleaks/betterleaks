@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "launchdarkly-access-token",
 	Confidence:  "high",
 	Description: "Uncovered a Launchdarkly Access Token, potentially compromising feature flag management and application functionality.",
-	Regex:       rulebuilder.Assignment([]string{"launchdarkly"}, `(?i)`+rulebuilder.AlphaNumericExtended("40")),
+	Regex:       rulebuilder.Assignment([]string{"launchdarkly"}, `(?i)[a-z0-9=_\-]{40}`),
 	Keywords: []string{
 		"launchdarkly",
 	},

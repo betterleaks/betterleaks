@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "rapidapi-access-token",
 	Confidence:  "high",
 	Description: "Uncovered a RapidAPI Access Token, which could lead to unauthorized access to various APIs and data services.",
-	Regex:       rulebuilder.Assignment([]string{"rapidapi"}, `(?i)`+rulebuilder.AlphaNumericExtendedShort("50")),
+	Regex:       rulebuilder.Assignment([]string{"rapidapi"}, `(?i)[a-z0-9_-]{50}`),
 	Keywords: []string{
 		"rapidapi",
 	},

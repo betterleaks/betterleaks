@@ -12,7 +12,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Regex: rulebuilder.Assignment(
 		[]string{
 			"nytimes", "new-york-times", "newyorktimes"},
-		`(?i)`+rulebuilder.AlphaNumericExtended("32"),
+		`(?i)[a-z0-9=_\-]{32}`,
 	),
 	Keywords: []string{
 		"nytimes",

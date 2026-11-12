@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Detected a Heroku API Key, potentially compromising cloud application deployments and operational security.",
 	ID:          "heroku-api-key",
 	Confidence:  "high",
-	Regex:       rulebuilder.Assignment([]string{"heroku"}, `(?i)`+rulebuilder.Hex8_4_4_4_12()),
+	Regex:       rulebuilder.Assignment([]string{"heroku"}, `(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`),
 	Keywords:    []string{"heroku"},
 	Tests: []config.RuleTest{
 		rulebuilder.Match("assignment", `herokuToken = "1f7b169c-846f-218a-b552-fa82fbf86758"`, "1f7b169c-846f-218a-b552-fa82fbf86758"),

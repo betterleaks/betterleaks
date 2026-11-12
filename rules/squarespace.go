@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "squarespace-access-token",
 	Confidence:  "medium",
 	Description: "Identified a Squarespace Access Token, which may compromise website management and content control on Squarespace.",
-	Regex:       rulebuilder.Assignment([]string{"squarespace"}, `(?i)`+rulebuilder.Hex8_4_4_4_12()),
+	Regex:       rulebuilder.Assignment([]string{"squarespace"}, `(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`),
 	Keywords: []string{
 		"squarespace",
 	},

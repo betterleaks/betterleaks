@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "plaid-client-id",
 	Confidence:  "medium",
 	Description: "Uncovered a Plaid Client ID, which could lead to unauthorized financial service integrations and data breaches.",
-	Regex:       rulebuilder.Assignment([]string{"plaid"}, `(?i)`+rulebuilder.AlphaNumeric("24")),
+	Regex:       rulebuilder.Assignment([]string{"plaid"}, `(?i)[a-z0-9]{24}`),
 	Keywords: []string{
 		"plaid",
 	},
@@ -23,7 +23,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "plaid-secret-key",
 	Confidence:  "medium",
 	Description: "Detected a Plaid Secret key, risking unauthorized access to financial accounts and sensitive transaction data.",
-	Regex:       rulebuilder.Assignment([]string{"plaid"}, `(?i)`+rulebuilder.AlphaNumeric("30")),
+	Regex:       rulebuilder.Assignment([]string{"plaid"}, `(?i)[a-z0-9]{30}`),
 	Keywords: []string{
 		"plaid",
 	},
@@ -39,7 +39,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Discovered a Plaid API Token, potentially compromising financial data aggregation and banking services.",
 	Regex: rulebuilder.Assignment(
 		[]string{"plaid"},
-		"(?i)access-(?:sandbox|development|production)-"+rulebuilder.Hex8_4_4_4_12(),
+		`(?i)access-(?:sandbox|development|production)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`,
 	),
 	Keywords: []string{
 		"plaid",

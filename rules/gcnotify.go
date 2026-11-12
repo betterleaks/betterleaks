@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "canadian-digital-service-notify-api-key",
 	Confidence:  "high",
 	Description: "Detected a GC Notify API key, which may allow unauthorized notification access.",
-	Regex:       `(?i:\b(ApiKey-v1\s+gcntfy-[a-z0-9_]+-` + rulebuilder.Hex8_4_4_4_12() + `-` + rulebuilder.Hex8_4_4_4_12() + `)\b)`,
+	Regex:       `(?i:\b(ApiKey-v1\s+gcntfy-[a-z0-9_]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b)`,
 	Keywords:    []string{"gcntfy-"},
 	ValidateExpr: `let r = http.get("https://api.notification.canada.ca/v2/notifications", {
     "Authorization": finding["secret"],

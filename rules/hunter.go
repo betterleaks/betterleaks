@@ -28,7 +28,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:           "hunter-api-key.1",
 	Confidence:   "medium",
 	Description:  "Hunter API key, which may allow access to account and email intelligence data.",
-	Regex:        rulebuilder.Assignment([]string{"hunter"}, rulebuilder.Hex("40")),
+	Regex:        rulebuilder.Assignment([]string{"hunter"}, `[a-f0-9]{40}`),
 	Keywords:     []string{"hunter"},
 	ValidateExpr: hunterValidateExpr,
 	AnalyzeExpr:  hunterAnalyzeExpr,

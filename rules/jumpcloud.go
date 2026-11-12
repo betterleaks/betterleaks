@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "jumpcloud-api-key",
 	Confidence:  "high",
 	Description: "Detected a JumpCloud API key, which may expose JumpCloud directory data.",
-	Regex:       rulebuilder.Assignment([]string{"jumpcloud"}, `(?i)`+rulebuilder.AlphaNumeric("40")),
+	Regex:       rulebuilder.Assignment([]string{"jumpcloud"}, `(?i)[a-z0-9]{40}`),
 	Keywords:    []string{"jumpcloud"},
 	ValidateExpr: `let r = http.get("https://console.jumpcloud.com/api/systemusers?limit=1&skip=0", {
     "x-api-key": finding["secret"],

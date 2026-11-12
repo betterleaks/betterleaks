@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "etsy-open-api-key",
 	Confidence:  "high",
 	Description: "Found an Etsy Open API key, potentially compromising Etsy app access and shop integrations.",
-	Regex:       rulebuilder.Assignment([]string{"etsy", "x-api-key"}, `(?i)`+rulebuilder.AlphaNumeric("24")+`:`+rulebuilder.AlphaNumeric("10,64")),
+	Regex:       rulebuilder.Assignment([]string{"etsy", "x-api-key"}, `(?i)[a-z0-9]{24}:[a-z0-9]{10,64}`),
 	Keywords: []string{
 		"etsy",
 		"x-api-key",

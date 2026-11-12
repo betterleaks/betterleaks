@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "gitter-access-token",
 	Confidence:  "high",
 	Description: "Uncovered a Gitter Access Token, which may lead to unauthorized access to chat and communication services.",
-	Regex:       rulebuilder.Assignment([]string{"gitter"}, `(?i)`+rulebuilder.AlphaNumericExtendedShort("40")),
+	Regex:       rulebuilder.Assignment([]string{"gitter"}, `(?i)[a-z0-9_-]{40}`),
 	Keywords: []string{
 		"gitter",
 	},

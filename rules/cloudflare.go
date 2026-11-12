@@ -89,7 +89,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "cloudflare-account-id.1",
 	Confidence:  "high",
 	Description: "Detected a Cloudflare account ID, used as a component of Cloudflare API key validation.",
-	Regex:       rulebuilder.Assignment([]string{`account[_. -]*id`}, rulebuilder.Hex("32")),
+	Regex:       rulebuilder.Assignment([]string{`account[_. -]*id`}, `[a-f0-9]{32}`),
 	Keywords:    []string{"account_id", "account-id", "account id", "accountid"},
 	SkipReport:  true,
 	Tests: []config.RuleTest{
@@ -104,7 +104,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "cloudflare-global-api-key",
 	Confidence:  "high",
 	Description: "Detected a Cloudflare Global API Key, potentially compromising cloud application deployments and operational security.",
-	Regex:       rulebuilder.Assignment(cloudflareIdentifiers, `(?i)`+rulebuilder.Hex("37")),
+	Regex:       rulebuilder.Assignment(cloudflareIdentifiers, `(?i)[a-f0-9]{37}`),
 	Keywords:    cloudflareIdentifiers,
 	FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
@@ -124,7 +124,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:           "cloudflare-api-key.1",
 	Confidence:   "high",
 	Description:  "Detected a Cloudflare API key version 1 (legacy format), potentially compromising cloud application deployments and operational security.",
-	Regex:        rulebuilder.Assignment(cloudflareIdentifiers, `(?i)`+rulebuilder.AlphaNumericExtendedShort("40")),
+	Regex:        rulebuilder.Assignment(cloudflareIdentifiers, `(?i)[a-z0-9_-]{40}`),
 	Keywords:     cloudflareIdentifiers,
 	ValidateExpr: cloudflareAPITokenValidateExpr,
 	AnalyzeExpr:  cloudflareAPITokenAnalyzeExpr,
@@ -166,7 +166,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Detected a Cloudflare Origin CA Key, potentially compromising cloud application deployments and operational security.",
 	ID:          "cloudflare-origin-ca-key",
 	Confidence:  "high",
-	Regex:       rulebuilder.Token(`v1\.0-` + rulebuilder.Hex("24") + "-" + rulebuilder.Hex("146")),
+	Regex:       rulebuilder.Token(`v1\.0-[a-f0-9]{24}-[a-f0-9]{146}`),
 	Keywords:    []string{"cloudflare", "v1.0-"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

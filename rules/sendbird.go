@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "sendbird-access-token",
 	Confidence:  "high",
 	Description: "Uncovered a Sendbird Access Token, potentially risking unauthorized access to communication services and user data.",
-	Regex:       rulebuilder.Assignment([]string{"sendbird"}, `(?i)`+rulebuilder.Hex("40")),
+	Regex:       rulebuilder.Assignment([]string{"sendbird"}, `(?i)[a-f0-9]{40}`),
 	Keywords: []string{
 		"sendbird",
 	},
@@ -23,7 +23,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "sendbird-access-id",
 	Confidence:  "high",
 	Description: "Discovered a Sendbird Access ID, which could compromise chat and messaging platform integrations.",
-	Regex:       rulebuilder.Assignment([]string{"sendbird"}, `(?i)`+rulebuilder.Hex8_4_4_4_12()),
+	Regex:       rulebuilder.Assignment([]string{"sendbird"}, `(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`),
 	Keywords: []string{
 		"sendbird",
 	},

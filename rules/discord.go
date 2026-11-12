@@ -9,7 +9,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "discord-api-token",
 	Confidence:  "medium",
 	Description: "Detected a Discord API key, potentially compromising communication channels and user data privacy on Discord.",
-	Regex:       rulebuilder.Assignment([]string{"discord"}, `(?i)`+rulebuilder.Hex("64")),
+	Regex:       rulebuilder.Assignment([]string{"discord"}, `(?i)[a-f0-9]{64}`),
 	Keywords:    []string{"discord"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.3 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{
@@ -21,7 +21,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "discord-client-id",
 	Confidence:  "medium",
 	Description: "Identified a Discord client ID, which may lead to unauthorized integrations and data exposure in Discord applications.",
-	Regex:       rulebuilder.Assignment([]string{"discord"}, `(?i)`+rulebuilder.Numeric("18")),
+	Regex:       rulebuilder.Assignment([]string{"discord"}, `(?i)[0-9]{18}`),
 	Keywords:    []string{"discord"},
 	FilterExpr:  `entropy(finding["secret"]) < 2.75`,
 	Tests: []config.RuleTest{
@@ -34,7 +34,7 @@ var _ = rulebuilder.Add(config.Rule{
 	ID:          "discord-client-secret",
 	Confidence:  "medium",
 	Description: "Discovered a potential Discord client secret, risking compromised Discord bot integrations and data leaks.",
-	Regex:       rulebuilder.Assignment([]string{"discord"}, `(?i)`+rulebuilder.AlphaNumericExtended("32")),
+	Regex:       rulebuilder.Assignment([]string{"discord"}, `(?i)[a-z0-9=_\-]{32}`),
 	Keywords:    []string{"discord"},
 	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
 	Tests: []config.RuleTest{

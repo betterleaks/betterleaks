@@ -200,8 +200,11 @@ confirmed; an asynchronous acceptance response alone is `unknown`. See the
    make config
    ```
 
-   `make config` runs every rule test, then `go generate ./rules`.
+   `make config` runs every rule test, then `go generate ./rules`. It also
+   checks that each rule still reports its secrets with every rule active, so
+   a new rule can't hide an existing one.
 
 6. Check out your new rules in `config/betterleaks.toml`, commit it together
    with your `rules/` file, and open a PR. CI fails if the generated config is
-   out of date.
+   out of date. If `config/betterleaks.toml` conflicts with another change,
+   don't merge it by hand: run `make config` and commit the result.
