@@ -449,6 +449,65 @@ func TestUnsafeStorageFiles(t *testing.T) {
 	})
 }
 
+func TestObjectDirsFromEnv(t *testing.T) {
+	t.Setenv("GIT_OBJECT_DIRECTORY", "")
+	t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", "")
+	dirs, err := objectDirsFromEnv()
+	require.NoError(t, err)
+	require.Empty(t, dirs)
+
+	sep := string(filepath.ListSeparator)
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	// An already-absolute entry is returned as filepath.Abs resolves it, which
+	// on Windows adds a drive letter.
+	absC, err := filepath.Abs(filepath.FromSlash("/c"))
+	require.NoError(t, err)
+
+	// GIT_OBJECT_DIRECTORY is taken literally; a relative path becomes absolute.
+	t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join("a", "..", "b"))
+	// The list drops empty entries, keeps absolute paths, and resolves a
+	// relative one against the working directory.
+	t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", sep+filepath.FromSlash("/c")+sep+sep+"rel")
+	dirs, err = objectDirsFromEnv()
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		filepath.Join(cwd, "b"),
+		absC,
+		filepath.Join(cwd, "rel"),
+	}, dirs)
+}
+
+func TestSplitAlternateList(t *testing.T) {
+	sep := string(filepath.ListSeparator)
+
+	// Unquoted entries are literal, including surrounding whitespace.
+	entries, err := splitAlternateList("  /sp ace  " + sep + "/plain")
+	require.NoError(t, err)
+	require.Equal(t, []string{"  /sp ace  ", "/plain"}, entries)
+
+	// A quoted entry may contain the list separator and decodes C escapes.
+	quoted := `"/with` + sep + `sep"` + sep + `"/tab\there"` + sep + `"/quote\"end"`
+	entries, err = splitAlternateList(quoted)
+	require.NoError(t, err)
+	require.Equal(t, []string{"/with" + sep + "sep", "/tab\there", `/quote"end`}, entries)
+
+	// Octal escapes decode to their byte.
+	entries, err = splitAlternateList(`"/a\101b"`)
+	require.NoError(t, err)
+	require.Equal(t, []string{"/aAb"}, entries)
+
+	// Empty and whitespace-only separators drop empty entries.
+	entries, err = splitAlternateList(sep + sep)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+
+	// An unterminated quote is an error rather than a silently wrong path.
+	_, err = splitAlternateList(`"/unterminated`)
+	require.Error(t, err)
+}
+
 func TestShallowLimits(t *testing.T) {
 	root := t.TempDir()
 	fs := readOnlyFS{Filesystem: gitfs.New(root), objectRoot: root}
