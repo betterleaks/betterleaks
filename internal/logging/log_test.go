@@ -37,6 +37,21 @@ func TestConsoleHandlerFormatsRecords(t *testing.T) {
 	)
 }
 
+func TestConsoleHandlerFormatsJoinedErrors(t *testing.T) {
+	var output bytes.Buffer
+	logger := NewConsole(&output, ConsoleOptions{NoColor: true})
+	err := errors.Join(
+		errors.New("could not read file: OCI layer exceeds size limit of 256 MiB"),
+		errors.New("scan OCI blob: read OCI layer tar: OCI layer exceeds size limit of 256 MiB"),
+	)
+
+	logger.Error("failed to scan OCI layout", "error", err, "path", `C:\new`)
+
+	assert.Contains(t, output.String(), `error="could not read file: OCI layer exceeds size limit of 256 MiB; scan OCI blob: read OCI layer tar: OCI layer exceeds size limit of 256 MiB"`)
+	assert.Contains(t, output.String(), `path="C:\\new"`)
+	assert.Equal(t, 1, strings.Count(output.String(), "\n"))
+}
+
 func TestConsoleHandlerUsesShortLevelNames(t *testing.T) {
 	var output bytes.Buffer
 	logger := NewConsole(&output, ConsoleOptions{Level: LevelTrace, NoColor: true})
