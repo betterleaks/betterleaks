@@ -16,7 +16,8 @@ const genericAPIKeyIdentifierFilter = `^<?[^<\[{]*(?:access(?:ibility|or)|rapid|
 
 const genericAPIKeyMatchFilter = `(?i)(?:` + genericAPIKeyIdentifierFilter + `|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|[a-z0-9-]*?api[a-z0-9-]*?:jar:|` + genericAuthorMatchFilter + `|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|key[ \t_.-]*(?:alias|id|length|name|pair|selector|signature|size|storetype)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`
 
-// Code-symbol fragments, matched case-insensitively within values.
+// Code identifiers, key references, and version markers, matched
+// case-insensitively within values.
 var genericAPIKeyStopWords = []string{
 	"authtype",
 	"auth_alg",
@@ -29,7 +30,7 @@ var genericAPIKeyStopWords = []string{
 	"auth_gss",
 	"no_data_",
 	"ucode_api",
-	"vcap_kfs_pure_",
+	"vcap_kfs_",
 	"fw_auth_",
 	"wlan_auth",
 	"lstm_",
@@ -38,6 +39,24 @@ var genericAPIKeyStopWords = []string{
 	"keygen_mgf1_",
 	"zero_secp",
 	"zero_wap-wsg-",
+	"keypad-",
+	"touchkey-",
+	"regulator-",
+	"_hwprobe_",
+	"_sgmt_type_",
+	"template.cache.",
+	"x-custom-header-",
+	"-snapshot",
+	// OpenSSL test-key references, including names without a public-key suffix.
+	"kas-ecc-",
+	"brainpool",
+	"malice_cf_",
+	"bob_prime",
+	"bob_cf_prime",
+	"_rfc5114",
+	"_rfc5903",
+	"ed25519-1-public",
+	"ed448-1-public",
 }
 
 var genericAPIKeyFilter = buildGenericAPIKeyFilter()
