@@ -148,6 +148,7 @@ let _ = setConfidence(level);
 		rulebuilder.Match("true positive 10", ` utils.GetEnvOrDefault("api_token", "dafa7817-e246-48f3-91a7-e87653d587b8")`, "dafa7817-e246-48f3-91a7-e87653d587b8"),
 		rulebuilder.Match("random key containing a word", `api_key = "Xk2q9TfZrB7wLhookpN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLhookpN4cVy8sJ3mQe6RdG1aUoHn"),
 		rulebuilder.Match("random key containing a word 2", `api_key = "p8RvN3qLdataZx7KcW2mYt9BfJ4hGs6EuA1oTnVi"`, "p8RvN3qLdataZx7KcW2mYt9BfJ4hGs6EuA1oTnVi"),
+		rulebuilder.Match("key starting with C.", `api_key = "C.A1B2C3D4E5F6G7H8I9J0K1"`, "C.A1B2C3D4E5F6G7H8I9J0K1"),
 		rulebuilder.NoMatch("Access", `"accessor":"rA1wk0Y45YCufyfq",`),
 		rulebuilder.NoMatch("false positive 1", "report_access_id: e8e4df51-2054-49b0-ab1c-516ac95c691d"),
 		rulebuilder.NoMatch("false positive 2", `accessibilityYesOptionId = "0736f5ef-7e88-499a-80cc-90c85d2a5180"`),

@@ -19,7 +19,8 @@ const genericAPIKeyMatchFilter = `(?i)(?:` + genericAPIKeyIdentifierFilter + `|a
 var genericAPIKeyFilter = buildGenericAPIKeyFilter()
 
 func buildGenericAPIKeyFilter() string {
-	return `matchesAny(finding["secret"], [` + "`^[a-zA-Z_.-]+$`" + `, ` + "`^C\\.[A-Z0-9_]+$`" + `, ` + "`^(?:ecdh|ecdsa)-sha2-nistp\\d+$`" + `])
+	return `matchesAny(finding["secret"], [` + "`^[a-zA-Z_.-]+$`" + `, ` + "`^(?:ecdh|ecdsa)-sha2-nistp\\d+$`" + `])
+|| (matchesAny(finding["secret"], [` + "`^C\\.[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$`" + `]) && matchesAny(finding["match"], [` + "`=[ \\t]*C\\.`" + `]))
 || matchesAny(genericMatchContext, [` + "`" + genericAPIKeyMatchFilter + "`" + `])
 || matchesAny(finding["line"], [
   ` + "`--mount=type=secret,`" + `,
