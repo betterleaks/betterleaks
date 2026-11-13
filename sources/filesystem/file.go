@@ -41,8 +41,9 @@ type File struct {
 	Prefilter sources.PrefilterFunc
 	// MaxArchiveDepth limits how deep the sources will explore nested archives
 	MaxArchiveDepth int
-	// DetectArchive also identifies archives by content, for downloads whose
-	// paths do not have a filename extension. Inherited by nested archive entries.
+	// DetectArchive identifies archives by content even at depth zero, so explicit
+	// callers can report strict depth limits. Positive MaxArchiveDepth enables
+	// content identification automatically. Inherited by nested archive entries.
 	DetectArchive bool
 	// StrictArchives reports archive read failures and depth limits through
 	// yield, marking coverage incomplete instead of only logging a warning.
@@ -98,13 +99,16 @@ func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) (err 
 		archiveName = strings.TrimSuffix(archiveName, ext) + ".tar.gz"
 	}
 
-	// Downloads may have opaque names. Local .tar files also need content
-	// inspection because their compression is not always reflected in the name.
-	if s.DetectArchive {
+	// Enabled archive scanning identifies containers independently of their names.
+	if s.DetectArchive || s.MaxArchiveDepth > 0 {
 		format, stream, err = archives.Identify(ctx, "", stream)
-		// Plain package-manager state files can have gzip suffixes.
-		if errors.Is(err, archives.NoMatch) && !s.decompressed &&
-			!strings.EqualFold(filepath.Ext(archiveName), ".gz") {
+		// Preserve named malformed-archive recovery in permissive mode. Strict
+		// callers must still receive the original identification error. Plain
+		// package-manager state files can have gzip suffixes, so a .gz name
+		// whose content matches no format stays a plain file.
+		noMatch := errors.Is(err, archives.NoMatch)
+		plainGzip := noMatch && strings.EqualFold(filepath.Ext(archiveName), ".gz")
+		if err != nil && !s.decompressed && !plainGzip && (noMatch || !s.StrictArchives) {
 			format, _, err = archives.Identify(ctx, archiveName, nil)
 		}
 	} else if filepath.Ext(s.Path) == ".tar" {

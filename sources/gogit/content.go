@@ -463,16 +463,6 @@ func (w *worker) archive(ctx context.Context, e gitobj.ChangeEntry, attrs map[st
 	if w.source.MaxArchiveDepth <= 0 {
 		return nil
 	}
-	format, _, err := archives.Identify(ctx, e.Name, nil)
-	if errors.Is(err, archives.NoMatch) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if format == nil {
-		return nil
-	}
 	file, err := w.store.read(e.TreeEntry.Hash)
 	if err != nil {
 		return err
@@ -482,7 +472,19 @@ func (w *worker) archive(ctx context.Context, e gitobj.ChangeEntry, attrs map[st
 		return err
 	}
 	defer r.Close()
+	// Identify by name or content so archives with unfamiliar extensions
+	// (.jar, .apk, .gem, .crate) are scanned. Only the header is read.
+	format, stream, err := archives.Identify(ctx, e.Name, contextReader{ctx, r})
+	if errors.Is(err, archives.NoMatch) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if format == nil {
+		return nil
+	}
 	// Match filesystem scans: damaged archives warn without failing history traversal.
-	source := filesystem.File{Logger: w.source.Logger, Content: contextReader{ctx, r}, Path: e.Name, Attributes: attrs, Prefilter: w.source.Prefilter, MaxArchiveDepth: w.source.MaxArchiveDepth, StrictArchives: false, Symlink: "", DetectArchive: false}
+	source := filesystem.File{Logger: w.source.Logger, Content: stream, Path: e.Name, Attributes: attrs, Prefilter: w.source.Prefilter, MaxArchiveDepth: w.source.MaxArchiveDepth, StrictArchives: false, Symlink: "", DetectArchive: false}
 	return source.Fragments(ctx, yield)
 }
