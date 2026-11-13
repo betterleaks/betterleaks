@@ -1,0 +1,75 @@
+name: Bindings
+
+on:
+  pull_request:
+    paths:
+      - "bindings/**"
+      - "examples/rust/**"
+      - "scan/**"
+      - "sources/**"
+      - "internal/codec/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/bindings.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      matrix:
+        platform: [ ubuntu-latest, macos-latest ]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      # v6.0.2 (https://github.com/actions/checkout/releases/tag/v6.0.2)
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        # v6.3.0 (https://github.com/actions/setup-go/releases/tag/v6.3.0)
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Test the C bridge against the Go SDK
+        run: go test -tags betterleaks_ffi --race ./bindings/c
+
+      - name: Test the Rust crates (bundled build)
+        run: cargo test --manifest-path bindings/rust/Cargo.toml --workspace
+
+      - name: Run the Rust example
+        run: cargo run --manifest-path examples/rust/Cargo.toml
+
+      - name: Check the C boundary contract
+        run: |
+          go build -tags betterleaks_ffi -buildmode=c-archive -o /tmp/libbetterleaks.a ./bindings/c
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cc -I bindings/c bindings/c/tests/boundary.c /tmp/libbetterleaks.a \
+              -framework CoreFoundation -framework Security -lresolv -o /tmp/boundary
+          else
+            cc -I bindings/c bindings/c/tests/boundary.c /tmp/libbetterleaks.a \
+              -lpthread -ldl -lm -lresolv -o /tmp/boundary
+          fi
+          fixture_dir="$(mktemp -d)"
+          /tmp/boundary "$fixture_dir/input.env"
+          rmdir "$fixture_dir"
+
+      # Build-time coverage only; running Windows consumers still needs a
+      # Windows job before the target is promoted in the support table.
+      - name: Cross-check Windows consumers and the DLL
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+          rustup target add x86_64-pc-windows-msvc
+          cargo check --manifest-path bindings/rust/Cargo.toml --workspace --target x86_64-pc-windows-msvc
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
+            go build -trimpath -tags betterleaks_ffi -buildmode=c-shared -o /tmp/betterleaks.dll ./bindings/c

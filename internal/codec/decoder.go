@@ -7,9 +7,25 @@ import (
 // Decode replaces encoded text and returns segment mappings. Pass the previous
 // call's segments as predecessors to preserve original offsets across passes.
 func Decode(data string, predecessors []*EncodedSegment) (string, []*EncodedSegment) {
-	segments := findEncodedSegments(data, predecessors)
+	decoded, segments, _ := DecodeWithBudget(data, predecessors, nil)
+	return decoded, segments
+}
+
+// DecodeWithBudget reserves allocation work before collecting encoding matches,
+// decoding values, or constructing the output. A nil reserve disables accounting.
+// Failure returns no partial decoded text or segments.
+func DecodeWithBudget(data string, predecessors []*EncodedSegment, reserve func(int64) error) (string, []*EncodedSegment, error) {
+	segments, err := findEncodedSegmentsWithBudget(data, predecessors, reserve)
+	if err != nil {
+		return "", nil, err
+	}
 
 	if len(segments) > 0 {
+		if reserve != nil {
+			if err := reserve(2 * int64(len(data))); err != nil {
+				return "", nil, err
+			}
+		}
 		var result strings.Builder
 		result.Grow(len(data))
 		encodedStart := 0
@@ -20,23 +36,30 @@ func Decode(data string, predecessors []*EncodedSegment) (string, []*EncodedSegm
 		}
 
 		result.WriteString(data[encodedStart:])
-		return result.String(), segments
+		return result.String(), segments, nil
 	}
 
-	return data, segments
+	return data, segments, nil
 }
 
-// findEncodedSegments finds the encoded segments in the data
-func findEncodedSegments(data string, predecessors []*EncodedSegment) []*EncodedSegment {
+func findEncodedSegmentsWithBudget(data string, predecessors []*EncodedSegment, reserve func(int64) error) ([]*EncodedSegment, error) {
 	if len(data) == 0 {
-		return []*EncodedSegment{}
+		return []*EncodedSegment{}, nil
 	}
 
 	decodedShift := 0
-	encodingMatches := findEncodingMatches(data)
+	encodingMatches, err := findEncodingMatchesWithBudget(data, reserve)
+	if err != nil {
+		return nil, err
+	}
 	segments := make([]*EncodedSegment, 0, len(encodingMatches))
 	for _, m := range encodingMatches {
 		encodedValue := data[m.start:m.end]
+		if reserve != nil {
+			if err := reserve(256 + 4*int64(len(encodedValue))); err != nil {
+				return nil, err
+			}
+		}
 		decodedValue := m.encoding.decode(encodedValue)
 
 		if len(decodedValue) == 0 {
@@ -74,5 +97,5 @@ func findEncodedSegments(data string, predecessors []*EncodedSegment) []*Encoded
 		segments = append(segments, segment)
 	}
 
-	return segments
+	return segments, nil
 }

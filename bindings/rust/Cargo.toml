@@ -1,0 +1,18 @@
+[package]
+name = "betterleaks"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Safe Rust bindings to the Betterleaks secret scanner"
+license = "MIT"
+repository = "https://github.com/betterleaks/betterleaks"
+readme = "README.md"
+
+[workspace]
+members = ["sys"]
+resolver = "2"
+
+[dependencies]
+betterleaks-sys = { version = "=0.1.0", path = "sys" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
