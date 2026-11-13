@@ -1,0 +1,11 @@
+[package]
+name = "betterleaks-sys"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Native ABI declarations for Betterleaks"
+license = "MIT"
+repository = "https://github.com/betterleaks/betterleaks"
+links = "betterleaks"
+build = "build.rs"
+readme = "README.md"

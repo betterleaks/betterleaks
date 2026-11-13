@@ -281,6 +281,7 @@ func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handl
 			return true
 		}
 		if handler != nil {
+			ownFindingAttributes(&result.finding)
 			if err := handler(result.finding); err != nil {
 				scanErr = errors.Join(scanErr, fmt.Errorf("handle finding: %w", err))
 				return false
@@ -439,7 +440,7 @@ func newPathOnlyFinding(r *compiledRule, fragment sources.Fragment) report.Findi
 		Match:       report.Match{Full: "file detected: " + path},
 		Tags:        append([]string{}, r.rule.Tags...),
 	}
-	finding.SetAttributes(fragment.Attributes)
+	borrowFindingAttributes(&finding, fragment.Attributes)
 	if r.rule.Confidence != "" {
 		finding.Confidence = r.rule.Confidence
 	}
@@ -482,6 +483,9 @@ func (s *Scanner) detectFragment(ctx context.Context, fragment sources.Fragment)
 	findings, err := s.detectFragmentWithState(ctx, fragment, nil)
 	if err != nil {
 		s.logger.Error("could not scan fragment", "error", err)
+	}
+	for i := range findings {
+		ownFindingAttributes(&findings[i])
 	}
 	return findings
 }
@@ -903,18 +907,9 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		if loc.startLine == 1 {
 			finding.Match.LineColumnOffset = fragment.StartColumnOffset
 		}
-		finding.SetAttributes(fragment.Attributes)
+		borrowFindingAttributes(&finding, fragment.Attributes)
 		if r.rule.Confidence != "" {
 			finding.Confidence = r.rule.Confidence
-		}
-
-		// TODO eventually move this git specific bit into somewhere... better?
-		platform := finding.Attr(sources.AttrGitPlatform)
-		remoteURL := finding.Attr(sources.AttrGitRemoteURL)
-		if platform != "" && remoteURL != "" {
-			if link := createScmLink(platform, remoteURL, finding); link != "" {
-				finding.SetAttr(sources.AttrURL, link)
-			}
 		}
 
 		// move to filter?
