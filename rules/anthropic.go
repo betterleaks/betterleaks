@@ -57,3 +57,41 @@ var _ = rulebuilder.Add(config.Rule{
 		rulebuilder.NoMatch("Wrong prefix (API key, not admin key)", "sk-ant-api03-abc123xyz-456def789ghij-klmnopqrstuvwx-3456yza789bcde-1234fghijklmnopby56aaaogaopaaaabc123xyzAA"),
 	},
 })
+
+// Claude subscription sign-ins (claude setup-token, Claude Code login) issue
+// OAuth tokens instead of API keys. There is no safe validation: refreshing
+// would consume a refresh token, so these rules only detect.
+var _ = rulebuilder.Add(config.Rule{
+	ID:          "anthropic-oauth-access-token",
+	Confidence:  "high",
+	Description: "Found an Anthropic OAuth access token, which grants access to a Claude subscription and its usage.",
+	Regex:       rulebuilder.Token(`sk-ant-oat01-[a-zA-Z0-9_\-]{80,}`),
+	FilterExpr:  rulebuilder.MinEntropy(3.5),
+	Keywords: []string{
+		"sk-ant-oat01",
+	},
+	Tests: []config.RuleTest{
+		rulebuilder.Match("access token", "sk-ant-oat01-XADrJFeThUHJTqwHDNLvCiV-qvPacq76ESwF6Fnh6yrdM0_XER-OjVIhNfxpEU_LemS0OZ6S5q0MHayZmDaZvpBFcdG9bAA", "sk-ant-oat01-XADrJFeThUHJTqwHDNLvCiV-qvPacq76ESwF6Fnh6yrdM0_XER-OjVIhNfxpEU_LemS0OZ6S5q0MHayZmDaZvpBFcdG9bAA"),
+		rulebuilder.Match("env assignment", `CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-XADrJFeThUHJTqwHDNLvCiV-qvPacq76ESwF6Fnh6yrdM0_XER-OjVIhNfxpEU_LemS0OZ6S5q0MHayZmDaZvpBFcdG9bAA`, "sk-ant-oat01-XADrJFeThUHJTqwHDNLvCiV-qvPacq76ESwF6Fnh6yrdM0_XER-OjVIhNfxpEU_LemS0OZ6S5q0MHayZmDaZvpBFcdG9bAA"),
+		rulebuilder.NoMatch("placeholder", "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.NoMatch("long placeholder", "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.NoMatch("refresh token", "sk-ant-ort01-jP7r9KdPmnAHR7ED3qNFZCRhIAew3YXE8YdqIih9BClqehA8Ea2HfBVLJjwbbVuez-aEukga49C1DpDTqWga6ZvO3bjlbAA"),
+	},
+})
+
+var _ = rulebuilder.Add(config.Rule{
+	ID:          "anthropic-oauth-refresh-token",
+	Confidence:  "high",
+	Description: "Found an Anthropic OAuth refresh token, which can be used to mint new access tokens for a Claude subscription.",
+	Regex:       rulebuilder.Token(`sk-ant-ort01-[a-zA-Z0-9_\-]{80,}`),
+	FilterExpr:  rulebuilder.MinEntropy(3.5),
+	Keywords: []string{
+		"sk-ant-ort01",
+	},
+	Tests: []config.RuleTest{
+		rulebuilder.Match("refresh token", `"refreshToken": "sk-ant-ort01-jP7r9KdPmnAHR7ED3qNFZCRhIAew3YXE8YdqIih9BClqehA8Ea2HfBVLJjwbbVuez-aEukga49C1DpDTqWga6ZvO3bjlbAA"`, "sk-ant-ort01-jP7r9KdPmnAHR7ED3qNFZCRhIAew3YXE8YdqIih9BClqehA8Ea2HfBVLJjwbbVuez-aEukga49C1DpDTqWga6ZvO3bjlbAA"),
+		rulebuilder.NoMatch("placeholder", "sk-ant-ort01-..."),
+		rulebuilder.NoMatch("long placeholder", "sk-ant-ort01-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+		rulebuilder.NoMatch("access token", "sk-ant-oat01-XADrJFeThUHJTqwHDNLvCiV-qvPacq76ESwF6Fnh6yrdM0_XER-OjVIhNfxpEU_LemS0OZ6S5q0MHayZmDaZvpBFcdG9bAA"),
+	},
+})
