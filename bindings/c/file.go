@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"unicode/utf8"
@@ -74,7 +75,9 @@ type nativeFileSource struct {
 
 func (s *nativeFileSource) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
 	first := "true"
-	return s.reader.Fragments(ctx, func(fragment sources.Fragment, err error) error {
+	seen := false
+	emit := func(fragment sources.Fragment, err error) error {
+		seen = true
 		if err != nil {
 			return yield(fragment, err)
 		}
@@ -84,7 +87,19 @@ func (s *nativeFileSource) Fragments(ctx context.Context, yield sources.Fragment
 			return nil
 		}
 		return yield(fragment, nil)
-	})
+	}
+	if err := s.reader.Fragments(ctx, emit); err != nil {
+		return err
+	}
+	if !seen {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// Reader emits nothing for an empty file. Its path still participates in
+		// path-only rules and filters, with the same metadata as a nonempty file.
+		return emit(sources.Fragment{StartLine: 1, Attributes: maps.Clone(s.reader.Attributes)}, nil)
+	}
+	return nil
 }
 
 // Validate UTF-8 across arbitrary read boundaries and enforce the byte limit

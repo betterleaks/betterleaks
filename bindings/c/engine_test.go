@@ -101,6 +101,10 @@ func TestLimitsAndErrors(t *testing.T) {
 		{"regex compilation", `{"config_toml":"[[rules]]\nid='broken'\nregex='('"}`, statusConfig},
 		{"input limit", `{"max_input_bytes":0}`, statusInvalid},
 		{"finding limit", `{"max_findings":100001}`, statusInvalid},
+		{"negative workers", `{"workers":-1}`, statusInvalid},
+		{"negative decode depth", `{"max_decode_depth":-1}`, statusInvalid},
+		{"decode depth limit", `{"max_decode_depth":33}`, statusInvalid},
+		{"extreme decode depth", `{"max_decode_depth":4294967295}`, statusInvalid},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := newScanner([]byte(tc.opts))

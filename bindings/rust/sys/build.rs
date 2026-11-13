@@ -34,11 +34,16 @@ fn main() {
             .expect("BETTERLEAKS_LIB_DIR must exist"),
         None => build_archive(),
     };
+    let archive = lib_dir.join("libbetterleaks.a");
     assert!(
-        lib_dir.join("libbetterleaks.a").is_file(),
+        archive.is_file(),
         "libbetterleaks.a not found in {}",
         lib_dir.display()
     );
+
+    // A prebuilt archive may be replaced without changing BETTERLEAKS_LIB_DIR.
+    // Rerun so Cargo relinks consumers against the updated engine.
+    println!("cargo::rerun-if-changed={}", archive.display());
 
     println!("cargo::rustc-link-search=native={}", lib_dir.display());
     println!("cargo::rustc-link-lib=static=betterleaks");
@@ -96,8 +101,8 @@ fn build_archive() -> PathBuf {
         other => panic!("unsupported Betterleaks target architecture {other}"),
     };
     let triple = env::var("TARGET").unwrap();
-    let target_cc = env::var(format!("CC_{}", triple.replace('-', "_")))
-        .or_else(|_| env::var("TARGET_CC"));
+    let target_cc =
+        env::var(format!("CC_{}", triple.replace('-', "_"))).or_else(|_| env::var("TARGET_CC"));
 
     let archive = out_dir.join("libbetterleaks.a");
     let mut command = Command::new("go");

@@ -45,7 +45,9 @@ The supplied path and `resource = "fs.content"` override those attribute keys.
 Paths must be nonempty UTF-8 without NULs, at most 1 MiB; relative paths use the
 process working directory. Symlinks to regular files are followed, and Windows
 path separators are normalized to `/` in findings. Keep the file unchanged until
-the call returns. Directory traversal and archive expansion are not performed.
+the call returns. Directory recursion and archive expansion are not performed.
+Paths are not confined to a root; callers must authorize untrusted paths.
+Path-only rules also apply to empty files.
 Missing/unreadable files return `Error::Scan`; invalid paths, non-regular files,
 and invalid UTF-8 content return `Error::InvalidArgument`.
 
@@ -63,9 +65,11 @@ native result buffers releases their native resources automatically.
 
 Builder options include custom TOML, its origin path, workers, decoding depth,
 maximum input bytes, and maximum findings. Defaults are the embedded rules,
-standard Go regex engine, no decoding, 8 MiB inputs, and 10,000 findings. Both
-source prefilters and finding filters are honored. Configuration errors fail at
-construction. Scan errors and exceeded limits return `Err`, without partial
+standard Go regex engine, no decoding, 8 MiB inputs, and 10,000 findings.
+Decode depth accepts 0 through 32; larger values fail at construction with
+`Error::InvalidArgument`. These limits do not enforce a CPU-time deadline.
+Both source prefilters and finding filters are honored. Configuration errors
+fail at construction. Scan errors and exceeded limits return `Err`, without partial
 findings. Match values can contain secrets; they are omitted from `Match`'s
 `Debug` representation, but other metadata is not automatically sanitized.
 

@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -99,18 +100,61 @@ func TestScanFileFailuresReturnNoPartialResult(t *testing.T) {
 
 func TestScanFilePathOnlyRuleRunsOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tokens.env")
-	if err := os.WriteFile(path, []byte(strings.Repeat("line\n", 60_000)), 0o600); err != nil {
-		t.Fatal(err)
+	for _, content := range []string{"", "line\n", strings.Repeat("line\n", 60_000)} {
+		t.Run(fmt.Sprintf("%d bytes", len(content)), func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for _, filter := range []string{"", `prefilter = 'attributes["custom"] == "skip"'`, `filter = 'attributes["custom"] == "skip"'`} {
+				s := scannerForTest(t, filter+"\n[[rules]]\nid='filename'\npath='tokens\\.env$'", map[string]any{"max_findings": 1})
+				// Caller-supplied internal metadata must not suppress or duplicate matches.
+				encoded, err := s.scanFile([]byte(path), []byte(`{"fs.first_fragment":"false","custom":"skip"}`))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var response scanResponse
+				if err := json.Unmarshal(encoded, &response); err != nil {
+					t.Fatal(err)
+				}
+				want := 1
+				if filter != "" {
+					want = 0
+				}
+				if len(response.Findings) != want {
+					t.Fatalf("filter %q: want %d path findings: %s", filter, want, encoded)
+				}
+				if want == 1 && (response.Findings[0].Location.Path != filepath.ToSlash(path) || response.Findings[0].Attributes[sources.AttrResource] != sources.ResourceFileContent || response.Summary.BytesInspected != uint64(len(content))) {
+					t.Fatalf("path-only finding lost file metadata: %s", encoded)
+				}
+			}
+		})
 	}
-	s := scannerForTest(t, "[[rules]]\nid='filename'\npath='tokens\\.env$'", map[string]any{"max_findings": 1})
-	// Caller-supplied internal metadata must not suppress or duplicate matches.
-	encoded, err := s.scanFile([]byte(path), []byte(`{"fs.first_fragment":"false"}`))
-	if err != nil {
-		t.Fatal(err)
+}
+
+func TestNativeFileSourceDoesNotEmitEmptyFileAfterFailure(t *testing.T) {
+	readErr := errors.New("injected read error")
+	source := &nativeFileSource{reader: sources.Reader{Content: iotest.ErrReader(readErr)}}
+	var readErrors, fragments int
+	err := source.Fragments(context.Background(), func(_ sources.Fragment, err error) error {
+		if errors.Is(err, readErr) {
+			readErrors++
+		} else {
+			fragments++
+		}
+		return nil // A consumer may handle a source error and continue.
+	})
+	if err != nil || readErrors != 1 || fragments != 0 {
+		t.Fatalf("read failure treated as empty file: errors=%d fragments=%d err=%v", readErrors, fragments, err)
 	}
-	var response scanResponse
-	if err := json.Unmarshal(encoded, &response); err != nil || len(response.Findings) != 1 {
-		t.Fatalf("path-only rule must match exactly once: %s, %v", encoded, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	source.reader.Content = strings.NewReader("")
+	err = source.Fragments(ctx, func(sources.Fragment, error) error {
+		t.Fatal("canceled source emitted a fragment")
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("lost cancellation: %v", err)
 	}
 }
 

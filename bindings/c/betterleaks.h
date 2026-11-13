@@ -30,6 +30,8 @@ uint32_t bl_abi_version(void);
  * Errors are UTF-8 text; successful scan results are schema-versioned JSON.
  * Zero options length selects defaults; zero attributes length means {}.
  * Nonzero-length options and attributes must be JSON objects.
+ * max_decode_depth defaults to 0 (disabled), accepts 0 through 32, and returns
+ * BL_INVALID_ARGUMENT outside that range.
  * On failure no scanner or partial scan result is returned.
  */
 int32_t bl_scanner_new(uint8_t *options, size_t options_len,
@@ -55,7 +57,8 @@ int32_t bl_scanner_scan(uint64_t scanner, uint8_t *input, size_t input_len,
  * (with '/' separators) and resource="fs.content" override those attributes.
  * Internal fs.first_fragment metadata is set by the engine for path-only rules.
  * Reads are streamed and capped at max_input_bytes plus one lookahead byte.
- * No directory traversal or archive expansion is performed. Files must remain
+ * No directory recursion or archive expansion is performed. Paths are not
+ * confined to a root; callers must authorize untrusted paths. Files must remain
  * unchanged during the call; this API does not take a filesystem snapshot.
  * Invalid paths/content or non-regular files return BL_INVALID_ARGUMENT;
  * open/stat/read failures return BL_SCAN_ERROR. Failures return no partial

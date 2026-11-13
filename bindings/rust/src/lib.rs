@@ -147,6 +147,7 @@ impl ScannerBuilder {
     }
 
     /// Enable up to this many recursive decoding passes; zero disables them.
+    /// The native bindings accept 0 through 32; larger values fail in [`Self::build`].
     pub fn max_decode_depth(mut self, depth: u32) -> Self {
         self.max_decode_depth = depth;
         self
@@ -231,6 +232,7 @@ impl Scanner {
     /// working directory, and symlinks to regular files are followed. Keep the
     /// file unchanged until the call returns; this does not take a snapshot.
     /// Directories and archive expansion are not supported by this method.
+    /// Paths are not confined to a root; callers must authorize untrusted paths.
     pub fn scan_file(&self, path: impl AsRef<Path>) -> Result<ScanResult, Error> {
         self.scan_file_encoded(path.as_ref(), &[])
     }

@@ -87,6 +87,31 @@ fn scans_native_files_with_metadata_and_owned_results() {
 }
 
 #[test]
+fn empty_files_match_path_only_rules() {
+    let fixture = Fixture::new();
+    let path = fixture.write("tokens.env", "");
+    let scanner = Scanner::builder()
+        .config_toml("[[rules]]\nid = 'filename'\npath = 'tokens\\.env$'")
+        .max_findings(1)
+        .build()
+        .unwrap();
+    let attributes = BTreeMap::from([
+        ("fs.first_fragment".into(), "false".into()),
+        ("path".into(), "spoofed".into()),
+        ("custom".into(), "preserved".into()),
+    ]);
+    let result = scanner
+        .scan_file_with_attributes(&path, &attributes)
+        .unwrap();
+    assert_eq!(result.findings.len(), 1);
+    assert_eq!(result.findings[0].rule_id, "filename");
+    assert_eq!(result.findings[0].location.path, reported_path(&path));
+    assert_eq!(result.findings[0].attributes["resource"], "fs.content");
+    assert_eq!(result.findings[0].attributes["custom"], "preserved");
+    assert_eq!(result.summary.bytes_inspected, 0);
+}
+
+#[test]
 fn native_file_errors_limits_and_reuse() {
     let fixture = Fixture::new();
     let scanner = Scanner::builder()

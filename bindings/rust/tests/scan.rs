@@ -128,6 +128,27 @@ fn detection_budget_failure_preserves_scanner_reuse() {
 }
 
 #[test]
+fn bounds_decoding_depth_at_construction() {
+    for depth in [0, 32] {
+        let scanner = Scanner::builder()
+            .config_toml(CONFIG)
+            .max_decode_depth(depth)
+            .build()
+            .unwrap();
+        assert_eq!(scanner.scan_str(TOKEN).unwrap().findings.len(), 1);
+    }
+    for depth in [33, u32::MAX] {
+        assert!(matches!(
+            Scanner::builder()
+                .config_toml(CONFIG)
+                .max_decode_depth(depth)
+                .build(),
+            Err(Error::InvalidArgument(_))
+        ));
+    }
+}
+
+#[test]
 fn honors_allow_markers_and_decoding_options() {
     let scanner = Scanner::builder()
         .config_toml(CONFIG)

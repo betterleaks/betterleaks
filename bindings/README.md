@@ -61,6 +61,10 @@ path is preserved in findings, with Windows separators normalized to `/`.
 The native path and `resource = "fs.content"` override caller attributes. The
 engine sets internal `fs.first_fragment` metadata so path-only rules run once
 per file. Other attributes are preserved and source/finding filters apply as usual.
+Empty files also participate in path-only rules and filters.
+
+Paths are not confined to a root directory. The caller must authorize paths from
+untrusted sources; this API can read any regular file accessible to the process.
 
 This method scans one regular UTF-8 file as text, including embedded NULs. It
 does not traverse directories or expand archives based on their extension.
@@ -86,6 +90,7 @@ share these limits:
 | Limit | Value |
 | --- | --- |
 | Input bytes | 8 MiB by default; configurable up to 64 MiB |
+| Decode depth | 0 by default (disabled); configurable up to 32 passes |
 | Returned findings | 10,000 by default; configurable up to 100,000 |
 | Detection candidates | 100,000 |
 | Cumulative detection allocation charges | 64 MiB |
@@ -110,6 +115,10 @@ after fragment filtering, before detaching text and copying output metadata.
 Any exceeded limit returns `BL_LIMIT_EXCEEDED` (`Error::LimitExceeded` in Rust)
 with no partial result. The scanner remains reusable with fresh limits on the
 next call. Concurrent calls each have their own budgets.
+
+Decode depths outside 0–32 fail at scanner construction with
+`BL_INVALID_ARGUMENT` (`Error::InvalidArgument`). The pass limit and allocation
+budgets do not enforce a CPU-time or wall-clock deadline.
 
 The byte charges are an allocation model, **not a heap or process-memory
 ceiling**. Regex scratch is additional to the cumulative detection budget.

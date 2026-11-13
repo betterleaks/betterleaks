@@ -36,6 +36,7 @@ const (
 	maxCandidates      = 100_000
 	maxFragmentBytes   = 128 << 10
 	maxMatchIndexBytes = 8 << 20
+	maxDecodeDepth     = 32
 	defaultInputBytes  = 8 << 20
 	defaultFindings    = 10_000
 )
@@ -137,8 +138,11 @@ func newScanner(data []byte) (*nativeScanner, error) {
 	if options.MaxFindings < 1 || options.MaxFindings > 100_000 {
 		return nil, failure(statusInvalid, "max_findings must be between 1 and 100000")
 	}
-	if options.Workers < 0 || options.MaxDecodeDepth < 0 {
-		return nil, failure(statusInvalid, "workers and max_decode_depth must be non-negative")
+	if options.Workers < 0 {
+		return nil, failure(statusInvalid, "workers must be non-negative")
+	}
+	if options.MaxDecodeDepth < 0 || options.MaxDecodeDepth > maxDecodeDepth {
+		return nil, failure(statusInvalid, "max_decode_depth must be between 0 and 32")
 	}
 	if options.ConfigTOML == nil && options.ConfigPath != "" {
 		return nil, failure(statusInvalid, "config_path requires config_toml")
