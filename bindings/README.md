@@ -39,6 +39,51 @@ which is what embedding (editors, proxies, other scanners) actually needs. The
 trade-off: the Go runtime shares the host process, so fatal Go failures are not
 isolated from the embedding application.
 
+## Resource limits
+
+Each scan enforces limits inside detection, before collecting an unrestricted
+regex match list or copying findings for delivery. All workers in the call
+share these limits:
+
+| Limit | Value |
+| --- | --- |
+| Input bytes | 8 MiB by default; configurable up to 64 MiB |
+| Returned findings | 10,000 by default; configurable up to 100,000 |
+| Detection candidates | 100,000 |
+| Cumulative detection allocation charges | 64 MiB |
+| Concurrent regex match-index scratch | 8 MiB |
+| Source fragment bytes | 128 KiB |
+| Source attributes JSON | 1 MiB |
+| Serialized result JSON | 64 MiB |
+
+Candidates include raw matches later removed by filters or suppression,
+component matches, and matches from subsequent decoding passes. Detection
+charges cover match collection, intermediate findings, metadata copies,
+component combinations, decoding, and output-size estimates. Charges are
+conservative and are not refunded when a candidate is discarded. A scan can
+therefore reach a detection limit while returning fewer than `max_findings`.
+The input reader splits large inputs into fragments automatically.
+
+Regex collection reserves scratch before calling the backend and requests only
+a bounded number of matches. If that collection might be incomplete, the scan
+fails instead of returning a truncated success. Final finding counts are checked
+after fragment filtering, before detaching text and copying output metadata.
+Any exceeded limit returns `BL_LIMIT_EXCEEDED` (`Error::LimitExceeded` in Rust)
+with no partial result. The scanner remains reusable with fresh limits on the
+next call. Concurrent calls each have their own budgets.
+
+The byte charges are an allocation model, **not a heap or process-memory
+ceiling**. Regex scratch is additional to the cumulative detection budget.
+Configuration loading, compiled regexes and regex-engine internals, source
+prefilters and custom expression execution, runtime overhead, and the host's
+input/output copies are outside that accounting. Treat custom configurations
+as trusted code. Applications requiring a hard memory ceiling or isolation
+from fatal native failures must run the engine in a separate process with OS
+resource limits and control concurrent requests.
+
+Go SDK consumers can opt into the same mechanism through `Scanner.ScanWithLimits`;
+ordinary `Scan` and `ScanString` retain their existing behavior.
+
 ## Supported targets
 
 | Platform | Rust target | Linkage |

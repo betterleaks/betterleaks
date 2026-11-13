@@ -111,6 +111,23 @@ fn reports_invalid_configuration_and_limits_and_remains_reusable() {
 }
 
 #[test]
+fn detection_budget_failure_preserves_scanner_reuse() {
+    let scanner = Scanner::builder()
+        .config_toml(CONFIG)
+        .max_findings(100_000)
+        .build()
+        .unwrap();
+    let attributes: BTreeMap<String, String> = (0..1024)
+        .map(|i| (format!("key{i:04}"), "v".into()))
+        .collect();
+    assert!(matches!(
+        scanner.scan_with_attributes(&format!("{TOKEN}\n").repeat(2000), &attributes),
+        Err(Error::LimitExceeded(_))
+    ));
+    assert_eq!(scanner.scan_str(TOKEN).unwrap().findings.len(), 1);
+}
+
+#[test]
 fn honors_allow_markers_and_decoding_options() {
     let scanner = Scanner::builder()
         .config_toml(CONFIG)

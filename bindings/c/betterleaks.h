@@ -34,6 +34,16 @@ uint32_t bl_abi_version(void);
  */
 int32_t bl_scanner_new(uint8_t *options, size_t options_len,
                        uint64_t *out_scanner, bl_buffer *out_error);
+
+/* Each scan limits detection to 100,000 candidates, 64 MiB of cumulative
+ * allocation charges, 8 MiB of shared regex-index scratch, and 128 KiB per
+ * source fragment. Filtered candidates and component/decoding work count too.
+ * max_findings is checked after fragment filtering and before output copying.
+ * Exceeding any limit returns BL_LIMIT_EXCEEDED without a partial result;
+ * the scanner can be reused. Concurrent calls have independent budgets.
+ * These charges are not a process-memory ceiling. See bindings/README.md for
+ * the accounting scope; use process isolation for hard resource guarantees.
+ */
 int32_t bl_scanner_scan(uint64_t scanner, uint8_t *input, size_t input_len,
                         uint8_t *attributes, size_t attributes_len,
                         bl_buffer *out_result, bl_buffer *out_error);

@@ -128,9 +128,14 @@ type encoding struct {
 // findEncodingMatches finds as many encodings as it can for this pass
 // using a single-pass byte-level scanner instead of regex.
 func findEncodingMatches(data string) []encodingMatch {
+	matches, _ := findEncodingMatchesWithBudget(data, nil)
+	return matches
+}
+
+func findEncodingMatchesWithBudget(data string, reserve func(int64) error) ([]encodingMatch, error) {
 	n := len(data)
 	if n == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var all []encodingMatch
@@ -152,6 +157,11 @@ func findEncodingMatches(data string) []encodingMatch {
 					lastPercentEnd = j + 3
 				}
 				j++
+			}
+			if reserve != nil {
+				if err := reserve(256); err != nil {
+					return nil, err
+				}
 			}
 			all = append(all, encodingMatch{
 				encoding: encodings[0], // percent
@@ -194,6 +204,11 @@ func findEncodingMatches(data string) []encodingMatch {
 						}
 					}
 					break
+				}
+				if reserve != nil {
+					if err := reserve(256); err != nil {
+						return nil, err
+					}
 				}
 				all = append(all, encodingMatch{
 					encoding: encodings[1], // unicode
@@ -240,6 +255,11 @@ func findEncodingMatches(data string) []encodingMatch {
 						}
 						break
 					}
+					if reserve != nil {
+						if err := reserve(256); err != nil {
+							return nil, err
+						}
+					}
 					all = append(all, encodingMatch{
 						encoding: encodings[1], // unicode
 						startEnd: startEnd{start, end},
@@ -280,6 +300,11 @@ func findEncodingMatches(data string) []encodingMatch {
 							}
 						}
 						break
+					}
+					if reserve != nil {
+						if err := reserve(256); err != nil {
+							return nil, err
+						}
 					}
 					all = append(all, encodingMatch{
 						encoding: encodings[1], // unicode
@@ -324,6 +349,11 @@ func findEncodingMatches(data string) []encodingMatch {
 
 			if allHex && runLen >= 32 {
 				// Emit as hex match (without trailing =)
+				if reserve != nil {
+					if err := reserve(256); err != nil {
+						return nil, err
+					}
+				}
 				all = append(all, encodingMatch{
 					encoding: encodings[2], // hex
 					startEnd: startEnd{start, start + runLen},
@@ -332,6 +362,11 @@ func findEncodingMatches(data string) []encodingMatch {
 				// Reject impossible Base64 before allocating candidate storage.
 				// Higher-precedence failures must still suppress adjacent encodings.
 				// Include trailing = in candidates that remain.
+				if reserve != nil {
+					if err := reserve(256); err != nil {
+						return nil, err
+					}
+				}
 				all = append(all, encodingMatch{
 					encoding: encodings[3], // base64
 					startEnd: startEnd{start, end},
@@ -345,7 +380,7 @@ func findEncodingMatches(data string) []encodingMatch {
 
 	totalMatches := len(all)
 	if totalMatches <= 1 {
-		return all
+		return all, nil
 	}
 
 	// Compact after checking neighbors; writes cannot reach an unread match.
@@ -366,5 +401,5 @@ func findEncodingMatches(data string) []encodingMatch {
 		filtered = append(filtered, m)
 	}
 
-	return filtered
+	return filtered, nil
 }

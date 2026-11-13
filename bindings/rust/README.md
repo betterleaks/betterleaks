@@ -54,7 +54,20 @@ source prefilters and finding filters are honored. Configuration errors fail at
 construction. Scan errors and exceeded limits return `Err`, without partial
 findings. Match values can contain secrets; they are omitted from `Match`'s
 `Debug` representation, but other metadata is not automatically sanitized.
-Finding and JSON result limits bound returned output, not peak process memory.
+
+Detection also enforces 100,000 candidates, 64 MiB of cumulative allocation
+charges, 8 MiB of shared regex-index scratch, and 128 KiB per source fragment.
+The reader splits inputs into fragments automatically. Filtered matches,
+components, and decoding consume these budgets, so `Error::LimitExceeded` can
+occur below `max_findings`. Exceeded limits never return partial findings;
+the scanner remains reusable. Budgets are shared by a call's workers and are
+independent across concurrent calls.
+
+Allocation charges are conservative estimates, not a peak-memory ceiling.
+Configuration, regex-engine internals, custom expressions, runtime overhead,
+and caller-owned copies are outside the accounting. Use trusted configurations;
+use a separate process with OS resource limits when a hard ceiling is required.
+See `bindings/README.md` for the complete resource-limit contract.
 
 This is a synchronous detection API. Provider validation, filesystem traversal,
 streaming, and cancellation are not exposed. Input is UTF-8 text, including NULs;

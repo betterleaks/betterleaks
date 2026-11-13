@@ -5,6 +5,13 @@
 //! executable is required at runtime. A scanner can be shared across threads
 //! with `Arc`; each call owns its input and results.
 //!
+//! Detection enforces per-call candidate and allocation budgets shared by its
+//! workers, including filtered matches, components, and decoding. Exceeded
+//! limits return [`Error::LimitExceeded`] without partial findings; the scanner
+//! remains reusable. These budgets are not a process-memory ceiling: custom
+//! configurations and expressions must be trusted, and hard resource guarantees
+//! require a separate process with OS limits. See the native bindings README.
+//!
 //! ```no_run
 //! let scanner = betterleaks::Scanner::builder().workers(4).build()?;
 //! let result = scanner.scan_str("some source text")?;
@@ -151,7 +158,10 @@ impl ScannerBuilder {
         self
     }
 
-    /// Finding limit, from 1 through 100,000. Exceeding it returns an error.
+    /// Returned finding limit, from 1 through 100,000, checked after fragment
+    /// filtering and before output copying. Separate detection budgets also
+    /// cover discarded candidates, components, and decoding, and may cause
+    /// `Error::LimitExceeded` below this count. A failure returns no findings.
     pub fn max_findings(mut self, findings: usize) -> Self {
         self.max_findings = findings;
         self

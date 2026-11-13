@@ -268,6 +268,10 @@ type Handler func(report.Finding) error
 // Detection regex compilation failures stop the scan and are returned as errors.
 // A nil or zero-value Scanner returns an error.
 func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handler) (ScanSummary, error) {
+	return s.scan(ctx, source, handler, nil)
+}
+
+func (s *Scanner) scan(ctx context.Context, source sources.Source, handler Handler, budget *scanBudget) (ScanSummary, error) {
 	if s == nil || s.workerSlots == nil {
 		return ScanSummary{}, errors.New("scanner must be constructed with New")
 	}
@@ -275,7 +279,7 @@ func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handl
 		ctx = context.Background()
 	}
 	var scanErr error
-	summary := s.run(ctx, source, func(result scanResult) bool {
+	summary := s.run(ctx, source, budget, func(result scanResult) bool {
 		if result.err != nil {
 			scanErr = errors.Join(scanErr, result.err)
 			return true
@@ -289,7 +293,7 @@ func (s *Scanner) Scan(ctx context.Context, source sources.Source, handler Handl
 		}
 		return true
 	})
-	if err := ctx.Err(); err != nil && !errors.Is(scanErr, err) {
+	if err := context.Cause(ctx); err != nil && !errors.Is(scanErr, err) {
 		scanErr = errors.Join(scanErr, err)
 	}
 	return summary, scanErr
@@ -304,6 +308,7 @@ type scanState struct {
 	bytes       atomic.Uint64
 	summary     ScanSummary
 	ruleTimings *ruletiming.Collector
+	budget      *scanBudget
 }
 
 type fragmentResult struct {
@@ -314,8 +319,8 @@ type fragmentResult struct {
 }
 
 //nolint:nonamedreturns // Deferred cleanup joins workers before collecting the final byte count.
-func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(scanResult) bool) (summary ScanSummary) {
-	state := scanState{}
+func (s *Scanner) run(ctx context.Context, source sources.Source, budget *scanBudget, yield func(scanResult) bool) (summary ScanSummary) {
+	state := scanState{budget: budget} //nolint:exhaustruct // Per-call counters and summary start at zero.
 	if source == nil {
 		_ = yield(scanResult{err: errors.New("scanner: nil source")})
 		return state.summary
@@ -324,6 +329,11 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(sca
 		ctx = context.Background()
 	}
 	state.ruleTimings = ruletiming.FromContext(ctx)
+	// Charge the result queues before allocating capacities supplied by callers.
+	if err := budget.reserveMany(s.workers, 128); err != nil {
+		_ = yield(scanResult{err: err}) //nolint:exhaustruct // An error has no finding.
+		return state.summary
+	}
 
 	runCtx, cancel := context.WithCancel(ctx)
 	resultsCh := make(chan fragmentResult, s.workers)
@@ -495,9 +505,25 @@ func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.
 	fragment.SetDefaults()
 
 	var ruleTimings *ruletiming.Collector
+	var budget *scanBudget
 	if state != nil {
 		state.bytes.Add(uint64(len(fragment.Raw)))
 		ruleTimings = state.ruleTimings
+		budget = state.budget
+	}
+	if budget != nil {
+		if len(fragment.Raw) > budget.limits.MaxFragmentBytes {
+			return nil, budget.fail("maximum fragment bytes")
+		}
+		// Source text, line offsets, and source metadata are charged once per
+		// fragment, before detection builds any result or auxiliary index.
+		bytes := 2*int64(len(fragment.Raw)) + 48*int64(strings.Count(fragment.Raw, "\n")+1) + 128*int64(len(fragment.Attributes))
+		for key, value := range fragment.Attributes {
+			bytes += int64(len(key) + len(value))
+		}
+		if err := budget.reserve(0, bytes); err != nil {
+			return nil, err
+		}
 	}
 
 	findings := []report.Finding{}
@@ -507,7 +533,7 @@ func (s *Scanner) detectFragmentWithState(ctx context.Context, fragment sources.
 	currentRaw := fragment.Raw
 	encodedSegments := []*codec.EncodedSegment{}
 	currentDecodeDepth := 0
-	detection := detectionState{}
+	detection := detectionState{ctx: ctx, budget: budget} //nolint:exhaustruct // Indices are built lazily; this is not a component pass.
 	var detectionErr error
 
 ScanLoop:
@@ -584,6 +610,10 @@ ScanLoop:
 						if finding.Match.Value != "" {
 							finding.Match.Fingerprint = fingerprint.Format(hash)
 						}
+						if err := budget.indexFinding(finding); err != nil {
+							detectionErr = err
+							break RulesLoop
+						}
 						findings = append(findings, finding)
 						priorFindings.findings = findings
 						priorFindings.add(len(findings) - 1)
@@ -609,7 +639,17 @@ ScanLoop:
 			}
 
 			// decode the currentRaw for the next pass
-			currentRaw, encodedSegments = codec.Decode(currentRaw, encodedSegments)
+			if budget == nil {
+				currentRaw, encodedSegments = codec.Decode(currentRaw, encodedSegments)
+			} else {
+				var err error
+				currentRaw, encodedSegments, err = codec.DecodeWithBudget(currentRaw, encodedSegments, func(bytes int64) error {
+					return budget.reserve(0, bytes)
+				})
+				if err != nil {
+					return nil, err
+				}
+			}
 
 			// stop the loop when there's nothing else to decode
 			if len(encodedSegments) == 0 {
@@ -617,7 +657,21 @@ ScanLoop:
 			}
 		}
 	}
+	if budget != nil && detectionErr != nil {
+		return nil, detectionErr
+	}
 	findings = s.filterIndexed(findings, priorFindings)
+	if err := budget.accept(len(findings)); err != nil {
+		return nil, err
+	}
+	// Fail before detaching match text or copying metadata for delivery.
+	if budget != nil {
+		for _, finding := range findings {
+			if err := budget.reserve(0, findingAllocationBytes(finding)); err != nil {
+				return nil, err
+			}
+		}
+	}
 	detachFindingText(findings)
 	return findings, detectionErr
 }
@@ -670,6 +724,8 @@ type detectionState struct {
 	spans       []regexspan.Span
 	component   bool
 	lineOffsets []int
+	ctx         context.Context
+	budget      *scanBudget
 }
 
 func (s *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
@@ -769,6 +825,14 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	// Ensure default fields are properly set
 	fragment.SetDefaults()
 
+	if err := state.budget.reserve(0, 0); err != nil {
+		return nil, err
+	}
+	candidateBytes := int64(0)
+	if state.budget != nil {
+		candidateBytes = candidateAllocationBytes(fragment, r, s.globalFilter != nil || r.filter != nil)
+	}
+
 	if r.regex == nil {
 		// Decoding content cannot change a path-only result.
 		if len(encodedSegments) > 0 {
@@ -779,6 +843,9 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			return nil, err
 		}
 		if matched {
+			if err := state.budget.reserve(1, candidateBytes+2*int64(len(fragment.Attr(sources.AttrPath)))); err != nil {
+				return nil, err
+			}
 			finding := newPathOnlyFinding(r, fragment)
 			if !s.filterPathFinding(r, &finding) {
 				return append(findings, finding), nil
@@ -803,6 +870,9 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		}
 		if err := r.regex.Compile(); err != nil {
 			return nil, fmt.Errorf("compile rule %q regex: %w", r.rule.ID, err)
+		}
+		if state.budget != nil {
+			return state.budget.find(state.ctx, r.regex, raw, candidateBytes)
 		}
 		if r.regex.NumSubexp() > 0 {
 			return r.regex.FindAllStringSubmatchIndex(raw, -1), nil
@@ -842,6 +912,9 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	}
 
 	for _, indexes := range matches {
+		if err := state.budget.reserve(0, 0); err != nil {
+			return nil, err
+		}
 		matchIndex := indexes[:2]
 		secret := strings.Trim(currentRaw[matchIndex[0]:matchIndex[1]], "\n")
 		filterMatchStartIdx, filterMatchEndIdx := matchIndex[0], matchIndex[1]
@@ -853,6 +926,9 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 		// Check if the decoded portions of the segment overlap with the match
 		// to see if its potentially a new match
 		if len(encodedSegments) > 0 {
+			if err := state.budget.reserveMany(len(encodedSegments), 16); err != nil {
+				return nil, err
+			}
 			segments := codec.SegmentsWithDecodedOverlap(encodedSegments, matchIndex[0], matchIndex[1])
 			if len(segments) == 0 {
 				// This item has already been added to a finding
@@ -962,6 +1038,11 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			continue
 		}
 
+		// Entropy's rune-count map scales with the match even when a filter
+		// later discards it. Reserve before building that map.
+		if err := state.budget.reserveMany(len(finding.Match.Value), 64); err != nil {
+			return nil, err
+		}
 		entropy := shannonEntropy(finding.Match.Value)
 
 		hasGlobalFilter := s.globalFilter != nil
@@ -1025,6 +1106,11 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 		}
 
+		if state.budget != nil {
+			if err := state.budget.reserve(0, matchAllocationBytes(finding.Match)); err != nil {
+				return nil, err
+			}
+		}
 		findings = append(findings, finding)
 	}
 
@@ -1051,8 +1137,11 @@ func (s *Scanner) processComponents(ruleTimings *ruletiming.Collector, fragment 
 		return primaryFindings, nil
 	}
 
+	if err := state.budget.reserveMany(len(r.components), 32); err != nil {
+		return nil, err
+	}
 	allComponentFindings := make([][]report.Finding, len(r.components))
-	componentState := detectionState{component: true, lineOffsets: state.lineOffsets}
+	componentState := detectionState{component: true, spans: nil, lineOffsets: state.lineOffsets, ctx: state.ctx, budget: state.budget}
 	for i, component := range r.components {
 		rule := &s.rulesBySpecificity[component.ruleIndex]
 		var err error
@@ -1077,7 +1166,7 @@ nextPrimary:
 					if found.Match.Value != "" {
 						found.Match.Fingerprint = fingerprint.Format(hash)
 					}
-					componentFindings = append(componentFindings, report.ComponentFinding{
+					candidate := report.ComponentFinding{
 						RuleID:      found.RuleID,
 						RuleHash:    found.RuleHash,
 						Optional:    component.optional,
@@ -1085,7 +1174,13 @@ nextPrimary:
 						Location:    found.Location,
 						Encodings:   found.Encodings,
 						DecodeDepth: found.DecodeDepth,
-					})
+					}
+					if state.budget != nil {
+						if err := state.budget.reserve(0, componentAllocationBytes(candidate)); err != nil {
+							return nil, err
+						}
+					}
+					componentFindings = append(componentFindings, candidate)
 				}
 			}
 			if !component.optional && len(componentFindings) == before {
@@ -1093,6 +1188,9 @@ nextPrimary:
 			}
 		}
 
+		if err := state.budget.componentSets(componentFindings); err != nil {
+			return nil, err
+		}
 		primaryFinding.ComponentSets, primaryFinding.ComponentSetsTruncated = buildComponentSets(componentFindings, maxComponentSets)
 		finalFindings = append(finalFindings, primaryFinding)
 	}

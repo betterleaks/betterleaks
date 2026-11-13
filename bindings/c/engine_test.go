@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -187,4 +189,36 @@ func TestConcurrentScans(t *testing.T) {
 		})
 	}
 	group.Wait()
+}
+
+func TestDetectionBudgetStopsDenseScanBeforeResultHandler(t *testing.T) {
+	s := scannerForTest(t, testConfig, map[string]any{"max_findings": 1})
+	attributes := make(map[string]string, 1024)
+	for i := range 1024 {
+		attributes[fmt.Sprintf("key%04d", i)] = "v"
+	}
+	encoded, err := json.Marshal(attributes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := []byte(strings.Repeat(testToken+"\n", 2000))
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	result, err := s.scan(input, encoded)
+	runtime.ReadMemStats(&after)
+	var api *apiError
+	if result != nil || !errors.As(err, &api) || api.status != statusLimit || !errors.Is(err, scan.ErrLimitExceeded) {
+		t.Fatalf("expected a detection limit without partial output, got %v", err)
+	}
+	allocated := after.TotalAlloc - before.TotalAlloc
+	// The metadata-sharing implementation still allocated about 13 MiB here.
+	// Collecting only a bounded match list must fail before materializing it.
+	if allocated > 8<<20 {
+		t.Fatalf("dense rejected scan allocated %.2f MiB", float64(allocated)/(1<<20))
+	}
+	t.Logf("dense rejected scan allocated %.2f MiB", float64(allocated)/(1<<20))
+	if _, err := s.scan([]byte(testToken), encoded); err != nil {
+		t.Fatalf("scan after limit failure: %v", err)
+	}
 }

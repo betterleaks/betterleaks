@@ -21,18 +21,22 @@ import (
 )
 
 const (
-	abiVersion        = 1
-	statusInvalid     = 1
-	statusConfig      = 2
-	statusScan        = 3
-	statusLimit       = 4
-	statusInternal    = 5
-	maxOptionsBytes   = 8 << 20
-	maxAttributeBytes = 1 << 20
-	maxInputBytes     = 64 << 20
-	maxResultBytes    = 64 << 20
-	defaultInputBytes = 8 << 20
-	defaultFindings   = 10_000
+	abiVersion         = 1
+	statusInvalid      = 1
+	statusConfig       = 2
+	statusScan         = 3
+	statusLimit        = 4
+	statusInternal     = 5
+	maxOptionsBytes    = 8 << 20
+	maxAttributeBytes  = 1 << 20
+	maxInputBytes      = 64 << 20
+	maxResultBytes     = 64 << 20
+	maxDetectionBytes  = 64 << 20
+	maxCandidates      = 100_000
+	maxFragmentBytes   = 128 << 10
+	maxMatchIndexBytes = 8 << 20
+	defaultInputBytes  = 8 << 20
+	defaultFindings    = 10_000
 )
 
 type apiError struct {
@@ -180,6 +184,9 @@ func (s *nativeScanner) scan(input, attributeJSON []byte) ([]byte, error) {
 	if !utf8.Valid(input) {
 		return nil, failure(statusInvalid, "input must be valid UTF-8")
 	}
+	if len(attributeJSON) > maxAttributeBytes {
+		return nil, failure(statusLimit, "source attributes exceed 1 MiB")
+	}
 	attributes := map[string]string{}
 	if len(attributeJSON) > 0 {
 		if err := decodeObject(attributeJSON, &attributes); err != nil {
@@ -196,9 +203,14 @@ func (s *nativeScanner) scan(input, attributeJSON []byte) ([]byte, error) {
 	// max_findings must not allocate an oversized response before the final
 	// size check. Marshaling findings twice only costs on finding-heavy scans.
 	resultBytes := 0
-	summary, err := s.scanner.Scan(context.Background(), &sources.Reader{
+	limits := scan.ScanLimits{
+		MaxFindings: s.maxFindings, MaxCandidates: maxCandidates,
+		MaxBytes: maxDetectionBytes, MaxFragmentBytes: maxFragmentBytes,
+		MaxMatchIndexBytes: maxMatchIndexBytes,
+	}
+	summary, err := s.scanner.ScanWithLimits(context.Background(), &sources.Reader{
 		Content: bytes.NewReader(input), Attributes: attributes, Prefilter: s.prefilter,
-	}, func(finding report.Finding) error {
+	}, limits, func(finding report.Finding) error {
 		if len(response.Findings) == s.maxFindings {
 			return failure(statusLimit, "scan exceeds max_findings")
 		}
@@ -213,6 +225,9 @@ func (s *nativeScanner) scan(input, attributeJSON []byte) ([]byte, error) {
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, scan.ErrLimitExceeded) {
+			return nil, &apiError{statusLimit, err}
+		}
 		var api *apiError
 		if errors.As(err, &api) {
 			return nil, api
