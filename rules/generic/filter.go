@@ -19,8 +19,9 @@ const genericAPIKeyMatchFilter = `(?i)(?:` + genericAPIKeyIdentifierFilter + `|a
 var genericAPIKeyFilter = buildGenericAPIKeyFilter()
 
 func buildGenericAPIKeyFilter() string {
-	return `matchesAny(finding["secret"], [` + "`^[a-zA-Z_.-]+$`" + `])
-|| (containsAny(finding["secret"], ` + exprStringList(genericStopWords) + `) || matchesAny(genericMatchContext, [` + "`" + genericAPIKeyMatchFilter + "`" + `]))
+	return `matchesAny(finding["secret"], [` + "`^[a-zA-Z_.-]+$`" + `, ` + "`^(?:ecdh|ecdsa)-sha2-nistp\\d+$`" + `])
+|| (matchesAny(finding["secret"], [` + "`^C\\.[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$`" + `]) && matchesAny(finding["match"], [` + "`=[ \\t]*C\\.`" + `]))
+|| matchesAny(genericMatchContext, [` + "`" + genericAPIKeyMatchFilter + "`" + `])
 || matchesAny(finding["line"], [
   ` + "`--mount=type=secret,`" + `,
   ` + "`import[ \\t]+{[ \\t\\w,]+}[ \\t]+from[ \\t]+['\"][^'\"]+['\"]`" + `
@@ -71,6 +72,7 @@ var testAndPublicAPIFilters = []testAndPublicAPIFilter{
 	{regex: `public-token-live-` + uuidHex},                             // Stytch Public Live Token
 	{regex: `pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}`}, // Paddle Sandbox API Key
 	{regex: `8c6803164dbc395fb7131c9d54843627`},                         // Flickr API key in Dojo Toolkit (deactivated)
+	{regex: `6fe4476ee5a1832882e326b506d14126`},                         // public apiKey, was in the stopword list
 	// Regex + Keyword
 	{`pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe", "woo", "wcm"}}, // Stripe and WooCommerce Sandbox Publishable Key
 	{`rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe"}},               // Stripe Sandbox Restricted Key
@@ -191,12 +193,4 @@ func exprStringListInline(ss []string) string {
 		parts[i] = strconv.Quote(s)
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
-}
-
-func exprStringList(ss []string) string {
-	parts := make([]string, len(ss))
-	for i, s := range ss {
-		parts[i] = strconv.Quote(s)
-	}
-	return exprList(parts)
 }
