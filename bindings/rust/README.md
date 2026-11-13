@@ -28,13 +28,10 @@ runtime; nothing else is needed at runtime.
 
 ```rust
 use betterleaks::Scanner;
-use std::collections::BTreeMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scanner = Scanner::builder().workers(4).build()?;
-    let content = std::fs::read_to_string("config.env")?;
-    let attributes = BTreeMap::from([("path".into(), "config.env".into())]);
-    let result = scanner.scan_with_attributes(&content, &attributes)?;
+    let result = scanner.scan_file("config.env")?;
     for finding in result.findings {
         println!("{} at line {}", finding.rule_id, finding.location.start_line);
     }
@@ -42,7 +39,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Use `scan_str` when no source metadata is needed. `Scanner` is `Send + Sync` and
+`scan_file` accepts a `Path` or string and lets Go open, stream, and close one
+regular UTF-8 file. `scan_file_with_attributes` also accepts custom metadata.
+The supplied path and `resource = "fs.content"` override those attribute keys.
+Paths must be nonempty UTF-8 without NULs, at most 1 MiB; relative paths use the
+process working directory. Symlinks to regular files are followed, and Windows
+path separators are normalized to `/` in findings. Keep the file unchanged until
+the call returns. Directory traversal and archive expansion are not performed.
+Missing/unreadable files return `Error::Scan`; invalid paths, non-regular files,
+and invalid UTF-8 content return `Error::InvalidArgument`.
+
+File scans use the same per-call input, detection, and result limits as buffer
+scans. The input limit is enforced while reading, including if the file grows;
+errors never return partial findings. Prebuilt libraries must include the new
+`bl_scanner_scan_file` export, so rebuild older archives/DLLs before using this
+crate version with file scanning.
+
+Use `scan_str` or `scan_with_attributes` for text already in memory.
+`Scanner` is `Send + Sync` and
 can be shared using `Arc`; its worker limit applies across all calls. Results
 own their data and outlive the scanner. Dropping the scanner and temporary
 native result buffers releases their native resources automatically.
@@ -69,8 +83,8 @@ and caller-owned copies are outside the accounting. Use trusted configurations;
 use a separate process with OS resource limits when a hard ceiling is required.
 See `bindings/README.md` for the complete resource-limit contract.
 
-This is a synchronous detection API. Provider validation, filesystem traversal,
-streaming, and cancellation are not exposed. Input is UTF-8 text, including NULs;
+This is a synchronous detection API. Provider validation, directory traversal,
+caller-supplied streams, and cancellation are not exposed. Input is UTF-8 text, including NULs;
 JSON result text follows Go's UTF-8 conversion semantics. Lines and byte columns
 are one-based, with zero for missing coordinates. Finding order is unspecified.
 The Go runtime is embedded in the process; fatal native failures can terminate
@@ -80,5 +94,6 @@ The repository's `examples/rust` is a standalone Cargo consumer:
 
 ```sh
 cargo run --manifest-path examples/rust/Cargo.toml
+cargo run --manifest-path examples/rust/Cargo.toml -- config.env
 cargo test --manifest-path bindings/rust/Cargo.toml --workspace
 ```

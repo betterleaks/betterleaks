@@ -23,3 +23,8 @@ repository. Callers must uphold its pointer, length, and ownership contract.
 Release every returned buffer exactly once using `bl_buffer_free`. Scanners
 support concurrent calls and must be released using `bl_scanner_free`. The
 native library shares the host process and its failure domain.
+
+`bl_scanner_scan_file` accepts a length-delimited UTF-8 path and optional JSON
+attributes. The native engine opens and streams one regular UTF-8 file, using
+the same detection limits as `bl_scanner_scan`. Rebuild prebuilt libraries made
+before this export was added; no Rust-side file reading is required.

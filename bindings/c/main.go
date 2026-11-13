@@ -114,6 +114,34 @@ func bl_scanner_scan(handle C.uint64_t, input *C.uint8_t, inputLen C.size_t,
 	return C.BL_OK
 }
 
+//export bl_scanner_scan_file
+func bl_scanner_scan_file(handle C.uint64_t, path *C.uint8_t, pathLen C.size_t,
+	attributes *C.uint8_t, attributesLen C.size_t, outResult, outError *C.bl_buffer) (status C.int32_t) {
+	if outResult == nil || outError == nil || outResult == outError {
+		return C.BL_INVALID_ARGUMENT
+	}
+	*outResult, *outError = C.bl_buffer{}, C.bl_buffer{}
+	defer recoverCall(&status, outError)
+	scanner, err := lookupScanner(uint64(handle))
+	if err != nil {
+		return writeError(outError, err)
+	}
+	name, err := copyInput(path, pathLen, maxPathBytes)
+	if err != nil {
+		return writeError(outError, err)
+	}
+	attrs, err := copyInput(attributes, attributesLen, maxAttributeBytes)
+	if err != nil {
+		return writeError(outError, err)
+	}
+	encoded, err := scanner.scanFile(name, attrs)
+	if err != nil {
+		return writeError(outError, err)
+	}
+	*outResult = outputBuffer(encoded)
+	return C.BL_OK
+}
+
 //export bl_scanner_free
 func bl_scanner_free(handle C.uint64_t) C.int32_t {
 	if !deleteScanner(uint64(handle)) {

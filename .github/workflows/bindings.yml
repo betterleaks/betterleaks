@@ -6,6 +6,8 @@ on:
       - "bindings/**"
       - "examples/rust/**"
       - "scan/**"
+      - "sources/**"
+      - "internal/codec/**"
       - "go.mod"
       - "go.sum"
       - ".github/workflows/bindings.yml"
@@ -57,7 +59,9 @@ jobs:
             cc -I bindings/c bindings/c/tests/boundary.c /tmp/libbetterleaks.a \
               -lpthread -ldl -lm -lresolv -o /tmp/boundary
           fi
-          /tmp/boundary
+          fixture_dir="$(mktemp -d)"
+          /tmp/boundary "$fixture_dir/input.env"
+          rmdir "$fixture_dir"
 
       # Build-time coverage only; running Windows consumers still needs a
       # Windows job before the target is promoted in the support table.

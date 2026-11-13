@@ -23,7 +23,7 @@
 
 use betterleaks_sys as sys;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fmt, num::NonZeroU64, slice};
+use std::{collections::BTreeMap, fmt, num::NonZeroU64, path::Path, slice};
 
 /// A failed call never returns partial findings as a successful result.
 #[derive(Debug)]
@@ -223,6 +223,54 @@ impl Scanner {
         self.scan_encoded(input, &attributes)
     }
 
+    /// Open and scan one regular UTF-8 file in the native engine.
+    ///
+    /// Go streams and closes the file; Rust does not load its contents. The
+    /// same input, detection, and output limits apply as for [`Self::scan_str`].
+    /// Paths must be nonempty UTF-8 without NULs. Relative paths use the process
+    /// working directory, and symlinks to regular files are followed. Keep the
+    /// file unchanged until the call returns; this does not take a snapshot.
+    /// Directories and archive expansion are not supported by this method.
+    pub fn scan_file(&self, path: impl AsRef<Path>) -> Result<ScanResult, Error> {
+        self.scan_file_encoded(path.as_ref(), &[])
+    }
+
+    /// Scan a file with additional metadata for prefilters and finding filters.
+    /// The supplied file path (with `/` separators) and file resource type take
+    /// precedence over `path` and `resource` entries in `attributes`.
+    pub fn scan_file_with_attributes(
+        &self,
+        path: impl AsRef<Path>,
+        attributes: &BTreeMap<String, String>,
+    ) -> Result<ScanResult, Error> {
+        let attributes =
+            serde_json::to_vec(attributes).map_err(|e| Error::Protocol(e.to_string()))?;
+        self.scan_file_encoded(path.as_ref(), &attributes)
+    }
+
+    fn scan_file_encoded(&self, path: &Path, attributes: &[u8]) -> Result<ScanResult, Error> {
+        let path = path
+            .to_str()
+            .ok_or_else(|| Error::InvalidArgument("file path must be valid UTF-8".into()))?;
+        let mut result = NativeBuffer::default();
+        let mut error = NativeBuffer::default();
+        // SAFETY: &self retains the scanner; both input buffers live throughout
+        // the call and Go copies them before scanning. Output buffers are
+        // initialized, writable, distinct, and owned by their guards.
+        let status = unsafe {
+            sys::bl_scanner_scan_file(
+                self.handle.get(),
+                path.as_ptr(),
+                path.len(),
+                attributes.as_ptr(),
+                attributes.len(),
+                &mut result.0,
+                &mut error.0,
+            )
+        };
+        Self::decode_result(status, &result, &error)
+    }
+
     fn scan_encoded(&self, input: &str, attributes: &[u8]) -> Result<ScanResult, Error> {
         let mut result = NativeBuffer::default();
         let mut error = NativeBuffer::default();
@@ -240,7 +288,15 @@ impl Scanner {
                 &mut error.0,
             )
         };
-        check_status(status, &error)?;
+        Self::decode_result(status, &result, &error)
+    }
+
+    fn decode_result(
+        status: i32,
+        result: &NativeBuffer,
+        error: &NativeBuffer,
+    ) -> Result<ScanResult, Error> {
+        check_status(status, error)?;
         let result: ScanResult =
             serde_json::from_slice(result.bytes()?).map_err(|e| Error::Protocol(e.to_string()))?;
         if result.schema_version != sys::ABI_VERSION {

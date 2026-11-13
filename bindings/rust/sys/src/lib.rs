@@ -51,6 +51,15 @@ extern "C" {
         out_result: *mut Buffer,
         out_error: *mut Buffer,
     ) -> i32;
+    pub fn bl_scanner_scan_file(
+        scanner: u64,
+        path: *const u8,
+        path_len: usize,
+        attributes: *const u8,
+        attributes_len: usize,
+        out_result: *mut Buffer,
+        out_error: *mut Buffer,
+    ) -> i32;
     pub fn bl_scanner_free(scanner: u64) -> i32;
     pub fn bl_buffer_free(buffer: Buffer);
 }

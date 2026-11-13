@@ -29,6 +29,7 @@ const (
 	statusInternal     = 5
 	maxOptionsBytes    = 8 << 20
 	maxAttributeBytes  = 1 << 20
+	maxPathBytes       = 1 << 20
 	maxInputBytes      = 64 << 20
 	maxResultBytes     = 64 << 20
 	maxDetectionBytes  = 64 << 20
@@ -184,6 +185,14 @@ func (s *nativeScanner) scan(input, attributeJSON []byte) ([]byte, error) {
 	if !utf8.Valid(input) {
 		return nil, failure(statusInvalid, "input must be valid UTF-8")
 	}
+	attributes, err := sourceAttributes(attributeJSON)
+	if err != nil {
+		return nil, err
+	}
+	return s.scanReader(bytes.NewReader(input), attributes)
+}
+
+func sourceAttributes(attributeJSON []byte) (map[string]string, error) {
 	if len(attributeJSON) > maxAttributeBytes {
 		return nil, failure(statusLimit, "source attributes exceed 1 MiB")
 	}
@@ -193,6 +202,17 @@ func (s *nativeScanner) scan(input, attributeJSON []byte) ([]byte, error) {
 			return nil, &apiError{statusInvalid, fmt.Errorf("source attributes: %w", err)}
 		}
 	}
+	return attributes, nil
+}
+
+func (s *nativeScanner) scanReader(content io.Reader, attributes map[string]string) ([]byte, error) {
+	return s.scanSource(&sources.Reader{
+		Content: content, Attributes: attributes, Prefilter: s.prefilter,
+	})
+}
+
+// Both entry points use the same per-call detection and output budgets.
+func (s *nativeScanner) scanSource(source sources.Source) ([]byte, error) {
 	response := scanResponse{
 		SchemaVersion: abiVersion,
 		EngineVersion: version.Version,
@@ -208,9 +228,7 @@ func (s *nativeScanner) scan(input, attributeJSON []byte) ([]byte, error) {
 		MaxBytes: maxDetectionBytes, MaxFragmentBytes: maxFragmentBytes,
 		MaxMatchIndexBytes: maxMatchIndexBytes,
 	}
-	summary, err := s.scanner.ScanWithLimits(context.Background(), &sources.Reader{
-		Content: bytes.NewReader(input), Attributes: attributes, Prefilter: s.prefilter,
-	}, limits, func(finding report.Finding) error {
+	summary, err := s.scanner.ScanWithLimits(context.Background(), source, limits, func(finding report.Finding) error {
 		if len(response.Findings) == s.maxFindings {
 			return failure(statusLimit, "scan exceeds max_findings")
 		}

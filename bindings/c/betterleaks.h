@@ -48,6 +48,23 @@ int32_t bl_scanner_scan(uint64_t scanner, uint8_t *input, size_t input_len,
                         uint8_t *attributes, size_t attributes_len,
                         bl_buffer *out_result, bl_buffer *out_error);
 
+/* Open and scan one regular UTF-8 file in Go, using the same per-call limits
+ * and result/ownership contract as bl_scanner_scan. Path is length-delimited,
+ * nonempty UTF-8 without NULs, at most 1 MiB. Relative paths use the process
+ * working directory; symlinks to regular files are followed. The supplied path
+ * (with '/' separators) and resource="fs.content" override those attributes.
+ * Internal fs.first_fragment metadata is set by the engine for path-only rules.
+ * Reads are streamed and capped at max_input_bytes plus one lookahead byte.
+ * No directory traversal or archive expansion is performed. Files must remain
+ * unchanged during the call; this API does not take a filesystem snapshot.
+ * Invalid paths/content or non-regular files return BL_INVALID_ARGUMENT;
+ * open/stat/read failures return BL_SCAN_ERROR. Failures return no partial
+ * result. File descriptors are closed before returning, including on failure.
+ */
+int32_t bl_scanner_scan_file(uint64_t scanner, uint8_t *path, size_t path_len,
+                             uint8_t *attributes, size_t attributes_len,
+                             bl_buffer *out_result, bl_buffer *out_error);
+
 /* Concurrent scans are supported. Free invalidates the handle for new calls;
  * calls that have already acquired the scanner finish normally. Handles are
  * never reused. An unknown or already-freed handle returns BL_INVALID_ARGUMENT.
