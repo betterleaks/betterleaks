@@ -77,7 +77,7 @@ func genericCredential() config.Rule {
 		Specificity: -100,
 		FilterExpr: `// Reject implausible values before preparing context and confidence.
 entropy(finding["secret"]) <= 3.5
-|| failsTokenEfficiency(finding["secret"])
+|| tokenRatio(finding["secret"]) >= 2.5
 || (
 ` + structuredMatchContext + `
 // Remove XML attributes from complete opening tags in the name-filter context.
@@ -151,6 +151,8 @@ let _ = setConfidence(level);
 		rulebuilder.Match("random key containing auth", `api_key = "Xk2q9TfZrB7wLauthpN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLauthpN4cVy8sJ3mQe6RdG1aUoHn"),
 		rulebuilder.Match("random key containing type", `api_key = "Xk2q9TfZrB7wLtypepN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLtypepN4cVy8sJ3mQe6RdG1aUoHn"),
 		rulebuilder.Match("random key containing zero", `api_key = "Xk2q9TfZrB7wLzeropN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLzeropN4cVy8sJ3mQe6RdG1aUoHn"),
+		rulebuilder.Match("random key containing walks", `api_key = "Xk2q9TfZrB7wLwalkspN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLwalkspN4cVy8sJ3mQe6RdG1aUoHn"),
+		rulebuilder.Match("random key containing guile", `api_key = "Xk2q9TfZrB7wLguilepN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLguilepN4cVy8sJ3mQe6RdG1aUoHn"),
 		rulebuilder.Match("word filter only examines value", "authtype_api_key = RFbD56TI2smTyVsGd5Xav0yu99ZAMP", "RFbD56TI2smTyVsGd5Xav0yu99ZAMP"),
 		rulebuilder.Match("key starting with C.", `api_key = "C.A1B2C3D4E5F6G7H8I9J0K1"`, "C.A1B2C3D4E5F6G7H8I9J0K1"),
 		rulebuilder.Match("key starting with C. 2", `api_key = "C.A1B2_C3D4E5F6G7H8I9J0K1"`, "C.A1B2_C3D4E5F6G7H8I9J0K1"),
@@ -233,6 +235,24 @@ let _ = setConfidence(level);
 		rulebuilder.NoMatch("OpenSSL zero SECP key reference", "PeerKey=BOB_zero_secp112r2_PUB"),
 		rulebuilder.NoMatch("OpenSSL zero WTLS private key reference", "PrivateKey=ALICE_zero_wap-wsg-idm-ecid-wtls7"),
 		rulebuilder.NoMatch("OpenSSL zero WTLS public key reference", "PeerKey=BOB_zero_wap-wsg-idm-ecid-wtls7_PUB"),
+		rulebuilder.NoMatch("Linux keypad pin name", "keypad_col0_0: keypad-col0-0-pins {"),
+		rulebuilder.NoMatch("Linux touchkey pin name", "key_i2c_pins: touchkey-i2c-pins {"),
+		rulebuilder.NoMatch("Linux regulator node name", "keym: regulator-vcc3v3-m2-keym {"),
+		rulebuilder.NoMatch("Linux hardware probe constant", "key = RISCV_HWPROBE_KEY_IMA_EXT_0;"),
+		rulebuilder.NoMatch("Linux segment type constant", "key.rsc = MLX5_SGMT_TYPE_SX_SLICE_ALL;"),
+		rulebuilder.NoMatch("Linux normal VCAP keyset", "keyset = VCAP_KFS_NORMAL_5TUPLE_IP4;"),
+		rulebuilder.NoMatch("Django template cache key", `cache_key = "template.cache.foo.a6360ec2c58ecc4b23fd5bd00216fccd"`),
+		rulebuilder.NoMatch("Custom HTTP header name", `key: 'X-Custom-Header-1'`),
+		rulebuilder.NoMatch("OpenSSL KAS private key reference", "PrivateKey=KAS-ECC-CDH_K-163_C20"),
+		rulebuilder.NoMatch("OpenSSL KAS peer key reference", "PeerKey=KAS-ECC-CDH_P-192_C0-Peer-PUBLIC"),
+		rulebuilder.NoMatch("OpenSSL brainpool key reference", "PrivateKey=ALICE_cf_brainpoolP160r1"),
+		rulebuilder.NoMatch("OpenSSL malicious peer key reference", "PeerKey=MALICE_cf_c2pnb163v1_PUB"),
+		rulebuilder.NoMatch("OpenSSL prime key reference", "PrivateKey=BOB_prime192v2"),
+		rulebuilder.NoMatch("OpenSSL cofactor prime key reference", "PrivateKey=BOB_cf_prime192v2"),
+		rulebuilder.NoMatch("OpenSSL RFC5114 key reference", "PeerKey=SECP224R1_RFC5114-PUBLIC"),
+		rulebuilder.NoMatch("OpenSSL RFC5903 key reference", "PeerKey=SECP384R1_RFC5903-PUBLIC"),
+		rulebuilder.NoMatch("OpenSSL ED25519 key reference", "PeerKey=ED25519-1-PUBLIC"),
+		rulebuilder.NoMatch("OpenSSL ED448 key reference", "PeerKey=ED448-1-PUBLIC-Raw"),
 		rulebuilder.NoMatch("false positive 41", `const validKeyChars = "0123456789abcdefghijklmnopqrstuvwxyz_-."`),
 		rulebuilder.NoMatch("false positive 42", `const keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"`),
 		rulebuilder.NoMatch("false positive 43", "key_length = XSalsa20.key_length"),
