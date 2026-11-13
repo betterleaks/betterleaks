@@ -99,7 +99,10 @@ var testAndPublicAPIFilters = []testAndPublicAPIFilter{
 	{regex: `0x4AAAAAA[A-Za-z0-9_-]{15}`},                               // Cloudflare Turnstile Site Key
 	{regex: `FCM[a-zA-Z0-9]{13}`},                                       // Friendly Captcha Site Key
 	{regex: `ysc1_[A-Za-z0-9_-]{48}`},                                   // Yandex SmartCaptcha Site Key
-	{regex: `phc_[A-Za-z0-9_-]{43,44}`},                                 // Posthog Project API Key
+	{regex: `phc_[A-Za-z0-9_-]{41,44}`},                                 // Posthog Project API Key
+	{regex: `(test|live)_pub_[0-9a-fA-F]{31}`},                          // Lob Publishable API Key
+	{regex: `FLWPUBK_TEST-[a-hA-H0-9]{32}-[Xx]`},                        // Flutterwave Test Public Key
+	{regex: `dvc_(client|mobile)_[A-Za-z0-9_]{8,44}`},                   // DevCycle Client and Mobile SDK Key
 	{regex: `APP_USR-` + uuidHex},                                       // Mercado Pago Production Public Key
 	{regex: `access-(sandbox|development)-` + uuidHex},                  // Plaid Sandbox/Development Access Token
 	{regex: `asset-report-(sandbox|development)-` + uuidHex},            // Plaid Sandbox/Development Asset Report Token

@@ -2764,54 +2764,6 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
-# devcycle-client-sdk-key
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "devcycle-client-sdk-key"
-description = "DevCycle client SDK key."
-regex = '''\b(dvc_client_[A-Za-z0-9]{8,32})'''
-confidence = "high"
-keywords = ["dvc_client_"]
-validate = '''
-let r = http.post("https://bucketing-api.devcycle.com/v1/variables", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Content-Type": "application/json"
-  }, "{\"user_id\":\"betterleaks-validation-user\"}"); r.status == 200 ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-'''
-filter = '''
-entropy(finding["secret"]) < 3.0
-'''
-
-# ──────────────────────────────────────────────────────────────────────────────
-# devcycle-mobile-sdk-key
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "devcycle-mobile-sdk-key"
-description = "DevCycle mobile SDK key."
-regex = '''\b(dvc_mobile_[A-Za-z0-9]{8,32})'''
-confidence = "high"
-keywords = ["dvc_mobile_"]
-validate = '''
-let r = http.post("https://bucketing-api.devcycle.com/v1/variables", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Content-Type": "application/json"
-  }, "{\"user_id\":\"betterleaks-validation-user\"}"); r.status == 200 ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-'''
-filter = '''
-entropy(finding["secret"]) < 3.0
-'''
-
-# ──────────────────────────────────────────────────────────────────────────────
 # devcycle-server-sdk-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -3654,19 +3606,6 @@ entropy(finding["secret"]) <= 2.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
-# flutterwave-public-key
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "flutterwave-public-key"
-description = "Detected a Flutterwave Public Key, potentially exposing public cryptographic operations and integrations."
-regex = '''FLWPUBK_TEST-(?i)[a-h0-9]{32}-X'''
-confidence = "high"
-keywords = ["flwpubk_test"]
-filter = '''
-entropy(finding["secret"]) <= 2.0
-'''
-
-# ──────────────────────────────────────────────────────────────────────────────
 # flutterwave-secret-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -4076,7 +4015,10 @@ matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`, `^(?:ecdh|ecdsa)-sha2-nistp\d+$
   `^0x4AAAAAA[A-Za-z0-9_-]{15}$`,
   `^FCM[a-zA-Z0-9]{13}$`,
   `^ysc1_[A-Za-z0-9_-]{48}$`,
-  `^phc_[A-Za-z0-9_-]{43,44}$`,
+  `^phc_[A-Za-z0-9_-]{41,44}$`,
+  `^(test|live)_pub_[0-9a-fA-F]{31}$`,
+  `^FLWPUBK_TEST-[a-hA-H0-9]{32}-[Xx]$`,
+  `^dvc_(client|mobile)_[A-Za-z0-9_]{8,44}$`,
   `^APP_USR-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
   `^access-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
   `^asset-report-(sandbox|development)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
@@ -6637,19 +6579,6 @@ keywords = [
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
-# lob-pub-api-key
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "lob-pub-api-key"
-description = "Detected a Lob Publishable API Key, posing a risk of exposing mail and print service integrations."
-regex = '''(?i)(?:lob)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((test|live)_pub_[a-f0-9]{31})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
-confidence = "medium"
-keywords = [
-    "test_pub_",
-    "live_pub_",
-]
-
-# ──────────────────────────────────────────────────────────────────────────────
 # looker-client-id
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
@@ -8517,19 +8446,6 @@ let us = http.get("https://us.posthog.com/api/users/@me/", {
     "reason": "Unauthorized"
   } : validate.unknown(eu))
 '''
-filter = '''
-entropy(finding["secret"]) <= 3.0
-'''
-
-# ──────────────────────────────────────────────────────────────────────────────
-# posthog-project-api-key
-# ──────────────────────────────────────────────────────────────────────────────
-[[rules]]
-id = "posthog-project-api-key"
-description = "Detected a PostHog Project API Key, a public write-only token used to send events to a PostHog project."
-regex = '''(?i)\b(phc_[a-zA-Z0-9_\-]{41,44})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
-confidence = "high"
-keywords = ["phc_"]
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
