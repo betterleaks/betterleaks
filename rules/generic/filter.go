@@ -32,6 +32,12 @@ var genericAPIKeyStopWords = []string{
 	"vcap_kfs_pure_",
 	"fw_auth_",
 	"wlan_auth",
+	"lstm_",
+	"api-ms-win-",
+	"kdf_name_",
+	"keygen_mgf1_",
+	"zero_secp",
+	"zero_wap-wsg-",
 }
 
 var genericAPIKeyFilter = buildGenericAPIKeyFilter()
