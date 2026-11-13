@@ -6,18 +6,6 @@ import (
 )
 
 var _ = rulebuilder.Add(config.Rule{
-	ID:          "flutterwave-public-key",
-	Confidence:  "high",
-	Description: "Detected a Flutterwave Public Key, potentially exposing public cryptographic operations and integrations.",
-	Regex:       `FLWPUBK_TEST-(?i)[a-h0-9]{32}-X`,
-	Keywords:    []string{"flwpubk_test"},
-	FilterExpr:  `entropy(finding["secret"]) <= 2.0`,
-	Tests: []config.RuleTest{
-		rulebuilder.Match("assignment", `flutterwavePubKeyToken = "FLWPUBK_TEST-1f7b169c846f218ab552fa82fbf86758-X"`, "FLWPUBK_TEST-1f7b169c846f218ab552fa82fbf86758-X"),
-	},
-})
-
-var _ = rulebuilder.Add(config.Rule{
 	ID:          "flutterwave-secret-key",
 	Confidence:  "high",
 	Description: "Identified a Flutterwave Secret Key, risking unauthorized financial transactions and data breaches.",

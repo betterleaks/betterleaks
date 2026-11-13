@@ -6,27 +6,6 @@ import (
 )
 
 var _ = rulebuilder.Add(config.Rule{
-	ID:          "posthog-project-api-key",
-	Confidence:  "high",
-	Description: "Detected a PostHog Project API Key, a public write-only token used to send events to a PostHog project.",
-	// "phc_" + a random token. The encoding has changed over time, so the body
-	// length varies across keys still in the wild:
-	//   - base62(32 bytes)          → 41-43 chars (2021 .. early 2026)
-	//   - base57(32 bytes), top-bit → exactly 44 chars (current, since #52495)
-	Regex:      rulebuilder.Token(`(?i)phc_[a-zA-Z0-9_\-]{41,44}`),
-	Keywords:   []string{"phc_"},
-	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
-	Tests: []config.RuleTest{
-		rulebuilder.Match("assignment", `posthogToken = "phc_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92"`, "phc_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92"),
-		rulebuilder.Match("bare secret", "phc_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHC", "phc_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHC"),
-		rulebuilder.Match("bare secret 2", "phc_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH9", "phc_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH9"),
-		rulebuilder.NoMatch("too short", "phc_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575k"),
-		rulebuilder.NoMatch("too long", "phc_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9"),
-		rulebuilder.NoMatch("Wrong prefix", "phd_E123456789012345678901234567890123456789012"),
-	},
-})
-
-var _ = rulebuilder.Add(config.Rule{
 	ID:          "posthog-personal-api-key",
 	Confidence:  "high",
 	Description: "Detected a PostHog Personal API Key, which may expose administrative access to PostHog analytics projects.",
