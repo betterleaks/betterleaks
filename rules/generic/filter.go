@@ -16,10 +16,29 @@ const genericAPIKeyIdentifierFilter = `^<?[^<\[{]*(?:access(?:ibility|or)|rapid|
 
 const genericAPIKeyMatchFilter = `(?i)(?:` + genericAPIKeyIdentifierFilter + `|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|[a-z0-9-]*?api[a-z0-9-]*?:jar:|` + genericAuthorMatchFilter + `|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|key[ \t_.-]*(?:alias|id|length|name|pair|selector|signature|size|storetype)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))`
 
+// Code-symbol fragments, matched case-insensitively within values.
+var genericAPIKeyStopWords = []string{
+	"authtype",
+	"auth_alg",
+	"authalg",
+	"get_key",
+	"api_use_",
+	"authmode",
+	"keytype_",
+	"qce_ccm4309_salt_",
+	"auth_gss",
+	"no_data_",
+	"ucode_api",
+	"vcap_kfs_pure_",
+	"fw_auth_",
+	"wlan_auth",
+}
+
 var genericAPIKeyFilter = buildGenericAPIKeyFilter()
 
 func buildGenericAPIKeyFilter() string {
 	return `matchesAny(finding["secret"], [` + "`^[a-zA-Z_.-]+$`" + `, ` + "`^(?:ecdh|ecdsa)-sha2-nistp\\d+$`" + `])
+|| containsAny(finding["secret"], ` + exprStringListInline(genericAPIKeyStopWords) + `)
 || (matchesAny(finding["secret"], [` + "`^C\\.[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$`" + `]) && matchesAny(finding["match"], [` + "`=[ \\t]*C\\.`" + `]))
 || matchesAny(genericMatchContext, [` + "`" + genericAPIKeyMatchFilter + "`" + `])
 || matchesAny(finding["line"], [
