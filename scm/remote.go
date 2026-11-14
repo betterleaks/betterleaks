@@ -60,7 +60,7 @@ func PlatformFromHost(host string) Platform {
 		return AzureDevOpsPlatform
 	case "gitea.com", "code.forgejo.org", "codeberg.org":
 		return GiteaPlatform
-	case "bitbucket.org":
+	case "bitbucket.org", "ssh.bitbucket.org":
 		return BitbucketPlatform
 	default:
 		return UnknownPlatform
