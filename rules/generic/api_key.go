@@ -47,7 +47,7 @@ var _ = rulebuilder.Add(genericCredential())
 
 func genericCredential() config.Rule {
 	const identifiers = `access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token`
-	const token = `[\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3}`
+	const token = `[\w.=-]{10,150}|[a-z0-9+/][a-z0-9+/]{11,}={0,3}`
 	// Recognize labels such as S3_API_KEY without consuming a long, unbroken
 	// token assigned directly to "key" as a record label.
 	recordLabel := jsonRecordSpace + `"(?:[a-z0-9]{0,16}[_.-]){0,4}(?:` + identifiers + `)[a-z0-9_.-]{0,20}"` + jsonRecordSpace + `(?:,` + jsonRecordValue + `|value[ \t]*=|>)`
@@ -145,6 +145,10 @@ let _ = setConfidence(level);
 		rulebuilder.Match("true positive 7", `"client_secret" : "6da89121079f83b2eb6acccf8219ea982c3d79bccc3e9c6a85856480661f8fde",`, "6da89121079f83b2eb6acccf8219ea982c3d79bccc3e9c6a85856480661f8fde"),
 		rulebuilder.Match("true positive 8", "mySecretString=RFbD56TI2smTyVsGd5Xav0yu99ZAMP", "RFbD56TI2smTyVsGd5Xav0yu99ZAMP"),
 		rulebuilder.Match("true positive 9", "todo_secret_do_not_commit = RFbD56TI2smTyVsGd5Xav0yu99ZAMP", "RFbD56TI2smTyVsGd5Xav0yu99ZAMP"),
+		// Standard base64 values whose first character is + or /; the alphabet
+		// allows both in the lead position.
+		rulebuilder.Match("base64 leading with +", `cookie_key = "+RFbD56TI2smTyVsGd5Xav0yu99ZAMP"`, "+RFbD56TI2smTyVsGd5Xav0yu99ZAMP"),
+		rulebuilder.Match("base64 leading with /", `"signing_secret": "/RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSvQmnt"`, "/RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSvQmnt"),
 		rulebuilder.Match("true positive 10", ` utils.GetEnvOrDefault("api_token", "dafa7817-e246-48f3-91a7-e87653d587b8")`, "dafa7817-e246-48f3-91a7-e87653d587b8"),
 		rulebuilder.Match("random key containing a word", `api_key = "Xk2q9TfZrB7wLhookpN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLhookpN4cVy8sJ3mQe6RdG1aUoHn"),
 		rulebuilder.Match("random key containing a word 2", `api_key = "p8RvN3qLdataZx7KcW2mYt9BfJ4hGs6EuA1oTnVi"`, "p8RvN3qLdataZx7KcW2mYt9BfJ4hGs6EuA1oTnVi"),
@@ -196,6 +200,9 @@ let _ = setConfidence(level);
 		rulebuilder.NoMatch("false positive 32", `sequenceKey = "18"`),
 		rulebuilder.NoMatch("false positive 33", "app.keystore.file=env/cert.p12"),
 		rulebuilder.NoMatch("false positive 34", "-DKEYTAB_FILE=/tmp/app.keytab"),
+		// Path-valued names: a slash-leading base64 candidate that survives the
+		// entropy floor is a filesystem path, not a secret.
+		rulebuilder.NoMatch("path-valued name", `api_key_path="/aB3dE5fG7hI9"`),
 		rulebuilder.NoMatch("false positive 35", "\tdoc.Security.KeySize = PdfEncryptionKeySize.Key128Bit;"),
 		rulebuilder.NoMatch("false positive 36", "o.keySelector=n,o.haKey=!1,"),
 		rulebuilder.NoMatch("false positive 37", `                                "key_name": "prod5zyxlmy-cmk",`),
