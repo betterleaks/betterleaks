@@ -200,6 +200,9 @@ let _ = setConfidence(level);
 		rulebuilder.NoMatch("false positive 32", `sequenceKey = "18"`),
 		rulebuilder.NoMatch("false positive 33", "app.keystore.file=env/cert.p12"),
 		rulebuilder.NoMatch("false positive 34", "-DKEYTAB_FILE=/tmp/app.keytab"),
+		// Path-valued names: a slash-leading base64 candidate that survives the
+		// entropy floor is a filesystem path, not a secret.
+		rulebuilder.NoMatch("path-valued name", `api_key_path="/aB3dE5fG7hI9"`),
 		rulebuilder.NoMatch("false positive 35", "\tdoc.Security.KeySize = PdfEncryptionKeySize.Key128Bit;"),
 		rulebuilder.NoMatch("false positive 36", "o.keySelector=n,o.haKey=!1,"),
 		rulebuilder.NoMatch("false positive 37", `                                "key_name": "prod5zyxlmy-cmk",`),
