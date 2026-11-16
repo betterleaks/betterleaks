@@ -135,10 +135,6 @@
             "error"
           ]
         },
-        "reason": {
-          "type": "string",
-          "description": "Explanation of permission enrichment, including incomplete evidence or failure."
-        },
         "severity": {
           "type": "string",
           "description": "Provider-neutral lower bound derived by Betterleaks from positively observed capabilities. Independent of detection confidence and credential validity.",
@@ -167,7 +163,20 @@
           }
         },
         "metadata": {
-          "$ref": "#/$defs/metadata"
+          "$ref": "#/$defs/metadata",
+          "description": "Public evidence from enrichment, independent of status_metadata. Credential values are redacted.",
+          "properties": {
+            "notes": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Optional caveats about enrichment evidence."
+            },
+            "analysis_error": {
+              "type": "string",
+              "description": "An enrichment runtime failure or request-limit error; credential status and validation evidence are preserved."
+            }
+          }
         },
         "debug": {
           "$ref": "#/$defs/metadata",
@@ -175,11 +184,11 @@
         },
         "status_reason": {
           "type": "string",
-          "description": "Explanation of the credential state or incomplete validation."
+          "description": "Explanation of credential status, including incomplete validation or revocation."
         },
         "status_metadata": {
           "$ref": "#/$defs/metadata",
-          "description": "Explicit public metadata produced by validation, independent of enrichment metadata."
+          "description": "Explicit public evidence from validation or revocation, independent of enrichment metadata."
         }
       }
     },

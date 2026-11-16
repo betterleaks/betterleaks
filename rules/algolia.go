@@ -41,8 +41,6 @@ let can_write = intersects(acl, [
   "nluWriteProject", "nluWriteEntity", "nluWriteIntent"
 ]);
 {
-  "reason": len(acl) == 0 ? "Algolia did not return API key ACLs" :
-    !can_read && !can_write ? "Algolia returned no recognized permission grants" : "",
   "identity": {"account": {"id": input["application_id"] ?? ""}},
   "metadata": len(indexes) > 0 ? {
     "acl": acl,

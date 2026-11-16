@@ -391,8 +391,6 @@ let can_write = intersects(acl, [
   "nluWriteProject", "nluWriteEntity", "nluWriteIntent"
 ]);
 {
-  "reason": len(acl) == 0 ? "Algolia did not return API key ACLs" :
-    !can_read && !can_write ? "Algolia returned no recognized permission grants" : "",
   "identity": {"account": {"id": input["application_id"] ?? ""}},
   "metadata": len(indexes) > 0 ? {
     "acl": acl,
@@ -657,8 +655,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -972,7 +969,6 @@ analyze = '''
 let input = validation.analysis;
 let arn = input["arn"] ?? "";
 {
-  "reason": "AWS STS does not report credential permissions",
   "identity": {
     "id": input["userid"] ?? "",
     "username": matchesAny(arn, ["^arn:[^:]+:iam::[0-9]{12}:user/"]) ? last(split(arn, "/")) : "",
@@ -1296,8 +1292,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -1393,8 +1388,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -1531,14 +1525,12 @@ let can_write = matchesAny(scopes, [
   "^delete_(?:registries|packages)$"
 ]);
 {
-  "reason": "graphql" in scopes ? "Buildkite GraphQL permissions were not expanded" :
-    len(scopes) == 0 ? "Buildkite did not return token scopes" :
-    !can_read && !can_write ? "Buildkite returned no recognized REST permission grants" : "",
   "identity": {
     "name": input["name"] ?? "",
     "email": input["email"] ?? ""
   },
   "metadata": {
+    "notes": "graphql" in scopes ? ["Buildkite GraphQL permissions were not expanded"] : [],
     "token_id": input["token_id"] ?? "",
     "token_name": input["token_name"] ?? "",
     "scopes": scopes,
@@ -1733,8 +1725,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -1913,8 +1904,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -2008,11 +1998,11 @@ let permissions = map(permission_groups, {#.name ?? ""});
 let can_crud = matchesAny(permissions, ["(?: Write| Edit)$"]);
 let can_write = can_crud || matchesAny(permissions, ["(?: Revoke| Send)$", "^Cache Purge$"]);
 {
-  "reason": !details_ok ? "Cloudflare did not allow this token to read its policy details" : "",
   "identity": token_type == "account" && account_id != "" ? {
     "account": {"id": account_id}
   } : {},
   "metadata": {
+    "notes": !details_ok ? ["Cloudflare token policy details could not be retrieved"] : [],
     "token_id": token_id,
     "token_type": token_type,
     "token_name": token["name"] ?? "",
@@ -2100,11 +2090,11 @@ let permissions = map(permission_groups, {#.name ?? ""});
 let can_crud = matchesAny(permissions, ["(?: Write| Edit)$"]);
 let can_write = can_crud || matchesAny(permissions, ["(?: Revoke| Send)$", "^Cache Purge$"]);
 {
-  "reason": !details_ok ? "Cloudflare did not allow this token to read its policy details" : "",
   "identity": token_type == "account" && account_id != "" ? {
     "account": {"id": account_id}
   } : {},
   "metadata": {
+    "notes": !details_ok ? ["Cloudflare token policy details could not be retrieved"] : [],
     "token_id": token_id,
     "token_type": token_type,
     "token_name": token["name"] ?? "",
@@ -3484,10 +3474,7 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 let services = input["services"] ?? [];
-let known_scopes = ["global", "global:read", "purge_all", "purge_select"];
 {
-  "reason": len(scopes) == 0 ? "Fastly did not return token scope metadata" :
-    !intersects(scopes, known_scopes) ? "Fastly returned no recognized token scopes" : "",
   "identity": {
     "id": input["user_id"] ?? ""
   },
@@ -3544,8 +3531,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 
@@ -3580,8 +3566,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -3794,8 +3779,7 @@ let role = validation.analysis["role"] ?? "";
 let known = role in ["USER", "ARCHITECT", "ADMIN"];
 {
   "metadata": {"role": role},
-  "capabilities": analysis.capabilities({"read": known, "write": known, "admin": role == "ADMIN"}),
-  "reason": known ? "" : "Fullstory returned an unrecognized API key role"
+  "capabilities": analysis.capabilities({"read": known, "write": known, "admin": role == "ADMIN"})
 }
 '''
 filter = '''
@@ -4573,7 +4557,6 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
     "sso": input["sso"] ?? "",
@@ -4661,7 +4644,6 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
     "sso": input["sso"] ?? "",
@@ -4749,7 +4731,6 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
     "sso": input["sso"] ?? "",
@@ -5027,11 +5008,10 @@ let can_write = matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archi
 let can_create_credentials = intersects(grants, ["create_runner", "self_rotate"]);
 let can_admin = intersects(grants, ["sudo", "admin_mode"]);
 {
-  "reason": granular && len(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
-    len(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
-  "metadata": len(grants) > 0 ? {
-    "permissions": grants
-  } : {},
+  "metadata": {
+    "permissions": grants,
+    "notes": granular && len(granular_permissions) == 0 ? ["GitLab did not return fine-grained permission details"] : []
+  },
   "identity": {
     "id": input["user_id"] ?? ""
   },
@@ -5106,11 +5086,10 @@ let can_write = matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archi
 let can_create_credentials = intersects(grants, ["create_runner", "self_rotate"]);
 let can_admin = intersects(grants, ["sudo", "admin_mode"]);
 {
-  "reason": granular && len(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
-    len(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
-  "metadata": len(grants) > 0 ? {
-    "permissions": grants
-  } : {},
+  "metadata": {
+    "permissions": grants,
+    "notes": granular && len(granular_permissions) == 0 ? ["GitLab did not return fine-grained permission details"] : []
+  },
   "identity": {
     "id": input["user_id"] ?? ""
   },
@@ -5185,11 +5164,10 @@ let can_write = matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archi
 let can_create_credentials = intersects(grants, ["create_runner", "self_rotate"]);
 let can_admin = intersects(grants, ["sudo", "admin_mode"]);
 {
-  "reason": granular && len(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
-    len(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
-  "metadata": len(grants) > 0 ? {
-    "permissions": grants
-  } : {},
+  "metadata": {
+    "permissions": grants,
+    "notes": granular && len(granular_permissions) == 0 ? ["GitLab did not return fine-grained permission details"] : []
+  },
   "identity": {
     "id": input["user_id"] ?? ""
   },
@@ -5536,12 +5514,10 @@ let can_read = input["can_read"] ?? false;
     }
   },
   "metadata": {
+    "notes": is_pat && len(profile) == 0 ? ["Harness user profile was unavailable"] : [],
     "token_type": is_pat ? "personal_access_token" : "service_account_token"
   },
-  "capabilities": analysis.capabilities({"read": can_read}),
-  "reason": is_pat && len(profile) == 0 ? "Harness user profile was unavailable; effective permissions were not returned" :
-    can_read ? "Organization listing confirmed read access; other effective permissions were not returned" :
-    "Harness did not return effective permissions"
+  "capabilities": analysis.capabilities({"read": can_read})
 }
 '''
 filter = '''
@@ -5663,8 +5639,6 @@ let can_write = any([
   "events", "markers", "triggers", "boards", "columns", "createDatasets", "slos", "recipients", "privateBoards"
 ], {(permissions[#] ?? false) == true});
 {
-  "reason": len(permissions) == 0 ? "Honeycomb did not return API key permission metadata" :
-    !can_read && !can_write ? "Honeycomb returned no recognized enabled permissions" : "",
   "identity": {
     "account": {
       "id": input["team_slug"] ?? "",
@@ -5752,7 +5726,6 @@ let capabilities = analysis.capabilities({
   "manage_users": any(permissions, {# in ["org.write", "org.members.write"]})
 });
 {
-  "reason": len(capabilities) > 0 ? "" : "Hugging Face returned no recognized permission grants",
   "metadata": role == "fineGrained" ? {
     "role": role,
     "token_name": access_token["displayName"] ?? "",
@@ -5841,7 +5814,6 @@ let capabilities = analysis.capabilities({
   "manage_users": any(permissions, {# in ["org.write", "org.members.write"]})
 });
 {
-  "reason": len(capabilities) > 0 ? "" : "Hugging Face returned no recognized permission grants",
   "metadata": role == "fineGrained" ? {
     "role": role,
     "token_name": access_token["displayName"] ?? "",
@@ -5904,8 +5876,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -6290,8 +6261,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -6547,8 +6517,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -6712,8 +6681,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 
@@ -7149,8 +7117,7 @@ let capabilities = analysis.capabilities({
     } : {"id": input["team_id"] ?? "", "name": input["team_name"] ?? ""}
   },
   "metadata": {"scopes": scopes},
-  "capabilities": capabilities,
-  "reason": len(capabilities) == 0 ? "Miro returned no recognized REST API permission grants" : ""
+  "capabilities": capabilities
 }
 '''
 filter = '''
@@ -7809,8 +7776,7 @@ let accountID = (input["organization_id"] ?? "") != "" ? input["organization_id"
 {
   "identity": {"id": input["creator_user_id"] ?? "", "account": {"id": accountID}},
   "metadata": {"expires_at": input["expires_at"] ?? nil},
-  "capabilities": analysis.capabilities({"create_credentials": management}),
-  "reason": management ? "" : "OpenRouter did not return effective permissions for this key"
+  "capabilities": analysis.capabilities({"create_credentials": management})
 }
 '''
 filter = '''
@@ -8899,8 +8865,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -9256,8 +9221,7 @@ let capabilities = analysis.capabilities({
 });
 {
   "metadata": {"scopes": scopes},
-  "capabilities": capabilities,
-  "reason": len(capabilities) == 0 ? "SendGrid returned no recognized permission grants" : ""
+  "capabilities": capabilities
 }
 '''
 filter = '''
@@ -9301,8 +9265,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -9532,7 +9495,6 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": len(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "metadata": {
     "enterprise_id": input["enterprise_id"] ?? "",
     "scopes": scopes
@@ -9639,7 +9601,6 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": len(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "metadata": {
     "enterprise_id": input["enterprise_id"] ?? "",
     "scopes": scopes
@@ -9765,7 +9726,6 @@ analyze = '''
 let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": len(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "metadata": {
     "enterprise_id": input["enterprise_id"] ?? "",
     "scopes": scopes
@@ -10187,8 +10147,6 @@ let scopes = input["scopes"] ?? [];
 let writable = ["all", "acl", "devices", "dns", "routes", "policy_file", "devices:core", "devices:posture_attributes", "devices:routes", "devices_invites", "api_access_tokens", "auth_keys", "oauth_keys", "federated_keys", "webhooks", "log_streaming", "logs:network", "account_settings", "feature_settings"];
 let readable = ["all:read", "acl:read", "devices:read", "dns:read", "routes:read", "logs:read", "policy_file:read", "devices:core:read", "devices:posture_attributes:read", "devices:routes:read", "devices_invites:read", "api_access_tokens:read", "auth_keys:read", "oauth_keys:read", "federated_keys:read", "webhooks:read", "log_streaming:read", "logs:configuration:read", "logs:network:read", "account_settings:read", "feature_settings:read"];
 {
-  "reason": len(scopes) == 0 ? "Tailscale did not return scope metadata" :
-    !intersects(scopes, writable) && !intersects(scopes, readable) ? "Tailscale returned no recognized scopes" : "",
   "identity": {"id": input["user_id"] ?? ""},
   "metadata": {
     "key_id": input["metadata"]?.key_id ?? "",
@@ -10242,8 +10200,7 @@ r.status == 204 ? {
 analyze = '''
 {
   "metadata": validation.analysis["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Key verified; owner and effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -10278,8 +10235,7 @@ r.status == 204 ? {
 analyze = '''
 {
   "metadata": validation.analysis["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Key verified; owner and effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -10325,8 +10281,6 @@ let scopes = input["scopes"] ?? [];
 let writable = ["all", "acl", "devices", "dns", "routes", "policy_file", "devices:core", "devices:posture_attributes", "devices:routes", "devices_invites", "api_access_tokens", "auth_keys", "oauth_keys", "federated_keys", "webhooks", "log_streaming", "logs:network", "account_settings", "feature_settings"];
 let readable = ["all:read", "acl:read", "devices:read", "dns:read", "routes:read", "logs:read", "policy_file:read", "devices:core:read", "devices:posture_attributes:read", "devices:routes:read", "devices_invites:read", "api_access_tokens:read", "auth_keys:read", "oauth_keys:read", "federated_keys:read", "webhooks:read", "log_streaming:read", "logs:configuration:read", "logs:network:read", "account_settings:read", "feature_settings:read"];
 {
-  "reason": len(scopes) == 0 ? "Tailscale did not return scope metadata" :
-    !intersects(scopes, writable) && !intersects(scopes, readable) ? "Tailscale returned no recognized scopes" : "",
   "identity": {"id": input["user_id"] ?? ""},
   "metadata": {
     "key_id": input["metadata"]?.key_id ?? "",
@@ -10380,8 +10334,7 @@ r.status == 204 ? {
 analyze = '''
 {
   "metadata": validation.analysis["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Key verified; owner and effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -10416,8 +10369,7 @@ r.status == 204 ? {
 analyze = '''
 {
   "metadata": validation.analysis["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Key verified; owner and effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -10598,8 +10550,7 @@ let capabilities = analysis.capabilities({
 {
   "identity": {"id": input["user_id"] ?? "", "username": input["username"] ?? ""},
   "metadata": {"client_id": input["client_id"] ?? "", "scopes": scopes, "expires_in": input["expires_in"] ?? nil},
-  "capabilities": capabilities,
-  "reason": len(capabilities) == 0 ? "Twitch returned no recognized permission grants" : ""
+  "capabilities": capabilities
 }
 '''
 revoke = '''
@@ -10924,9 +10875,6 @@ let details_ok = r.status == 200 && (r.json?.token?.id ?? "") != "";
 let token = details_ok ? (r.json?.token ?? {}) : {};
 let scopes = token["scopes"] ?? [];
 {
-  "reason": !details_ok ? "Vercel token metadata could not be retrieved" :
-    len(scopes) == 0 ? "Vercel did not return token scope metadata" :
-    "Vercel token scopes do not establish resource permissions",
   "identity": {
     "id": input["user_id"] ?? "",
     "email": input["email"] ?? "",
@@ -10937,6 +10885,7 @@ let scopes = token["scopes"] ?? [];
     } : {}
   },
   "metadata": {
+    "notes": !details_ok ? ["Vercel token metadata could not be retrieved"] : [],
     "token_id": token["id"] ?? "",
     "token_name": token["name"] ?? "",
     "token_type": token["type"] ?? "",
@@ -11065,9 +11014,6 @@ let details_ok = r.status == 200 && (r.json?.token?.id ?? "") != "";
 let token = details_ok ? (r.json?.token ?? {}) : {};
 let scopes = token["scopes"] ?? [];
 {
-  "reason": !details_ok ? "Vercel token metadata could not be retrieved" :
-    len(scopes) == 0 ? "Vercel did not return token scope metadata" :
-    "Vercel token scopes do not establish resource permissions",
   "identity": {
     "id": input["user_id"] ?? "",
     "email": input["email"] ?? "",
@@ -11078,6 +11024,7 @@ let scopes = token["scopes"] ?? [];
     } : {}
   },
   "metadata": {
+    "notes": !details_ok ? ["Vercel token metadata could not be retrieved"] : [],
     "token_id": token["id"] ?? "",
     "token_name": token["name"] ?? "",
     "token_type": token["type"] ?? "",
@@ -11216,8 +11163,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -11255,8 +11201,7 @@ let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }
 '''
 filter = '''
@@ -11515,8 +11460,7 @@ let input = validation.analysis;
     "acls": input["acls"] ?? [], "created_at": input["created_at"] ?? "", "modified_at": input["modified_at"] ?? "",
     "api_key_disabled": input["api_key_disabled"] ?? nil, "api_key_blocked": input["api_key_blocked"] ?? nil, "team_blocked": input["team_blocked"] ?? nil
   },
-  "capabilities": [],
-  "reason": "xAI model and endpoint ACLs do not establish resource read/write or administrative grants"
+  "capabilities": []
 }
 '''
 filter = '''

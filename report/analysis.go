@@ -44,7 +44,6 @@ type Analysis struct {
 	Status         ValidationStatus  `json:"status,omitempty"`
 	StatusReason   string            `json:"status_reason,omitempty"`
 	StatusMetadata map[string]any    `json:"status_metadata,omitempty"`
-	Reason         string            `json:"reason,omitempty"`
 	Severity       Severity          `json:"severity,omitempty"`
 	Identity       *AnalysisIdentity `json:"identity,omitempty"`
 	Capabilities   []Capability      `json:"capabilities,omitempty"`
@@ -53,7 +52,7 @@ type Analysis struct {
 }
 
 func (a Analysis) IsZero() bool {
-	return a.Status == "" && a.StatusReason == "" && len(a.StatusMetadata) == 0 && a.Reason == "" && a.Severity == "" &&
+	return a.Status == "" && a.StatusReason == "" && len(a.StatusMetadata) == 0 && a.Severity == "" &&
 		a.Identity == nil && len(a.Capabilities) == 0 &&
 		len(a.Metadata) == 0 && len(a.Debug) == 0
 }
@@ -113,7 +112,6 @@ func SanitizeAnalysis(analysis Analysis, secrets []string) Analysis {
 	analysis.Capabilities = append([]Capability(nil), analysis.Capabilities...)
 	analysis.StatusReason = sanitizeCredentialString(analysis.StatusReason, secrets)
 	analysis.StatusMetadata = sanitizeCredentialMetadata(analysis.StatusMetadata, secrets, false)
-	analysis.Reason = sanitizeCredentialString(analysis.Reason, secrets)
 	analysis.Metadata = sanitizeCredentialMetadata(analysis.Metadata, secrets, false)
 	if len(analysis.Debug) > 0 {
 		analysis.Debug = sanitizeCredentialMetadata(analysis.Debug, credentialDebugSecretsForRedaction(secrets), true)

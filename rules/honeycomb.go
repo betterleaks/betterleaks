@@ -36,8 +36,6 @@ let can_write = any([
   "events", "markers", "triggers", "boards", "columns", "createDatasets", "slos", "recipients", "privateBoards"
 ], {(permissions[#] ?? false) == true});
 {
-  "reason": len(permissions) == 0 ? "Honeycomb did not return API key permission metadata" :
-    !can_read && !can_write ? "Honeycomb returned no recognized enabled permissions" : "",
   "identity": {
     "account": {
       "id": input["team_slug"] ?? "",

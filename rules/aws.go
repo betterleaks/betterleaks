@@ -11,7 +11,6 @@ import (
 const awsAnalyzeExpr = `let input = validation.analysis;
 let arn = input["arn"] ?? "";
 {
-  "reason": "AWS STS does not report credential permissions",
   "identity": {
     "id": input["userid"] ?? "",
     "username": matchesAny(arn, ["^arn:[^:]+:iam::[0-9]{12}:user/"]) ? last(split(arn, "/")) : "",

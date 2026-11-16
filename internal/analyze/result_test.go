@@ -20,6 +20,7 @@ func TestParseResultNormalizesCapabilitiesAndIdentity(t *testing.T) {
 		},
 		"capabilities": []any{"admin", "read", "write", "read"},
 		"metadata": map[string]any{
+			"notes": []any{" Limited to this account. ", "", "Limited to this account.", "Other grants were not inspected."},
 			"permissions": []any{map[string]any{
 				"access":      "user",
 				"permissions": []any{"read_job"},
@@ -27,6 +28,7 @@ func TestParseResultNormalizesCapabilitiesAndIdentity(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	assert.Equal(t, []string{"Limited to this account.", "Other grants were not inspected."}, result.Metadata["notes"])
 	assert.Equal(t, report.SeverityHigh, result.Severity)
 	assert.Equal(t, []report.Capability{
 		report.CapabilityRead,
@@ -47,12 +49,10 @@ func TestParseResultNormalizesCapabilitiesAndIdentity(t *testing.T) {
 func TestParseResultDerivesSeverity(t *testing.T) {
 	tests := []struct {
 		name         string
-		reason       string
 		capabilities []any
 		want         report.Severity
 	}{
 		{name: "none", want: report.SeverityUnknown},
-		{name: "incomplete", reason: "Permissions unavailable", want: report.SeverityUnknown},
 		{name: "read", capabilities: []any{"read"}, want: report.SeverityMedium},
 		{name: "write", capabilities: []any{"write"}, want: report.SeverityHigh},
 		{name: "write then read", capabilities: []any{"write", "read"}, want: report.SeverityHigh},
@@ -65,7 +65,6 @@ func TestParseResultDerivesSeverity(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := ParseResult(map[string]any{
 				"capabilities": test.capabilities,
-				"reason":       test.reason,
 			})
 			require.NoError(t, err)
 			assert.Equal(t, test.want, result.Severity)
@@ -78,7 +77,7 @@ func TestParseResultWithoutCapabilityEvidence(t *testing.T) {
 		{},
 		{"capabilities": []any{}},
 		{"capabilities": nil},
-		{"reason": "Could not determine permissions"},
+		{"metadata": map[string]any{"notes": []string{"Could not determine permissions"}}},
 		{"identity": map[string]any{"id": "user-1"}},
 		{"metadata": map[string]any{"plan": "enterprise"}},
 	} {
@@ -102,4 +101,25 @@ func TestParseResultRejectsUnknownSchema(t *testing.T) {
 
 	_, err = ParseResult(map[string]any{"metadata": []any{"scope"}})
 	require.ErrorContains(t, err, "analysis metadata must be an object")
+
+	_, err = ParseResult(map[string]any{"reason": "Ambiguous explanation"})
+	require.ErrorContains(t, err, `unknown field "reason"`)
+
+	for _, metadata := range []map[string]any{
+		{"notes": "a note"}, {"notes": []any{123}}, {"notes": nil},
+		{"analysis_error": "spoofed runtime failure"},
+	} {
+		_, err := ParseResult(map[string]any{"metadata": metadata})
+		require.Error(t, err)
+	}
+}
+
+func TestParseResultNotesDoNotMutateProviderEvidence(t *testing.T) {
+	for _, notes := range []any{[]string{}, []any{"", "  "}} {
+		metadata := map[string]any{"notes": notes, "project_id": "project-1"}
+		result, err := ParseResult(map[string]any{"metadata": metadata})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{"project_id": "project-1"}, result.Metadata)
+		assert.Equal(t, notes, metadata["notes"])
+	}
 }

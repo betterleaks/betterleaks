@@ -61,11 +61,10 @@ let can_write = matchesAny(grants, ["^(?:api$|manage_runner$|add_|approve_|archi
 let can_create_credentials = intersects(grants, ["create_runner", "self_rotate"]);
 let can_admin = intersects(grants, ["sudo", "admin_mode"]);
 {
-  "reason": granular && len(granular_permissions) == 0 ? "GitLab did not return fine-grained permission details" :
-    len(grants) > 0 && !can_read && !can_write && !can_create_credentials && !can_admin ? "GitLab returned no recognized permission grants" : "",
-  "metadata": len(grants) > 0 ? {
-    "permissions": grants
-  } : {},
+  "metadata": {
+    "permissions": grants,
+    "notes": granular && len(granular_permissions) == 0 ? ["GitLab did not return fine-grained permission details"] : []
+  },
   "identity": {
     "id": input["user_id"] ?? ""
   },

@@ -41,8 +41,7 @@ let capabilities = analysis.capabilities({
     } : {"id": input["team_id"] ?? "", "name": input["team_name"] ?? ""}
   },
   "metadata": {"scopes": scopes},
-  "capabilities": capabilities,
-  "reason": len(capabilities) == 0 ? "Miro returned no recognized REST API permission grants" : ""
+  "capabilities": capabilities
 }`
 
 var _ = rulebuilder.Add(config.Rule{

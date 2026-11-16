@@ -556,6 +556,26 @@ Analysis results may also include a `metadata` object for provider-specific
 evidence discovered during analysis, such as permission names.
 Unlike opt-in HTTP debug data, analysis metadata is part of normal JSON output.
 
+Each stage owns its output; validation and enrichment metadata remain separate:
+
+| Report field | Purpose |
+| :--- | :--- |
+| `analysis.status_reason` | Optional explanation of credential status. |
+| `analysis.status_metadata` | Public evidence from validation or revocation. |
+| `analysis.metadata` | Public evidence from enrichment. |
+| `analysis.metadata.notes` | Optional array of strings describing enrichment caveats. |
+| `analysis.metadata.analysis_error` | Runtime failure or request-limit error during enrichment. |
+
+Both metadata maps survive even when they contain the same key. The private
+`validation.analysis` handoff never appears in reports.
+
+Analyzers return only `identity`, `capabilities`, and `metadata`, all optional.
+Use `metadata.notes` for useful caveats; omit routine success messages and generic
+severity explanations. Notes are trimmed, empty entries are dropped, and duplicate
+entries are removed in order. Empty notes are omitted. The runtime owns
+`metadata.analysis_error`; analysis expressions cannot supply that key directly.
+All public evidence and diagnostics are sanitized for credential values.
+
 Analysis expressions can use the same pure `filter` matching helpers as
 validation expressions. They also receive an `analysis` namespace:
 
@@ -649,9 +669,10 @@ Validation has a closed result contract:
 `metadata` is an optional object exported as `Analysis.StatusMetadata`.
 `analysis` is an optional private object available only to the subsequent
 expression as `validation.analysis`. Unknown top-level keys are errors.
-Enrichment writes its own `Analysis.Reason` and `Analysis.Metadata`; neither
-replaces the status explanation or metadata. Enrichment failures retain the
-validation status.
+Enrichment writes its own `Analysis.Metadata`, identity, and capabilities. It
+does not replace the status explanation or validation metadata. Enrichment
+failures appear in `analysis.metadata.analysis_error` while preserving validation
+status and evidence; severity remains `unknown` when no capabilities were obtained.
 
 ### Validation functions
 

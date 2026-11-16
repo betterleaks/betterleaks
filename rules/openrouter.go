@@ -30,8 +30,7 @@ let accountID = (input["organization_id"] ?? "") != "" ? input["organization_id"
 {
   "identity": {"id": input["creator_user_id"] ?? "", "account": {"id": accountID}},
   "metadata": {"expires_at": input["expires_at"] ?? nil},
-  "capabilities": analysis.capabilities({"create_credentials": management}),
-  "reason": management ? "" : "OpenRouter did not return effective permissions for this key"
+  "capabilities": analysis.capabilities({"create_credentials": management})
 }`
 
 var _ = rulebuilder.Add(config.Rule{

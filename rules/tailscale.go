@@ -19,8 +19,7 @@ r.status == 204 ? {
 
 const tailscaleVerifyAnalyzeExpr = `{
   "metadata": validation.analysis["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Key verified; owner and effective permissions were not returned"
+  "capabilities": []
 }`
 
 // https://tailscale.com/docs/features/oauth-clients
@@ -78,8 +77,6 @@ let scopes = input["scopes"] ?? [];
 let writable = ["all", "acl", "devices", "dns", "routes", "policy_file", "devices:core", "devices:posture_attributes", "devices:routes", "devices_invites", "api_access_tokens", "auth_keys", "oauth_keys", "federated_keys", "webhooks", "log_streaming", "logs:network", "account_settings", "feature_settings"];
 let readable = ["all:read", "acl:read", "devices:read", "dns:read", "routes:read", "logs:read", "policy_file:read", "devices:core:read", "devices:posture_attributes:read", "devices:routes:read", "devices_invites:read", "api_access_tokens:read", "auth_keys:read", "oauth_keys:read", "federated_keys:read", "webhooks:read", "log_streaming:read", "logs:configuration:read", "logs:network:read", "account_settings:read", "feature_settings:read"];
 {
-  "reason": len(scopes) == 0 ? "Tailscale did not return scope metadata" :
-    !intersects(scopes, writable) && !intersects(scopes, readable) ? "Tailscale returned no recognized scopes" : "",
   "identity": {"id": input["user_id"] ?? ""},
   "metadata": {
     "key_id": input["metadata"]?.key_id ?? "",

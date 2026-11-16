@@ -50,8 +50,7 @@ let capabilities = analysis.capabilities({
 {
   "identity": {"id": input["user_id"] ?? "", "username": input["username"] ?? ""},
   "metadata": {"client_id": input["client_id"] ?? "", "scopes": scopes, "expires_in": input["expires_in"] ?? nil},
-  "capabilities": capabilities,
-  "reason": len(capabilities) == 0 ? "Twitch returned no recognized permission grants" : ""
+  "capabilities": capabilities
 }`
 
 var _ = rulebuilder.Add(config.Rule{

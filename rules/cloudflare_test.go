@@ -161,7 +161,7 @@ func TestCloudflareAPIKeyAnalysis(t *testing.T) {
 		wantCapabilities []report.Capability
 		wantPermissions  []any
 		wantAccountID    string
-		wantReason       string
+		wantNotes        []string
 	}{
 		{
 			name:       "user read permission",
@@ -212,7 +212,7 @@ func TestCloudflareAPIKeyAnalysis(t *testing.T) {
 			wantSeverity:     report.SeverityUnknown,
 			wantCapabilities: []report.Capability{},
 			wantPermissions:  []any{},
-			wantReason:       "Cloudflare did not allow this token to read its policy details",
+			wantNotes:        []string{"Cloudflare token policy details could not be retrieved"},
 		},
 		{
 			name:             "empty policy set",
@@ -261,7 +261,8 @@ func TestCloudflareAPIKeyAnalysis(t *testing.T) {
 			assert.Equal(t, test.wantSeverity, result.Severity)
 			assert.Equal(t, test.wantCapabilities, result.Capabilities)
 			assert.Equal(t, test.wantPermissions, result.Metadata["permissions"])
-			assert.Equal(t, test.wantReason, result.Reason)
+			notes, _ := result.Metadata["notes"].([]string)
+			assert.Equal(t, test.wantNotes, notes)
 			if test.wantAccountID != "" {
 				require.NotNil(t, result.Identity)
 				require.NotNil(t, result.Identity.Account)

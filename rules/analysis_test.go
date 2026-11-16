@@ -389,7 +389,6 @@ func TestCredentialAnalysisUnknownGrantsDoNotAddCapabilities(t *testing.T) {
 		},
 	})
 	assert.Equal(t, report.SeverityUnknown, result.Severity)
-	assert.Equal(t, "GitLab returned no recognized permission grants", result.Reason)
 	assert.Empty(t, result.Capabilities)
 
 	result = evaluateProviderAnalysis(t, huggingFaceAnalyzeExpr, map[string]any{
@@ -397,7 +396,6 @@ func TestCredentialAnalysisUnknownGrantsDoNotAddCapabilities(t *testing.T) {
 		"auth": map[string]any{"accessToken": map[string]any{"role": "fineGrained"}},
 	})
 	assert.Equal(t, report.SeverityUnknown, result.Severity)
-	assert.Equal(t, "Hugging Face returned no recognized permission grants", result.Reason)
 	assert.Empty(t, result.Capabilities)
 }
 
@@ -479,7 +477,7 @@ func TestGitLabAnalysisExplainsMissingFineGrainedPermissionDetails(t *testing.T)
 	})
 
 	assert.Equal(t, report.SeverityUnknown, result.Severity)
-	assert.Equal(t, "GitLab did not return fine-grained permission details", result.Reason)
+	assert.Equal(t, []string{"GitLab did not return fine-grained permission details"}, result.Metadata["notes"])
 	require.NotNil(t, result.Identity)
 	assert.Equal(t, "1140645", result.Identity.ID)
 	assert.Empty(t, result.Capabilities)
@@ -558,7 +556,7 @@ func TestGitLabAnalysisLooksUpMissingFineGrainedPermissionDetails(t *testing.T) 
 	require.NoError(t, err)
 
 	assert.Equal(t, []report.Capability{report.CapabilityRead}, result.Capabilities)
-	assert.Empty(t, result.Reason)
+	assert.NotContains(t, result.Metadata, "notes")
 	assert.Equal(t, []any{"read_job"}, result.Metadata["permissions"])
 	assert.Equal(t, []string{"/api/v4/personal_access_tokens?user_id=1140645&state=active&per_page=100"}, requests)
 }
@@ -665,11 +663,6 @@ func TestHuggingFaceFineGrainedAnalysis(t *testing.T) {
 			assert.Equal(t, "test token", result.Metadata["token_name"])
 			assert.ElementsMatch(t, test.permissions, result.Metadata["permissions"])
 			assert.Len(t, result.Metadata, 3, "keep metadata to role, token name, and permissions")
-			if len(test.capabilities) == 0 {
-				assert.Equal(t, "Hugging Face returned no recognized permission grants", result.Reason)
-			} else {
-				assert.Empty(t, result.Reason)
-			}
 		})
 	}
 }

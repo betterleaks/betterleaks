@@ -35,7 +35,6 @@ const githubTokenExpr = `let base_url = env.getOrDefault("GITHUB_BASE_URL", "htt
 const githubTokenAnalyzeExpr = `let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": len(scopes) == 0 ? "GitHub did not return classic OAuth scope metadata" : "",
   "metadata": {
     "scopes": scopes,
     "sso": input["sso"] ?? "",
