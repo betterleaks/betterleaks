@@ -72,7 +72,8 @@ func enrichmentFixtures() []enrichmentFixture {
 		{ruleID: "launchdarkly-access-token", steps: []enrichmentStep{
 			enrichmentGET("https://app.launchdarkly.com/api/v2/caller-identity", "Authorization", secret, `{"accountId":"account-1","tokenId":"token-1","memberId":"member-1","serviceToken":false}`),
 			enrichmentGET("https://app.launchdarkly.com/api/v2/tokens/token-1", "Authorization", secret, `{"_id":"token-1","token":"unexpected-secret","role":"reader","_member":{"_id":"member-1","email":"alex@example.com","role":"admin"},"inlineRole":[{"effect":"deny","actions":["*"],"resources":["proj/private:*"],"secret":"unexpected-secret"}]}`),
-		}, identity: &report.AnalysisIdentity{ID: "member-1", Email: "alex@example.com", Account: &report.AnalysisAccount{ID: "account-1"}}, metadata: map[string]any{"role": "reader", "custom_roles_complete": true}},
+			enrichmentGET("https://app.launchdarkly.com/api/v2/members/member-1", "Authorization", secret, `{"_id":"member-1","role":"admin","customRoles":[]}`),
+		}, identity: &report.AnalysisIdentity{ID: "member-1", Email: "alex@example.com", Account: &report.AnalysisAccount{ID: "account-1"}}, metadata: map[string]any{"role": "reader"}},
 		{ruleID: "anthropic-admin-api-key", steps: []enrichmentStep{enrichmentGET("https://api.anthropic.com/v1/organizations/me", "x-api-key", secret, `{"id":"org-1","type":"organization","name":"Acme","role":"admin"}`)}, identity: &report.AnalysisIdentity{Account: &report.AnalysisAccount{ID: "org-1", Name: "Acme"}}},
 		{ruleID: "cohere-api-token", steps: []enrichmentStep{{method: "POST", url: "https://api.cohere.com/v1/check-api-key", headers: map[string]string{"Authorization": bearer, "Content-Type": "application/json"}, body: `{}`, status: 200, response: `{"valid":true,"owner_id":"user-1","organization_id":"org-1"}`}}, identity: &report.AnalysisIdentity{ID: "user-1", Account: &report.AnalysisAccount{ID: "org-1"}}},
 		{ruleID: "devin-service-user-token", steps: []enrichmentStep{enrichmentGET("https://api.devin.ai/v3/self", "Authorization", bearer, `{"principal_type":"service_user","service_user_id":"service-1","service_user_name":"Build bot","org_id":"org-1","role":"admin"}`)}, identity: &report.AnalysisIdentity{ID: "service-1", Name: "Build bot", Account: &report.AnalysisAccount{ID: "org-1"}}},
@@ -536,6 +537,99 @@ func TestEnrichmentPartialAndProviderSpecificResponses(t *testing.T) {
 	}
 }
 
+func TestEnrichmentLaunchDarklyCapabilities(t *testing.T) {
+	var base enrichmentFixture
+	for _, fixture := range enrichmentFixtures() {
+		if fixture.ruleID == "launchdarkly-access-token" {
+			base = fixture
+			break
+		}
+	}
+	read := []report.Capability{report.CapabilityRead}
+	write := []report.Capability{report.CapabilityRead, report.CapabilityWrite}
+	admin := []report.Capability{report.CapabilityRead, report.CapabilityWrite, report.CapabilityManageUsers, report.CapabilityAdmin}
+	for _, test := range []struct {
+		name, tokenRole, member, inline, customRole string
+		service                                     bool
+		memberStatus                                int
+		want                                        []report.Capability
+	}{
+		{name: "personal reader", tokenRole: "reader", want: read},
+		{name: "personal writer", tokenRole: "writer", want: write},
+		{name: "personal admin", tokenRole: "admin", want: admin},
+		{name: "service writer", service: true, tokenRole: "writer", want: write},
+		{name: "service admin independent of creator", service: true, tokenRole: "admin", want: admin},
+		{name: "downgraded owner limits writer", tokenRole: "writer", member: `{"_id":"member-1","role":"reader","customRoles":[]}`, want: read},
+		{name: "custom roles override member base role", tokenRole: "writer", member: `{"_id":"member-1","role":"admin","customRoles":["restricted"]}`},
+		{name: "member summary cannot prove base role", tokenRole: "writer", member: `{"_id":"member-1","role":"admin"}`},
+		{name: "member lookup denied", tokenRole: "writer", memberStatus: 403},
+		{name: "mismatched member response", tokenRole: "writer", member: `{"_id":"another-member","role":"owner","customRoles":[]}`},
+		{name: "unknown token role", tokenRole: "future-admin"},
+		{name: "inline policy supersedes base role", tokenRole: "admin", inline: `[{"effect":"deny","actions":["*"],"resources":["*"]}]`},
+		{name: "scoped flag writes", inline: `[{"effect":"allow","actions":["updateOn"],"resources":["proj/example:env/test:flag/*"]}]`, want: []report.Capability{report.CapabilityWrite}},
+		{name: "unresolved role attribute", inline: `[{"effect":"allow","actions":["updateOn"],"resources":["proj/${project}:env/*:flag/*"]}]`},
+		{name: "deny overrides recognized allow", inline: `[{"effect":"allow","actions":["updateOn"],"resources":["proj/*:env/*:flag/*"]},{"effect":"deny","actions":["updateOn"],"resources":["proj/private:env/*:flag/*"]}]`},
+		{name: "malformed deny cannot be dropped", inline: `[{"effect":"allow","actions":["viewProject"],"resources":["proj/*"]},{"effect":"deny","actions":42,"resources":["*"]}]`},
+		{name: "resource exclusion cannot imply global grant", inline: `[{"effect":"allow","actions":["*"],"resources":["*"],"notResources":["member/*"]}]`},
+		{name: "unknown action cannot imply write", inline: `[{"effect":"allow","actions":["futureWrite"],"resources":["*"]}]`},
+		{name: "preset admin statements", customRole: `{"_id":"role-1","key":"launchdarkly-admin","name":"LaunchDarkly Admin","basePermissions":"no_access","policy":[],"_presetStatements":[{"effect":"allow","actions":["*"],"resources":["member/*"],"secret":"unexpected-secret"},{"effect":"deny","actions":["bypassRequiredApproval"],"resources":["proj/*:env/*:flag/*"]}]}`, want: []report.Capability{report.CapabilityManageUsers}},
+		{name: "custom role name is not permission evidence", customRole: `{"_id":"role-1","key":"launchdarkly-admin","name":"Admin","basePermissions":"no_access","policy":[]}`},
+		{name: "malformed preset cannot be ignored", customRole: `{"_id":"role-1","policy":[{"effect":"allow","actions":["*"],"resources":["*"]}],"_presetStatements":{}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := base
+			fixture.steps = append([]enrichmentStep(nil), base.steps...)
+			fixture.steps[0].response = fmt.Sprintf(`{"accountId":"account-1","tokenId":"token-1","memberId":"member-1","serviceToken":%t}`, test.service)
+			details := map[string]any{"_id": "token-1", "role": test.tokenRole, "_member": map[string]any{"_id": "member-1", "role": "owner", "email": "alex@example.com"}}
+			if test.inline != "" {
+				details["inlineRole"] = json.RawMessage(test.inline)
+			}
+			if test.customRole != "" {
+				details["customRoleIds"] = []string{"role-1"}
+			}
+			body, err := json.Marshal(details)
+			require.NoError(t, err)
+			fixture.steps[1].response = string(body)
+			if test.service {
+				fixture.steps = fixture.steps[:2]
+			} else {
+				fixture.steps[2].response = `{"_id":"member-1","role":"owner","customRoles":[]}`
+				if test.member != "" {
+					fixture.steps[2].response = test.member
+				}
+				if test.memberStatus != 0 {
+					fixture.steps[2].status = test.memberStatus
+				}
+			}
+			if test.customRole != "" {
+				fixture.steps = append(fixture.steps, enrichmentGET("https://app.launchdarkly.com/api/v2/roles/role-1", "Authorization", "enrichment-secret", test.customRole))
+			}
+			result, analysis := runEnrichmentFixture(t, fixture)
+			assert.Equal(t, report.ValidationStatusValid, result.Status)
+			assert.ElementsMatch(t, test.want, analysis.Capabilities)
+			assert.Equal(t, report.AnalysisSeverity(test.want), analysis.Severity)
+			assert.NotContains(t, analysis.Metadata, "custom_roles_complete")
+			assert.NotContains(t, analysis.Metadata, "token_details_retrieved")
+			if test.service {
+				assert.Empty(t, analysis.Identity.ID)
+				assert.Empty(t, analysis.Identity.Email)
+			}
+			if test.name == "personal reader" || test.name == "personal writer" || test.name == "service writer" {
+				assert.NotContains(t, analysis.Metadata, "notes", "routine success needs no caveat")
+			}
+			if test.name == "downgraded owner limits writer" {
+				assert.Equal(t, "reader", analysis.Metadata["member_role"])
+			}
+			if test.name == "preset admin statements" {
+				encoded, err := json.Marshal(analysis.Metadata["custom_roles"])
+				require.NoError(t, err)
+				assert.Contains(t, string(encoded), "member/*", "preset statements must survive in policy evidence")
+				assert.NotContains(t, string(encoded), "retrieved")
+			}
+		})
+	}
+}
+
 func TestEnrichmentLaunchDarklyRequestBudget(t *testing.T) {
 	var fixture enrichmentFixture
 	for _, candidate := range enrichmentFixtures() {
@@ -544,38 +638,49 @@ func TestEnrichmentLaunchDarklyRequestBudget(t *testing.T) {
 			break
 		}
 	}
-	for _, count := range []int{0, 1, 5, 8} {
-		t.Run(fmt.Sprintf("%d custom roles", count), func(t *testing.T) {
-			fixture := fixture
-			fixture.steps = append([]enrichmentStep(nil), fixture.steps...)
+	for _, service := range []bool{false, true} {
+		for _, count := range []int{0, 1, 4, 5, 8} {
+			t.Run(fmt.Sprintf("service=%t/%d custom roles", service, count), func(t *testing.T) {
+				fixture := fixture
+				fixture.steps = append([]enrichmentStep(nil), fixture.steps...)
+				limit := 4
+				if service {
+					limit = 5
+					fixture.steps = fixture.steps[:2]
+					fixture.steps[0].response = `{"accountId":"account-1","tokenId":"token-1","serviceToken":true}`
+				}
 
-			ids := make([]string, count)
-			for i := range count {
-				ids[i] = fmt.Sprintf("role-%d", i)
-			}
-			body, err := json.Marshal(map[string]any{"_id": "token-1", "customRoleIds": ids, "token": "unexpected-secret"})
-			require.NoError(t, err)
-			fixture.steps[1].response = string(body)
-			for _, id := range ids[:min(count, 5)] {
-				fixture.steps = append(fixture.steps, enrichmentGET("https://app.launchdarkly.com/api/v2/roles/"+id, "Authorization", "enrichment-secret", `{"_id":"`+id+`","key":"friendly-`+id+`","policy":[{"effect":"allow","actions":["*"],"resources":["*"],"notResources":["proj/private:*"],"token":"unexpected-secret"},{"effect":"deny","actions":["deleteFlag"],"resources":["*"],"notActions":["readFlag"]}]}`))
-			}
-			result, analysis := runEnrichmentFixture(t, fixture)
-			assert.Equal(t, report.ValidationStatusValid, result.Status)
-			assert.Empty(t, analysis.Capabilities, "custom policies alone do not establish effective permissions")
-			assert.Equal(t, count <= 5, analysis.Metadata["custom_roles_complete"])
-			if count == 0 {
-				assert.NotContains(t, analysis.Metadata, "custom_roles")
-			} else {
-				assert.Len(t, analysis.Metadata["custom_roles"], min(count, 5))
-			}
-			assert.LessOrEqual(t, len(fixture.steps)-1, 6)
-			encoded, err := json.Marshal(analysis.Metadata)
-			require.NoError(t, err)
-			if count > 0 {
-				assert.Contains(t, string(encoded), "notResources")
-				assert.Contains(t, string(encoded), "deleteFlag")
-			}
-		})
+				ids := make([]string, count)
+				for i := range count {
+					ids[i] = fmt.Sprintf("role-%d", i)
+				}
+				body, err := json.Marshal(map[string]any{"_id": "token-1", "customRoleIds": ids, "token": "unexpected-secret"})
+				require.NoError(t, err)
+				fixture.steps[1].response = string(body)
+				for _, id := range ids[:min(count, limit)] {
+					fixture.steps = append(fixture.steps, enrichmentGET("https://app.launchdarkly.com/api/v2/roles/"+id, "Authorization", "enrichment-secret", `{"_id":"`+id+`","key":"friendly-`+id+`","policy":[{"effect":"allow","actions":["*"],"resources":["*"],"notResources":["proj/private:*"],"token":"unexpected-secret"},{"effect":"deny","actions":["deleteFlag"],"resources":["*"],"notActions":["readFlag"]}]}`))
+				}
+				result, analysis := runEnrichmentFixture(t, fixture)
+				assert.Equal(t, report.ValidationStatusValid, result.Status)
+				assert.Empty(t, analysis.Capabilities, "custom policies alone do not establish effective permissions")
+				assert.NotContains(t, analysis.Metadata, "custom_roles_complete")
+				if count > limit {
+					assert.Contains(t, analysis.Metadata["notes"], "Token permission details could not be fully retrieved or interpreted.")
+				}
+				if count == 0 {
+					assert.NotContains(t, analysis.Metadata, "custom_roles")
+				} else {
+					assert.Len(t, analysis.Metadata["custom_roles"], min(count, limit))
+				}
+				assert.LessOrEqual(t, len(fixture.steps)-1, 6)
+				encoded, err := json.Marshal(analysis.Metadata)
+				require.NoError(t, err)
+				if count > 0 {
+					assert.Contains(t, string(encoded), "notResources")
+					assert.Contains(t, string(encoded), "deleteFlag")
+				}
+			})
+		}
 	}
 	for _, status := range []int{401, 403, 429, 500} {
 		t.Run(fmt.Sprintf("token details unavailable %d", status), func(t *testing.T) {
@@ -584,10 +689,12 @@ func TestEnrichmentLaunchDarklyRequestBudget(t *testing.T) {
 
 			fixture.steps[1].status = status
 			fixture.steps[1].response = `{}`
+			fixture.steps = fixture.steps[:2]
 			result, analysis := runEnrichmentFixture(t, fixture)
 			assert.Equal(t, report.ValidationStatusValid, result.Status)
 			assert.Equal(t, &report.AnalysisIdentity{ID: "member-1", Account: &report.AnalysisAccount{ID: "account-1"}}, analysis.Identity)
-			assert.Equal(t, false, analysis.Metadata["token_details_retrieved"])
+			assert.NotContains(t, analysis.Metadata, "token_details_retrieved")
+			assert.NotEmpty(t, analysis.Metadata["notes"])
 			assert.Empty(t, analysis.Capabilities)
 		})
 	}
@@ -604,6 +711,10 @@ func TestEnrichmentLaunchDarklyRequestBudget(t *testing.T) {
 			fixture.steps[0].response = test.caller
 			fixture.steps[1].status = 200
 			fixture.steps[1].response = test.details
+			fixture.steps = fixture.steps[:2]
+			if test.name == "mismatched member" {
+				fixture.steps = append(fixture.steps, enrichmentGET("https://app.launchdarkly.com/api/v2/members/member-1", "Authorization", "enrichment-secret", `{}`))
+			}
 			_, analysis := runEnrichmentFixture(t, fixture)
 			assert.Equal(t, &report.AnalysisIdentity{ID: test.identityID, Account: &report.AnalysisAccount{ID: "account-1"}}, analysis.Identity)
 			assert.Empty(t, analysis.Capabilities)
@@ -616,11 +727,11 @@ func TestEnrichmentLaunchDarklyRequestBudget(t *testing.T) {
 			fixture.steps[1].response = `{"_id":"token-1","customRoleIds":["role-1"]}`
 			fixture.steps = append(fixture.steps, enrichmentGET("https://app.launchdarkly.com/api/v2/roles/role-1", "Authorization", "enrichment-secret", response))
 			if response == `{}` {
-				fixture.steps[2].status = 403
+				fixture.steps[3].status = 403
 			}
 			result, analysis := runEnrichmentFixture(t, fixture)
 			assert.Equal(t, report.ValidationStatusValid, result.Status)
-			assert.Equal(t, false, analysis.Metadata["custom_roles_complete"])
+			assert.NotEmpty(t, analysis.Metadata["notes"])
 			assert.Equal(t, "account-1", analysis.Identity.Account.ID)
 			assert.Empty(t, analysis.Capabilities)
 		})
