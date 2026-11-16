@@ -6079,6 +6079,25 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# jina-ai-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "jina-ai-api-key"
+description = "Detected a Jina AI API key, which may allow unauthorized access to embeddings, rerankers, and other Jina AI services."
+regex = '''\b(jina_[A-Za-z0-9_\-]{60})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["jina_"]
+validate = '''
+let r = http.get("https://api.jina.ai/v1/batches?" + "limit=1", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+(r.status in [200]) ? {"result": "valid"} :
+(r.status in [401]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # jumpcloud-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
