@@ -1565,6 +1565,31 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# cal-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "cal-api-key"
+description = "Detected a Cal.com API key, which may allow programmatic access to scheduling and booking APIs."
+regex = '''\b(cal_live_[a-f0-9]{32})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["cal_live_"]
+validate = '''
+let r = http.get("https://api.cal.com/v2/me", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+(r.status in [200] && (r.json?.status == "success")) ? {
+    "result": "valid",
+    "analysis": {
+      "account_id": string(r.json?.data?.id ?? ""),
+      "username": string(r.json?.data?.username ?? ""),
+    }
+  } :
+(r.status in [401]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # canadian-digital-service-notify-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
