@@ -47,6 +47,18 @@ const gcpAPIKeyValidationExpr = `let k = http.get("https://www.googleapis.com/id
     "reason": "Unauthorized"
   } : validate.unknown(r))`
 
+// Reuse authenticated helper evidence; do not infer effective cloud policy grants.
+const gcpServiceAccountAnalyzeExpr = `let input = validation.analysis;
+{
+  "identity": {
+    "email": input["client_email"] ?? ""
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "declared_project_id": input["project_id"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	Description: "Google (GCP) Application Default Credentials",
 	ID:          "gcp-application-default-credentials",
@@ -74,13 +86,14 @@ var _ = rulebuilder.Add(config.Rule{
 	Keywords:    []string{"provider_x509"},
 	ValidateExpr: `let r = gcp.validate(finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "metadata": {"credential_type": r.credential_type, "project_id": r.project_id, "client_email": r.client_email}
+  "analysis": {"client_email": r.client_email, "project_id": r.project_id}
 } : r.status in [400, 401] ? {
     "result": "invalid",
     "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 `,
-	FilterExpr: `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,
+	FilterExpr:  `containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])`,
+	AnalyzeExpr: gcpServiceAccountAnalyzeExpr,
 	Tests: []config.RuleTest{
 		rulebuilder.Match("bare secret", `{"type":"service_account","project_id":"project-123","private_key_id":"key-id","private_key":"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n","client_email":"svc@project-123.iam.gserviceaccount.com","client_id":"1234567890","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"https://www.googleapis.com/robot/v1/metadata/x509/svc%40project-123.iam.gserviceaccount.com"}`, `{"type":"service_account","project_id":"project-123","private_key_id":"key-id","private_key":"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n","client_email":"svc@project-123.iam.gserviceaccount.com","client_id":"1234567890","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"https://www.googleapis.com/robot/v1/metadata/x509/svc%40project-123.iam.gserviceaccount.com"}`),
 		rulebuilder.Match("bare secret 2", `{"auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","token_uri":"https://oauth2.googleapis.com/token","client_email":"svc@project-123.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n","project_id":"project-123","type":"service_account"}`, `{"auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","token_uri":"https://oauth2.googleapis.com/token","client_email":"svc@project-123.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n","project_id":"project-123","type":"service_account"}`),

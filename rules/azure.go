@@ -5,6 +5,25 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+// Reuse authenticated helper evidence; do not infer effective cloud policy grants.
+const azureServicePrincipalAnalyzeExpr = `let input = validation.analysis;
+{
+  "identity": {
+    "id": input["client_id"] ?? "",
+    "account": {"id": input["tenant_id"] ?? ""}
+  },
+  "capabilities": []
+}`
+
+// Reuse authenticated helper evidence; do not infer effective cloud policy grants.
+const azureStorageAnalyzeExpr = `let input = validation.analysis;
+{
+  "identity": {
+    "account": {"name": input["account"] ?? ""}
+  },
+  "capabilities": ["read"]
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "azure-tenant-id",
 	Confidence:  "medium",
@@ -54,13 +73,14 @@ var _ = rulebuilder.Add(config.Rule{
 	},
 	ValidateExpr: `let r = azure.validateServicePrincipal((components["azure-tenant-id"]?.secret ?? ""), (components["azure-client-id"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "metadata": {"tenant_id": r.tenant_id, "client_id": r.client_id}
-} : r.status in [400, 401, 403, 404] ? {
+  "analysis": {"client_id": r.client_id, "tenant_id": r.tenant_id}
+} : r.status in [400, 401] ? {
   "result": "invalid",
   "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
-	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
+	FilterExpr:  `entropy(finding["secret"]) <= 3.0`,
+	AnalyzeExpr: azureServicePrincipalAnalyzeExpr,
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -213,13 +233,15 @@ var _ = rulebuilder.Add(config.Rule{
 	},
 	ValidateExpr: `let r = azure.validateStorage((components["azure-storage-account-name"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "metadata": {"account": r.account, "containers": r.containers}
-} : r.status in [400, 401, 403, 404] ? {
+  "analysis": {"account": r.account},
+  "metadata": {"containers": r.containers}
+} : r.status == 401 || (r.status == 403 && r.error_code == "AuthenticationFailed") ? {
   "result": "invalid",
   "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 `,
-	FilterExpr: `entropy(finding["secret"]) <= 4.0`,
+	FilterExpr:  `entropy(finding["secret"]) <= 4.0`,
+	AnalyzeExpr: azureStorageAnalyzeExpr,
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",

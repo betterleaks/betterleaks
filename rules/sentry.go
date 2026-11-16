@@ -5,6 +5,37 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+// The API root is public: only a non-null auth object establishes authentication.
+// Configure SENTRY_BASE_URL explicitly for a regional/self-hosted endpoint; never
+// send a token to an untrusted URL decoded from the token itself.
+// https://docs.sentry.io/api/users/retrieve-the-current-credentials/
+// https://docs.sentry.io/api/permissions/
+const sentryValidateExpr = `let base = trim(env.getOrDefault("SENTRY_BASE_URL", "https://sentry.io"), "/");
+let r = http.get(base + "/api/0/", {"Authorization": "Bearer " + finding["secret"], "Accept": "application/json"});
+let body = type(r.json) == "map" ? r.json : {};
+let auth = type(body?.auth) == "map" ? body.auth : {};
+let user = type(body?.user) == "map" ? body.user : {};
+r.status == 200 && type(auth?.scopes) == "array" && all(auth.scopes, {type(#) == "string"}) ? {
+  "result": "valid", "analysis": {
+    "id": type(user?.id) == "string" ? user.id : type(user?.id) == "float" ? string(int(user.id)) : "",
+    "username": type(user?.username) == "string" ? user.username : "",
+    "name": type(user?.name) == "string" ? user.name : "",
+    "email": type(user?.email) == "string" ? user.email : "",
+    "scopes": filter(auth.scopes, {type(#) == "string"})
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)`
+const sentryAnalyzeExpr = `let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(scopes, {# in ["org:read", "project:read", "team:read", "member:read", "event:read"]}),
+  "write": any(scopes, {# in ["org:write", "org:admin", "org:ci", "project:write", "project:admin", "project:releases", "team:write", "team:admin", "member:write", "member:admin", "event:write", "event:admin"]}),
+  "manage_users": any(scopes, {# in ["member:write", "member:admin"]})
+});
+{
+  "identity": {"id": input["id"] ?? "", "username": input["username"] ?? "", "name": input["name"] ?? "", "email": input["email"] ?? ""},
+  "metadata": {"scopes": scopes}, "capabilities": capabilities
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "sentry-access-token",
 	Confidence:  "medium",
@@ -13,7 +44,9 @@ var _ = rulebuilder.Add(config.Rule{
 	Keywords: []string{
 		"sentry",
 	},
-	FilterExpr: `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
+	FilterExpr:   `entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5`,
+	ValidateExpr: sentryValidateExpr,
+	AnalyzeExpr:  sentryAnalyzeExpr,
 	Tests: []config.RuleTest{
 		rulebuilder.Match("assignment", `sentryToken = "1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc"`, "1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3edc"),
 	},
@@ -30,19 +63,21 @@ var _ = rulebuilder.Add(config.Rule{
 // InJlZ2lvbl91cmwi = `"region_url"`
 // cmVnaW9uX3VybCI6 = `region_url":`
 var _ = rulebuilder.Add(config.Rule{
-	ID:          "sentry-org-token",
-	Confidence:  "high",
-	Description: "Found a Sentry.io Organization Token, risking unauthorized access to error tracking services and sensitive application data.",
-	Regex:       `\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}(?:[^a-zA-Z0-9+/]|\z)`,
-	Keywords:    []string{"sntrys_eyjpyxqio"},
-	FilterExpr:  `entropy(finding["secret"]) < 4.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	ID:           "sentry-org-token",
+	Confidence:   "high",
+	Description:  "Found a Sentry.io Organization Token, risking unauthorized access to error tracking services and sensitive application data.",
+	Regex:        `\b(sntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43})(?:[^a-zA-Z0-9+/]|\z)`,
+	Keywords:     []string{"sntrys_eyjpyxqio"},
+	FilterExpr:   `entropy(finding["secret"]) < 4.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	ValidateExpr: sentryValidateExpr,
+	AnalyzeExpr:  sentryAnalyzeExpr,
 	Tests: []config.RuleTest{
-		rulebuilder.Match("assignment", `sentryToken = "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"`, `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"`),
-		rulebuilder.Match("sentry assignment 2", `sentryToken = "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"`, `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"`),
+		rulebuilder.Match("assignment", `sentryToken = "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"`, `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`),
+		rulebuilder.Match("sentry assignment 2", `sentryToken = "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"`, `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`),
 		rulebuilder.Match("true positive 1", " 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", "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"),
 		rulebuilder.Match("bare secret", "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", "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"),
-		rulebuilder.Match("true positive 2", "<token>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</token>", "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<"),
-		rulebuilder.Match("true positive 3", "https://example.com?token=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&other=stuff", "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&"),
+		rulebuilder.Match("true positive 2", "<token>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</token>", "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"),
+		rulebuilder.Match("true positive 3", "https://example.com?token=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&other=stuff", "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"),
 		rulebuilder.NoMatch("does not contain encoded json", "sntrys_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz9pyKl17ltLSvQmntzYlkmifsd2X28mLGpj0sdzvhNhjpXm_kI0TwXU3Pqj71n5gwFoigtDswxBrlgaWd1iKZUz5g1P"),
 		rulebuilder.NoMatch("too short", "sntrys_eyJpYXQiOjAwOCwidXJsIjoiaHR0cHM6Ly90RHhwUTRGV1ljIiwicmVnaW9uX3VybCI6Imh0dHBzOi8vYk1xMEt0NWI5d3NfcGdzeFVtT2UiLCJvcmciOiJXM3pmNyJ9_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klK"),
 		rulebuilder.NoMatch("too long", "sntrys_eyJpYXQiOjAwOCwidXJsIjoiaHR0cHM6Ly90RHhwUTRGV1ljIiwicmVnaW9uX3VybCI6Imh0dHBzOi8vYk1xMEt0NWI5d3NfcGdzeFVtT2UiLCJvcmciOiJXM3pmNyJ9_RFbD56TI2smTyVsGd5Xav0yu99ZAMPTA7z7s575klKiz"),
@@ -50,12 +85,14 @@ var _ = rulebuilder.Add(config.Rule{
 })
 
 var _ = rulebuilder.Add(config.Rule{
-	ID:          "sentry-user-token",
-	Confidence:  "high",
-	Description: "Found a Sentry.io User Token, risking unauthorized access to error tracking services and sensitive application data.",
-	Regex:       rulebuilder.Token(`sntryu_[a-f0-9]{64}`),
-	Keywords:    []string{"sntryu_"},
-	FilterExpr:  `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	ID:           "sentry-user-token",
+	Confidence:   "high",
+	Description:  "Found a Sentry.io User Token, risking unauthorized access to error tracking services and sensitive application data.",
+	Regex:        rulebuilder.Token(`sntryu_[a-f0-9]{64}`),
+	Keywords:     []string{"sntryu_"},
+	FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	ValidateExpr: sentryValidateExpr,
+	AnalyzeExpr:  sentryAnalyzeExpr,
 	Tests: []config.RuleTest{
 		rulebuilder.Match("assignment", `sentryToken = "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"`, "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"),
 		rulebuilder.NoMatch("too short", "sntryu_1f7b169c846f218ab552fa82fbf86758bf5c97d2d2a313e4f95957818a7b3ed"),

@@ -5,6 +5,42 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+// Current-token metadata avoids the user:read requirement of users/@me.
+// Keep explicit token boundaries, not the owner's last-opened UI organization.
+// https://github.com/PostHog/posthog/blob/master/posthog/api/personal_api_key.py
+// https://posthog.com/docs/api/scopes
+const posthogPersonalValidateExpr = `let headers = {"Authorization": "Bearer " + finding["secret"], "Accept": "application/json"};
+let path = "/api/personal_api_keys/@current/";
+let us = http.get("https://us.posthog.com" + path, headers);
+let useUS = us.status == 200 && type(us.json) == "map" && type(us.json?.id) in ["string", "float"] && us.json.id != "" && type(us.json?.user_id) in ["string", "float"] && us.json.user_id != "" && type(us.json?.scopes) == "array" && all(us.json.scopes, {type(#) == "string"});
+let r = useUS ? us : http.get("https://eu.posthog.com" + path, headers);
+let body = type(r.json) == "map" ? r.json : {};
+let keyID = type(body?.id) == "string" ? body.id : type(body?.id) == "float" ? string(int(body.id)) : "";
+let userID = type(body?.user_id) == "string" ? body.user_id : type(body?.user_id) == "float" ? string(int(body.user_id)) : "";
+r.status == 200 && keyID != "" && userID != "" && type(body?.scopes) == "array" && all(body.scopes, {type(#) == "string"}) ? {
+  "result": "valid", "analysis": {
+    "region": useUS ? "us" : "eu", "key_id": keyID, "user_id": userID,
+    "scopes": filter(body.scopes, {type(#) == "string"}),
+    "scoped_teams": type(body?.scoped_teams) == "array" ? filter(body.scoped_teams, {type(#) in ["string", "float"]}) : [],
+    "scoped_organizations": type(body?.scoped_organizations) == "array" ? filter(body.scoped_organizations, {type(#) == "string"}) : [],
+    "expires_at": type(body?.expires_at) == "string" ? body.expires_at : nil
+  }
+} : us.status == 401 && r.status == 401 ? {"result": "invalid", "reason": "Unauthorized in both regions"} : validate.unknown(r)`
+const posthogPersonalAnalyzeExpr = `let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let resources = ["action", "annotation", "cohort", "dashboard", "event", "experiment", "feature_flag", "insight", "organization", "organization_member", "person", "project", "query", "session_recording", "survey"];
+let capabilities = analysis.capabilities({
+  "read": any(resources, {let resource = #; resource + ":read" in scopes || resource + ":write" in scopes}),
+  "write": any(resources, {# + ":write" in scopes}),
+  "manage_users": "organization_member:write" in scopes
+});
+{
+  "identity": {"id": input["user_id"] ?? ""},
+  "metadata": fromPairs(filter(toPairs({"key_id": input["key_id"] ?? "", "region": input["region"] ?? "", "scopes": scopes,
+    "scoped_teams": input["scoped_teams"] ?? [], "scoped_organizations": input["scoped_organizations"] ?? [], "expires_at": input["expires_at"]}), {#[1] != nil && #[1] != "" && #[1] != []})),
+  "capabilities": capabilities
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "posthog-project-api-key",
 	Confidence:  "high",
@@ -38,25 +74,10 @@ var _ = rulebuilder.Add(config.Rule{
 	Regex:      rulebuilder.Token(`(?i)phx_[a-zA-Z0-9_\-]{41,49}`),
 	Keywords:   []string{"phx_"},
 	FilterExpr: `entropy(finding["secret"]) <= 3.0`,
-	// A valid key hits us/eu.posthog.com and returns 200 (has user:read) or
-	// 403 (authenticated but missing the user:read scope); a revoked/unknown
-	// key returns 401. Keys are region-bound, so any non-valid US response
-	// (401, or a 429/5xx outage) falls back to EU. Only report "invalid" when
-	// both regions definitively return 401 — if either errored, stay unknown.
-	ValidateExpr: `let us = http.get("https://us.posthog.com/api/users/@me/", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); us.status in [200, 403] ? {
-    "result": "valid",
-    "metadata": {"region": "us", "email": (us.json?.email ?? ""), "organization": (us.json?.organization?.name ?? "")}
-  } : (let eu = http.get("https://eu.posthog.com/api/users/@me/", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); eu.status in [200, 403] ? {
-    "result": "valid",
-    "metadata": {"region": "eu", "email": (eu.json?.email ?? ""), "organization": (eu.json?.organization?.name ?? "")}
-  } : (us.status == 401 && eu.status == 401) ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(eu))`,
+	// Keys are region-bound: an unverified US response falls back to EU.
+	// Both regions must reject authentication before reporting invalid.
+	ValidateExpr: posthogPersonalValidateExpr,
+	AnalyzeExpr:  posthogPersonalAnalyzeExpr,
 	Tests: []config.RuleTest{
 		rulebuilder.Match("assignment", `posthogToken = "phx_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZz"`, "phx_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHCH92lITZz"),
 		rulebuilder.Match("bare secret", "phx_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHC", "phx_WE6v05tg7Z5jXlNPAK_XEPcHzfjsqrpsQE_BdrxHC"),

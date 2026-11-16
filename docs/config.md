@@ -895,6 +895,24 @@ export GITHUB_BASE_URL=https://github.example.com/api/v3
 betterleaks github --validate --provider-env-vars GITHUB_BASE_URL https://github.example.com/owner
 ```
 
+The built-in Sentry rules default to `https://sentry.io`. For a regional or
+self-hosted instance, set `SENTRY_BASE_URL` to its trusted base URL, without
+`/api/0`, and allowlist the variable:
+
+```sh
+export SENTRY_BASE_URL=https://sentry.example.com
+betterleaks filesystem . -a --provider-env-vars SENTRY_BASE_URL
+```
+
+Tableau Cloud requires a site content URL for personal-access-token sign-in.
+Set `TABLEAU_SITE_CONTENT_URL` to the site slug from the Tableau URL and
+allowlist it. Without it, the rule returns `needs_validation` without a request.
+
+```sh
+export TABLEAU_SITE_CONTENT_URL=example-site
+betterleaks filesystem . -a --provider-env-vars TABLEAU_SITE_CONTENT_URL
+```
+
 Use `env.get` instead when the env var is required for the validator to be
 meaningful, such as provider API keys used only for validation. `env.get`
 returns an Expr error when env access is disabled or the name is not allowlisted.

@@ -37,6 +37,7 @@ func azureNamespace(rt *runtimeBindings) map[string]any {
 }
 
 type azureStorageListResponse struct {
+	XMLName    xml.Name `xml:"EnumerationResults"`
 	Containers []struct {
 		Name string `xml:"Name"`
 	} `xml:"Containers>Container"`
@@ -91,6 +92,9 @@ func (rt *runtimeBindings) azureValidateStorage(account, accountKey string) map[
 				containers = append(containers, c.Name)
 			}
 			out["containers"] = containers
+		} else {
+			out["status"] = int64(0)
+			out["error_code"] = "invalid_storage_response"
 		}
 	} else {
 		azureAddXMLError(out, body)
@@ -138,8 +142,11 @@ func (rt *runtimeBindings) azureValidateServicePrincipal(tenantID, clientID, cli
 	out := map[string]any{"status": int64(resp.StatusCode), "tenant_id": tenantID, "client_id": clientID}
 	azureAddJSONError(out, respBody)
 	var parsed map[string]any
-	if resp.StatusCode == http.StatusOK && json.Unmarshal(respBody, &parsed) == nil {
-		if _, ok := parsed["access_token"].(string); !ok {
+	if resp.StatusCode == http.StatusOK {
+		if err := json.Unmarshal(respBody, &parsed); err != nil {
+			out["status"] = int64(0)
+			out["error_code"] = "invalid_token_response"
+		} else if token, ok := parsed["access_token"].(string); !ok || token == "" {
 			out["status"] = int64(0)
 			out["error_code"] = "missing_access_token"
 		}

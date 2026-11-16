@@ -5,6 +5,45 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+// All access tokens can call whoami, including tokens without Video read access.
+// https://www.mux.com/docs/api-reference/system/utilities/get-whoami
+// https://www.mux.com/docs/core/make-api-requests
+const muxValidateExpr = `let r = http.get("https://api.mux.com/system/v1/whoami", {
+  "Authorization": "Basic " + base64.encode(bytes((components["mux-access-token-id.1"]?.secret ?? "") + ":" + finding["secret"])),
+  "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+let data = type(body?.data) == "map" ? body.data : {};
+r.status == 200 && type(data?.organization_id) == "string" && data.organization_id != "" && type(data?.environment_id) == "string" && data.environment_id != "" && type(data?.permissions) == "array" && all(data.permissions, {type(#) == "string"}) ? {
+  "result": "valid", "analysis": {
+    "organization_id": data.organization_id,
+    "organization_name": type(data?.organization_name) == "string" ? data.organization_name : "",
+    "environment_id": data.environment_id,
+    "environment_name": type(data?.environment_name) == "string" ? data.environment_name : "",
+    "environment_type": type(data?.environment_type) == "string" ? data.environment_type : "",
+    "token_name": type(data?.access_token_name) == "string" ? data.access_token_name : "",
+    "permissions": data.permissions
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)`
+
+const muxAnalyzeExpr = `let input = validation.analysis;
+let permissions = input["permissions"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(permissions, {# in ["video:read", "data:read", "system:read", "robots:read"]}),
+  "write": any(permissions, {# in ["video:write", "data:write", "system:write", "robots:write"]})
+});
+{
+  "identity": {"account": {"id": input["organization_id"], "name": input["organization_name"] ?? ""}},
+  "metadata": fromPairs(filter(toPairs({
+    "environment_id": input["environment_id"],
+    "environment_name": input["environment_name"] ?? "",
+    "environment_type": input["environment_type"] ?? "",
+    "token_name": input["token_name"] ?? "",
+    "permissions": permissions
+  }), {#[1] != nil && #[1] != "" && #[1] != []})),
+  "capabilities": capabilities
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "mux-access-token-id.1",
 	Confidence:  "medium",
@@ -37,19 +76,9 @@ var _ = rulebuilder.Add(config.Rule{
 	Components: []config.Component{
 		{RuleID: "mux-access-token-id.1", Within: "5L"},
 	},
-	ValidateExpr: `let r = http.get("https://api.mux.com/video/v1/assets?limit=1", {
-    "Authorization": "Basic " + base64.encode(bytes((components["mux-access-token-id.1"]?.secret ?? "") + ":" + finding["secret"])),
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status == 403 ? {
-    "result": "valid",
-    "reason": "Authenticated Mux token without Video read permission"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
-	FilterExpr: rulebuilder.MinEntropy(3.5),
+	ValidateExpr: muxValidateExpr,
+	AnalyzeExpr:  muxAnalyzeExpr,
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
