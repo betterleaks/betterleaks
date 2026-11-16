@@ -187,7 +187,7 @@ func TestScanValidationAndEmptyAnalysisContracts(t *testing.T) {
 			assert.Equal(t, 1, summary.ValidationCounts[test.status])
 			assert.Equal(t, test.severity, findings[0].Analysis.Severity)
 			if test.status == report.ValidationStatusError {
-				assert.NotEmpty(t, findings[0].Analysis.StatusReason+findings[0].Analysis.Reason)
+				assert.NotEmpty(t, findings[0].Analysis.StatusReason)
 			}
 			if test.status != report.ValidationStatusValid {
 				assert.Empty(t, findings[0].Analysis.Severity, "permission analysis must not run without valid credentials")
@@ -252,7 +252,7 @@ func TestCanonicalCapturesAcrossCredentialStages(t *testing.T) {
 && components["part"].captures.tenant == "companion"
 && validation.analysis.selected == components["part"].secret
 ? {"capabilities": components["part"].secret == "readkey" ? ["read"] : ["write"]}
-: {"reason": "credential inputs changed between stages"}`,
+: {"metadata": {"notes": ["Credential inputs changed between stages"]}}`,
 		},
 		{
 			ID: "part", Regex: `(?P<tenant>companion|fixture):(?P<key>readkey|writekey)`, ValueGroup: 2,

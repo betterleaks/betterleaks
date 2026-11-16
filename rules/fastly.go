@@ -32,10 +32,7 @@ const fastlyValidateExpr = `let r = http.get("https://api.fastly.com/tokens/self
 const fastlyAnalyzeExpr = `let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 let services = input["services"] ?? [];
-let known_scopes = ["global", "global:read", "purge_all", "purge_select"];
 {
-  "reason": len(scopes) == 0 ? "Fastly did not return token scope metadata" :
-    !intersects(scopes, known_scopes) ? "Fastly returned no recognized token scopes" : "",
   "identity": {
     "id": input["user_id"] ?? ""
   },

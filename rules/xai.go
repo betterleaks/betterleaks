@@ -45,8 +45,7 @@ const xaiAnalyzeExpr = `let input = validation.analysis;
     "acls": input["acls"] ?? [], "created_at": input["created_at"] ?? "", "modified_at": input["modified_at"] ?? "",
     "api_key_disabled": input["api_key_disabled"] ?? nil, "api_key_blocked": input["api_key_blocked"] ?? nil, "team_blocked": input["team_blocked"] ?? nil
   },
-  "capabilities": [],
-  "reason": "xAI model and endpoint ACLs do not establish resource read/write or administrative grants"
+  "capabilities": []
 }`
 
 var _ = rulebuilder.Add(config.Rule{

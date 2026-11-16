@@ -38,14 +38,12 @@ let can_write = matchesAny(scopes, [
   "^delete_(?:registries|packages)$"
 ]);
 {
-  "reason": "graphql" in scopes ? "Buildkite GraphQL permissions were not expanded" :
-    len(scopes) == 0 ? "Buildkite did not return token scopes" :
-    !can_read && !can_write ? "Buildkite returned no recognized REST permission grants" : "",
   "identity": {
     "name": input["name"] ?? "",
     "email": input["email"] ?? ""
   },
   "metadata": {
+    "notes": "graphql" in scopes ? ["Buildkite GraphQL permissions were not expanded"] : [],
     "token_id": input["token_id"] ?? "",
     "token_name": input["token_name"] ?? "",
     "scopes": scopes,

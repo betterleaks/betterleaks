@@ -59,7 +59,6 @@ let capabilities = analysis.capabilities({
   "manage_users": any(permissions, {# in ["org.write", "org.members.write"]})
 });
 {
-  "reason": len(capabilities) > 0 ? "" : "Hugging Face returned no recognized permission grants",
   "metadata": role == "fineGrained" ? {
     "role": role,
     "token_name": access_token["displayName"] ?? "",

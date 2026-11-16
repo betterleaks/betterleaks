@@ -32,9 +32,6 @@ let details_ok = r.status == 200 && (r.json?.token?.id ?? "") != "";
 let token = details_ok ? (r.json?.token ?? {}) : {};
 let scopes = token["scopes"] ?? [];
 {
-  "reason": !details_ok ? "Vercel token metadata could not be retrieved" :
-    len(scopes) == 0 ? "Vercel did not return token scope metadata" :
-    "Vercel token scopes do not establish resource permissions",
   "identity": {
     "id": input["user_id"] ?? "",
     "email": input["email"] ?? "",
@@ -45,6 +42,7 @@ let scopes = token["scopes"] ?? [];
     } : {}
   },
   "metadata": {
+    "notes": !details_ok ? ["Vercel token metadata could not be retrieved"] : [],
     "token_id": token["id"] ?? "",
     "token_name": token["name"] ?? "",
     "token_type": token["type"] ?? "",

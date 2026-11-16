@@ -51,12 +51,10 @@ let can_read = input["can_read"] ?? false;
     }
   },
   "metadata": {
+    "notes": is_pat && len(profile) == 0 ? ["Harness user profile was unavailable"] : [],
     "token_type": is_pat ? "personal_access_token" : "service_account_token"
   },
-  "capabilities": analysis.capabilities({"read": can_read}),
-  "reason": is_pat && len(profile) == 0 ? "Harness user profile was unavailable; effective permissions were not returned" :
-    can_read ? "Organization listing confirmed read access; other effective permissions were not returned" :
-    "Harness did not return effective permissions"
+  "capabilities": analysis.capabilities({"read": can_read})
 }`
 
 // Define rule for Harness Personal Access Token (PAT) and Service Account Token (SAT)

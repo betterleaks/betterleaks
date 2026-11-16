@@ -35,7 +35,6 @@ r.status == 200 && (r.json?.ok ?? false) ? {
 const slackAnalyzeExpr = `let input = validation.analysis;
 let scopes = input["scopes"] ?? [];
 {
-  "reason": len(scopes) == 0 ? "Slack did not return OAuth scope metadata" : "",
   "metadata": {
     "enterprise_id": input["enterprise_id"] ?? "",
     "scopes": scopes

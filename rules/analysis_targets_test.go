@@ -176,9 +176,6 @@ func TestAnalysisTargetsPermissionBoundaries(t *testing.T) {
 			result := evaluateProviderAnalysis(t, test.expr, test.input)
 			assert.ElementsMatch(t, test.want, result.Capabilities)
 			assert.Equal(t, report.AnalysisSeverity(test.want), result.Severity)
-			if len(test.want) == 0 {
-				assert.NotEmpty(t, result.Reason)
-			}
 		})
 	}
 }

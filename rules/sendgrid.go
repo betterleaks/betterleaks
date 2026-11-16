@@ -27,8 +27,7 @@ let capabilities = analysis.capabilities({
 });
 {
   "metadata": {"scopes": scopes},
-  "capabilities": capabilities,
-  "reason": len(capabilities) == 0 ? "SendGrid returned no recognized permission grants" : ""
+  "capabilities": capabilities
 }`
 
 var _ = rulebuilder.Add(config.Rule{

@@ -32,6 +32,5 @@ const IdentityOnlyAnalyzeExpr = `let input = validation.analysis;
 {
   "identity": input["identity"] ?? {},
   "metadata": input["metadata"] ?? {},
-  "capabilities": [],
-  "reason": "Identity resolved; effective permissions were not returned"
+  "capabilities": []
 }`

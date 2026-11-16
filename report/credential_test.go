@@ -159,9 +159,10 @@ func TestCredentialReporterWritesText(t *testing.T) {
 		SchemaVersion: SchemaVersion,
 		RuleID:        "test-rule",
 		Analysis: Analysis{
-			Status: ValidationStatusValid,
-			Reason: "Authenticated",
+			Status:       ValidationStatusValid,
+			StatusReason: "Authenticated",
 			Metadata: map[string]any{
+				"notes": []string{"Some permissions could not be inspected."},
 				"zeta":  int64(2),
 				"alpha": "owner",
 			},
@@ -185,8 +186,10 @@ func TestCredentialReporterWritesText(t *testing.T) {
 │
 │ analysis:
 │   metadata.alpha ...... "owner"
+│   metadata.notes ...... [Some permissions could not be inspected.]
 │   metadata.zeta ....... 2
 │   status .............. VALID
+│   status_reason ....... Authenticated
 │
 │ components:
 │   ✓  component, context (optional)

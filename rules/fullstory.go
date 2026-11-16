@@ -23,8 +23,7 @@ const fullstoryAnalyzeExpr = `let role = validation.analysis["role"] ?? "";
 let known = role in ["USER", "ARCHITECT", "ADMIN"];
 {
   "metadata": {"role": role},
-  "capabilities": analysis.capabilities({"read": known, "write": known, "admin": role == "ADMIN"}),
-  "reason": known ? "" : "Fullstory returned an unrecognized API key role"
+  "capabilities": analysis.capabilities({"read": known, "write": known, "admin": role == "ADMIN"})
 }`
 
 var _ = rulebuilder.Add(config.Rule{

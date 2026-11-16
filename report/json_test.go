@@ -96,10 +96,10 @@ func TestJSONWritersPropagateOutputErrors(t *testing.T) {
 func TestReportsSummarizeComponentAnalysis(t *testing.T) {
 	analysis := Analysis{
 		Status: ValidationStatusValid, Severity: SeverityHigh,
-		StatusReason: "Authenticated", Reason: "Permissions resolved",
+		StatusReason:   "Authenticated",
 		Identity:       &AnalysisIdentity{Username: "owner"},
 		Capabilities:   []Capability{CapabilityWrite},
-		Metadata:       map[string]any{"acl": []string{"search", "addObject"}},
+		Metadata:       map[string]any{"acl": []string{"search", "addObject"}, "notes": []string{"Permissions outside these indexes were not inspected."}},
 		StatusMetadata: map[string]any{"username": "owner"},
 		Debug:          map[string]any{"validation": "diagnostics"},
 	}
@@ -111,7 +111,7 @@ func TestReportsSummarizeComponentAnalysis(t *testing.T) {
 				{RuleID: "region", Optional: true, Match: Match{Value: "us-east-1"}, Location: Location{StartLine: 11}},
 			}, Analysis: analysis},
 			{Analysis: Analysis{Status: ValidationStatusInvalid, StatusReason: "Unauthorized"}},
-			{Analysis: Analysis{Reason: "No provider result"}},
+			{Analysis: Analysis{Metadata: map[string]any{"notes": []string{"No provider result"}}}},
 		},
 	}
 	finding.Match.Fingerprint = fingerprint.Format(fingerprint.Sum([]byte(finding.Match.Value)))

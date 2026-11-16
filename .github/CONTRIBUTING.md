@@ -173,6 +173,14 @@ r.status == 200 && (r.json?.slug ?? "") != "" ? {
    permissions, and affected resources. Omit empty/default values and routine
    provider settings that do not help assess or remediate the finding.
 
+   Analyzers return `identity`, `capabilities`, and `metadata`, all optional.
+   Validation and revocation export their `reason` and `metadata` as
+   `analysis.status_reason` and `analysis.status_metadata`; enrichment exports
+   its evidence as `analysis.metadata`. The maps remain separate.
+   Put useful enrichment caveats in `metadata.notes`, an optional string array,
+   and omit routine prose. The runtime reserves `metadata.analysis_error` for
+   enrichment failures. See the [result contract](../docs/config.md#validation-and-credential-analysis).
+
 ### Provider safety for validation and analysis
 
 Validation and analysis run against real provider APIs. Be polite:

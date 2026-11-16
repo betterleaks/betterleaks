@@ -264,7 +264,7 @@ func TestPoolAnalyzesValidCredential(t *testing.T) {
 	}`)
 	require.NoError(t, err)
 	analysisProgram, err := runtime.CompileAnalysis(`{
-		"reason": validation["analysis"]["owner"],
+		"metadata": {"notes": [validation["analysis"]["owner"]]},
 		"identity": {"id": validation["analysis"]["owner"]},
 		"capabilities": ["write", "read", "write"]
 	}`)
@@ -284,12 +284,11 @@ func TestPoolAnalyzesValidCredential(t *testing.T) {
 	for range 2 {
 		result := <-results
 		assert.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
-		assert.Empty(t, result.Analysis.Metadata)
 		assert.Equal(t, report.SeverityHigh, result.Analysis.Severity)
 		assert.Equal(t, []report.Capability{report.CapabilityRead, report.CapabilityWrite}, result.Analysis.Capabilities)
 		require.NotNil(t, result.Analysis.Identity)
 		assert.Equal(t, "credential=[redacted]", result.Analysis.Identity.ID)
-		assert.Equal(t, "credential=[redacted]", result.Analysis.Reason)
+		assert.Equal(t, []string{"credential=[redacted]"}, result.Analysis.Metadata["notes"])
 	}
 	hits, misses := pool.AnalysisStats()
 	assert.Equal(t, uint64(1), hits)
@@ -323,31 +322,65 @@ func TestPoolSkipsAnalysisWhenValidationIsNotValid(t *testing.T) {
 func TestPoolAnalysisFailurePreservesValidCredential(t *testing.T) {
 	runtime, err := exprruntime.New(nil)
 	require.NoError(t, err)
-	validationProgram, err := runtime.CompileValidation(`{"result": "valid"}`)
+	validationProgram, err := runtime.CompileValidation(`{"result":"valid", "reason":"Authenticated", "metadata":{"account_id":"account-1"}}`)
 	require.NoError(t, err)
-	analysisProgram, err := runtime.CompileAnalysis(`{"severity": "high"}`)
+	analysisProgram, err := runtime.CompileAnalysis(`fromPairs([[finding["secret"], true]])`)
 	require.NoError(t, err)
-
-	pool := NewPoolContext(t.Context(), 1, runtime)
-	results := make(chan report.Finding, 2)
-	pool.Emit = func(finding report.Finding) { results <- finding }
-	finding := report.Finding{
-		RuleID: "test-rule",
-		Match:  report.Match{Value: "secret-value"},
+	for _, debug := range []bool{false, true} {
+		t.Run(fmt.Sprintf("debug=%t", debug), func(t *testing.T) {
+			pool := NewPoolContext(t.Context(), 1, runtime)
+			pool.Debug = debug
+			results := make(chan report.Finding, 2)
+			pool.Emit = func(finding report.Finding) { results <- finding }
+			finding := report.Finding{RuleID: "test-rule", Match: report.Match{Value: "secret-value"}}
+			for range 2 {
+				require.NoError(t, pool.SubmitWithAnalysisContext(t.Context(), finding, validationProgram, analysisProgram))
+			}
+			pool.Close()
+			for range 2 {
+				result := <-results
+				assert.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
+				assert.Equal(t, "Authenticated", result.Analysis.StatusReason)
+				assert.Equal(t, map[string]any{"account_id": "account-1"}, result.Analysis.StatusMetadata)
+				assert.Equal(t, report.SeverityUnknown, result.Analysis.Severity)
+				assert.Equal(t, map[string]any{"analysis_error": `analysis contains unknown field "[redacted]"`}, result.Analysis.Metadata)
+			}
+			hits, misses := pool.AnalysisStats()
+			assert.Zero(t, hits)
+			if debug {
+				assert.Zero(t, misses)
+			} else {
+				assert.Equal(t, uint64(2), misses)
+			}
+		})
 	}
-	require.NoError(t, pool.SubmitWithAnalysisContext(t.Context(), finding, validationProgram, analysisProgram))
-	require.NoError(t, pool.SubmitWithAnalysisContext(t.Context(), finding, validationProgram, analysisProgram))
-	pool.Close()
+}
 
-	for range 2 {
-		result := <-results
-		assert.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
-		assert.Equal(t, report.SeverityUnknown, result.Analysis.Severity)
-		assert.Contains(t, result.Analysis.Reason, "unknown field")
+func TestCompositeAnalysisNotesDoNotMaskUsefulEvidence(t *testing.T) {
+	runtime, err := exprruntime.New(nil)
+	require.NoError(t, err)
+	validate, err := runtime.CompileValidation(`{"result":"valid"}`)
+	require.NoError(t, err)
+	enrich, err := runtime.CompileAnalysis(`components.account.secret == "noted-secret" ? {"identity":{"id":"owner-1"},"metadata":{"notes":["Some permissions could not be inspected."]}} : components.account.secret == "failed-secret" ? {"capabilities":123} : {}`)
+	require.NoError(t, err)
+	for _, secrets := range [][]string{{"noted-secret", "empty-secret"}, {"empty-secret", "noted-secret"}, {"failed-secret", "noted-secret"}, {"noted-secret", "failed-secret"}} {
+		t.Run(secrets[0]+"/"+secrets[1], func(t *testing.T) {
+			finding := report.Finding{RuleID: "test-rule", Match: report.Match{Value: "primary-secret"}}
+			for _, secret := range secrets {
+				finding.ComponentSets = append(finding.ComponentSets, report.ComponentSet{Components: []report.ComponentFinding{{RuleID: "account", Match: report.Match{Value: secret}}}})
+			}
+			pool := NewPoolContext(t.Context(), 1, runtime)
+			results := make(chan report.Finding, 1)
+			pool.Emit = func(f report.Finding) { results <- f }
+			require.NoError(t, pool.SubmitWithAnalysisContext(t.Context(), finding, validate, enrich))
+			pool.Close()
+			result := <-results
+			require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
+			require.Equal(t, &report.AnalysisIdentity{ID: "owner-1"}, result.Analysis.Identity)
+			require.Equal(t, []string{"Some permissions could not be inspected."}, result.Analysis.Metadata["notes"])
+			require.NotContains(t, result.Analysis.Metadata, "analysis_error")
+		})
 	}
-	hits, misses := pool.AnalysisStats()
-	assert.Zero(t, hits)
-	assert.Equal(t, uint64(2), misses)
 }
 
 func TestPoolAnalyzesValidComponentSets(t *testing.T) {
@@ -405,9 +438,9 @@ func TestCompositeAnalysisRollupUsesOneCombination(t *testing.T) {
 	require.NoError(t, err)
 	enrich, err := runtime.CompileAnalysis(`
  let owner = validation.analysis.owner;
- {"reason":"permissions for " + owner, "identity":{"username":owner},
+ {"identity":{"username":owner},
  "capabilities": owner == "admin" ? ["admin"] : ["read"],
- "metadata":{"shared":"from analysis", "permissions_for":owner}}
+ "metadata":{"shared":"from analysis", "permissions_for":owner, "notes":["permissions for " + owner]}}
  `)
 	require.NoError(t, err)
 	finding := report.Finding{RuleID: "test", Match: report.Match{Value: "primary-credential"}}
@@ -427,9 +460,8 @@ func TestCompositeAnalysisRollupUsesOneCombination(t *testing.T) {
 	require.Equal(t, report.SeverityHigh, first.Analysis.Severity)
 	require.Equal(t, "[redacted]", first.Analysis.Identity.Username)
 	require.Equal(t, "accepted [redacted]", first.Analysis.StatusReason)
-	require.Equal(t, "permissions for [redacted]", first.Analysis.Reason)
 	require.Equal(t, map[string]any{"tenant": "[redacted]", "shared": "from validation"}, first.Analysis.StatusMetadata)
-	require.Equal(t, map[string]any{"shared": "from analysis", "permissions_for": "[redacted]"}, first.Analysis.Metadata)
+	require.Equal(t, map[string]any{"shared": "from analysis", "permissions_for": "[redacted]", "notes": []string{"permissions for [redacted]"}}, first.Analysis.Metadata)
 	require.Equal(t, first.ComponentSets[1].Analysis, first.Analysis)
 	encoded, err := json.Marshal(first)
 	require.NoError(t, err)
@@ -437,9 +469,11 @@ func TestCompositeAnalysisRollupUsesOneCombination(t *testing.T) {
 	require.True(t, finding.Analysis.IsZero())
 	require.True(t, finding.ComponentSets[0].Analysis.IsZero())
 	first.Analysis.StatusMetadata["tenant"] = "changed"
+	first.Analysis.Metadata["notes"].([]string)[0] = "changed"
 	first.Analysis.Identity.Username = "changed"
 	first.Analysis.Capabilities[0] = report.CapabilityRead
 	require.Equal(t, "[redacted]", second.Analysis.StatusMetadata["tenant"])
+	require.Equal(t, []string{"permissions for [redacted]"}, second.Analysis.Metadata["notes"])
 	require.Equal(t, "[redacted]", second.Analysis.Identity.Username)
 	require.Equal(t, []report.Capability{report.CapabilityAdmin}, second.Analysis.Capabilities)
 }

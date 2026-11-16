@@ -2159,7 +2159,10 @@ carry no version field.
 The schema version is independent of the Betterleaks application version and
 changes when the report contract introduces a breaking change.
 Credential state uses `analysis.status`, `status_reason`, and `status_metadata`;
-permission enrichment uses `reason`, `metadata`, identity and capabilities.
+permission enrichment uses `metadata`, identity, and capabilities. The metadata
+maps remain separate. Optional enrichment caveats appear in `metadata.notes`,
+and enrichment runtime failures appear in `metadata.analysis_error` without
+changing credential status. See the [result contract](config.md#validation-and-credential-analysis).
 `component_sets_truncated` means the 100-combination discovery limit omitted
 possible credentials. Such a search cannot establish invalidity unless every
 possible combination was actually tested; a tested successful combination can

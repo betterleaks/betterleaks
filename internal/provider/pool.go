@@ -224,19 +224,18 @@ func combineAnalysis(validation *Result, enrichment report.Analysis) report.Anal
 }
 
 func (p *Pool) evalAnalysisWithCacheKey(cacheKey string, program exprruntime.Program, finding, captures map[string]string, components map[string]any, attributes map[string]string, validation *Result) report.Analysis {
+	var result report.Analysis
+	var err error
 	if p.Debug {
-		result, err := p.evalAnalysisProgram(program, finding, captures, components, attributes, validation)
-		if err != nil {
-			result.Reason = err.Error()
-			result.Severity = report.SeverityUnknown
-		}
-		return result
+		result, err = p.evalAnalysisProgram(program, finding, captures, components, attributes, validation)
+	} else {
+		result, err = p.analysisCache.GetOrDo(cacheKey, func() (report.Analysis, error) {
+			return p.evalAnalysisProgram(program, finding, captures, components, attributes, validation)
+		})
 	}
-	result, err := p.analysisCache.GetOrDo(cacheKey, func() (report.Analysis, error) {
-		return p.evalAnalysisProgram(program, finding, captures, components, attributes, validation)
-	})
 	if err != nil {
-		return report.Analysis{Reason: err.Error(), Severity: report.SeverityUnknown}
+		result.Metadata = map[string]any{"analysis_error": err.Error()}
+		result.Severity = report.SeverityUnknown
 	}
 	return result
 }
@@ -301,8 +300,10 @@ func betterAnalysis(current, candidate report.Analysis) bool {
 	if candidateSeverity != currentSeverity {
 		return candidateSeverity > currentSeverity
 	}
-	if (candidate.Reason == "") != (current.Reason == "") {
-		return candidate.Reason == ""
+	_, candidateFailed := candidate.Metadata["analysis_error"]
+	_, currentFailed := current.Metadata["analysis_error"]
+	if candidateFailed != currentFailed {
+		return !candidateFailed
 	}
 	if len(candidate.Capabilities) != len(current.Capabilities) {
 		return len(candidate.Capabilities) > len(current.Capabilities)

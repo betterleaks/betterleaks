@@ -56,11 +56,11 @@ let permissions = map(permission_groups, {#.name ?? ""});
 let can_crud = matchesAny(permissions, ["(?: Write| Edit)$"]);
 let can_write = can_crud || matchesAny(permissions, ["(?: Revoke| Send)$", "^Cache Purge$"]);
 {
-  "reason": !details_ok ? "Cloudflare did not allow this token to read its policy details" : "",
   "identity": token_type == "account" && account_id != "" ? {
     "account": {"id": account_id}
   } : {},
   "metadata": {
+    "notes": !details_ok ? ["Cloudflare token policy details could not be retrieved"] : [],
     "token_id": token_id,
     "token_type": token_type,
     "token_name": token["name"] ?? "",

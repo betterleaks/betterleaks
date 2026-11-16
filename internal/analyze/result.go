@@ -25,18 +25,11 @@ func ParseResult(value any) (report.Analysis, error) {
 	if !ok {
 		return report.Analysis{}, fmt.Errorf("analysis expression returned unexpected type: %T", value)
 	}
-	if err := rejectUnknownFields(result, "analysis", "reason", "identity", "capabilities", "metadata"); err != nil {
+	if err := rejectUnknownFields(result, "analysis", "identity", "capabilities", "metadata"); err != nil {
 		return report.Analysis{}, err
 	}
 
 	analysis := report.Analysis{}
-	if rawReason, exists := result["reason"]; exists {
-		reason, ok := rawReason.(string)
-		if !ok {
-			return report.Analysis{}, fmt.Errorf("analysis reason must be a string")
-		}
-		analysis.Reason = strings.TrimSpace(reason)
-	}
 
 	if rawIdentity, exists := result["identity"]; exists && rawIdentity != nil {
 		identity, err := parseIdentity(rawIdentity)
@@ -55,15 +48,54 @@ func ParseResult(value any) (report.Analysis, error) {
 	}
 
 	if rawMetadata, exists := result["metadata"]; exists && rawMetadata != nil {
-		metadata, ok := stringMap(rawMetadata)
-		if !ok {
-			return report.Analysis{}, fmt.Errorf("analysis metadata must be an object")
+		metadata, err := parseMetadata(rawMetadata)
+		if err != nil {
+			return report.Analysis{}, err
 		}
 		analysis.Metadata = metadata
 	}
 
 	analysis.Severity = report.AnalysisSeverity(analysis.Capabilities)
 	return analysis, nil
+}
+
+// parseMetadata copies enrichment evidence and normalizes optional notes.
+// Runtime errors are owned by the provider pipeline.
+func parseMetadata(value any) (map[string]any, error) {
+	metadata, ok := stringMap(value)
+	if !ok {
+		return nil, fmt.Errorf("analysis metadata must be an object")
+	}
+	if _, exists := metadata["analysis_error"]; exists {
+		return nil, fmt.Errorf("analysis metadata key %q is reserved", "analysis_error")
+	}
+	result := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		if key != "notes" {
+			result[key] = value
+			continue
+		}
+		notes, err := stringSlice(value, "analysis metadata.notes")
+		if err != nil {
+			return nil, err
+		}
+		seen := make(map[string]struct{}, len(notes))
+		var normalized []string
+		for _, note := range notes {
+			note = strings.TrimSpace(note)
+			if note == "" {
+				continue
+			}
+			if _, exists := seen[note]; !exists {
+				seen[note] = struct{}{}
+				normalized = append(normalized, note)
+			}
+		}
+		if len(normalized) > 0 {
+			result[key] = normalized
+		}
+	}
+	return result, nil
 }
 
 func parseIdentity(value any) (*report.AnalysisIdentity, error) {
