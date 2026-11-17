@@ -3,9 +3,11 @@ package cmd
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/betterleaks/betterleaks/v2/fingerprint"
 	"github.com/betterleaks/betterleaks/v2/pipeline"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
@@ -52,6 +54,8 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 		summary           pipeline.ScanSummary
 		validationEnabled bool
 		scanErrs          []error
+		runner            *pipeline.Pipeline
+		ignored           []fingerprint.Hash
 	)
 
 	for _, source := range sourcesList {
@@ -62,11 +66,17 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 			runtime.Logger().Error("unable to prepare source", "path", source, "error", err)
 			break
 		}
-		runner, err := newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
-		if err != nil {
-			scanErrs = append(scanErrs, err)
-			runtime.Logger().Error("unable to prepare scan", "error", err)
-			break
+		// Reuse the compiled rules across paths while retaining per-source ignore
+		// discovery and prefilters. Keep only the current pipeline so memory stays
+		// bounded when targets have many different ignore policies.
+		if runner == nil || !slices.Equal(ignored, filters.fingerprints) {
+			runner, err = newScanPipeline(runtime, globals, &options.ScanFlags, cfg, scan.WithIgnoredFingerprints(filters.fingerprints...))
+			if err != nil {
+				scanErrs = append(scanErrs, err)
+				runtime.Logger().Error("unable to prepare scan", "error", err)
+				break
+			}
+			ignored = filters.fingerprints
 		}
 		validationEnabled = validationEnabled || runner.ValidationEnabled()
 
