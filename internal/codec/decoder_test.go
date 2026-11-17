@@ -79,6 +79,20 @@ func TestDecode(t *testing.T) {
 			expected: `b64urlsafe-test-secret-underscores??`,
 		},
 		{
+			// Same value as "hyphen url b64" above, padded.
+			// Python's base64.urlsafe_b64encode always pads.
+			name:     "b64-url-safe: padded hyphen url b64",
+			chunk:    `YmV0dGVybGVha3M-PmZpbmRzLXNlY3JldHM=`,
+			expected: `betterleaks>>finds-secrets`,
+		},
+		{
+			// Same value, standard alphabet without padding, as produced by
+			// Java's Base64.getEncoder().withoutPadding().
+			name:     "unpadded standard b64",
+			chunk:    `YmV0dGVybGVha3M+PmZpbmRzLXNlY3JldHM`,
+			expected: `betterleaks>>finds-secrets`,
+		},
+		{
 			name:     "invalid base64 string",
 			chunk:    `a3d3fa7c2bb99e469ba55e5834ce79ee4853a8a3`,
 			expected: `a3d3fa7c2bb99e469ba55e5834ce79ee4853a8a3`,
@@ -235,7 +249,7 @@ func TestBase64ScratchParity(t *testing.T) {
 		if !hasByte(value, likelyBase64Chars) {
 			return ""
 		}
-		for _, encoding := range []*base64.Encoding{base64.StdEncoding, base64.RawURLEncoding} {
+		for _, encoding := range base64Encodings {
 			decoded, err := encoding.DecodeString(value)
 			if err == nil && isPrintableASCII(decoded) {
 				return string(decoded)
