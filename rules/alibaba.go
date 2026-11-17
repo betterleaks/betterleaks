@@ -5,6 +5,20 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+// https://www.alibabacloud.com/help/en/ram/developer-reference/api-sts-2015-04-01-getcalleridentity
+const alibabaAnalyzeExpr = `let input = validation.analysis;
+{
+  "identity": {
+    "id": input["principal_id"] ?? "",
+    "account": {"id": input["account_id"] ?? ""}
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "arn": input["arn"] ?? "",
+    "identity_type": input["identity_type"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "alibaba-access-key-id",
 	Confidence:  "high",
@@ -34,6 +48,7 @@ var _ = rulebuilder.Add(config.Rule{
 	},
 	ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-access-key-id", "", ""),
 	FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	AnalyzeExpr:  alibabaAnalyzeExpr,
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -94,6 +109,7 @@ var _ = rulebuilder.Add(config.Rule{
 	},
 	ValidateExpr: alibabaAccessKeyValidationExpr("alibaba-sts-access-key-id", "alibaba-sts-security-token", "SecurityToken"),
 	FilterExpr:   `entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5`,
+	AnalyzeExpr:  alibabaAnalyzeExpr,
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",
@@ -117,17 +133,23 @@ func alibabaAccessKeyValidationExpr(accessKeyIDCapture, securityTokenCapture, se
 	return `let ts = time.nowRFC3339();
 let nonce = time.nowUnix();
 let params =
-  "AccessKeyId=" + strings.urlQueryEscape((components["` + accessKeyIDCapture + `"]?.secret ?? "")) +` + securityTokenExpr + `
-  "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
+  "AccessKeyId=" + strings.urlQueryEscape((components["` + accessKeyIDCapture + `"]?.secret ?? "")) +
+  "&Action=GetCallerIdentity&Format=JSON" +` + securityTokenExpr + `
+  "&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
   "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01";
 let string_to_sign = "GET&%2F&" + replace(replace(replace(strings.urlQueryEscape(params), "+", "%20"), "*", "%2A"), "%7E", "~");
 let sig = strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign))));
 let r = http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
   "Accept": "application/json"
 });
-r.status == 200 && (r.body contains "\"Arn\"") ? {
-  "result": "valid"
-} : r.status in [401, 403] || (r.body contains "InvalidAccessKeyId") || (r.body contains "SignatureDoesNotMatch") ? {
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 200 && type(body?.Arn) == "string" && body.Arn != "" && type(body?.AccountId) == "string" && body.AccountId != "" ? {
+  "result": "valid", "analysis": {
+    "account_id": body.AccountId, "arn": body.Arn,
+    "principal_id": type(body?.PrincipalId) == "string" ? body.PrincipalId : "",
+    "identity_type": type(body?.IdentityType) == "string" ? body.IdentityType : ""
+  }
+} : r.status == 401 || (type(body?.Code) == "string" && (body.Code startsWith "InvalidAccessKeyId" || body.Code == "SignatureDoesNotMatch")) ? {
   "result": "invalid",
   "reason": "Unauthorized"
 } : validate.unknown(r)`

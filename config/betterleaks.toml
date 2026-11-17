@@ -454,19 +454,39 @@ let ts = time.nowRFC3339();
 let nonce = time.nowUnix();
 let params =
   "AccessKeyId=" + strings.urlQueryEscape((components["alibaba-access-key-id"]?.secret ?? "")) +
-  "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
+  "&Action=GetCallerIdentity&Format=JSON" +
+  "&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
   "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01";
 let string_to_sign = "GET&%2F&" + replace(replace(replace(strings.urlQueryEscape(params), "+", "%20"), "*", "%2A"), "%7E", "~");
 let sig = strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign))));
 let r = http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
   "Accept": "application/json"
 });
-r.status == 200 && (r.body contains "\"Arn\"") ? {
-  "result": "valid"
-} : r.status in [401, 403] || (r.body contains "InvalidAccessKeyId") || (r.body contains "SignatureDoesNotMatch") ? {
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 200 && type(body?.Arn) == "string" && body.Arn != "" && type(body?.AccountId) == "string" && body.AccountId != "" ? {
+  "result": "valid", "analysis": {
+    "account_id": body.AccountId, "arn": body.Arn,
+    "principal_id": type(body?.PrincipalId) == "string" ? body.PrincipalId : "",
+    "identity_type": type(body?.IdentityType) == "string" ? body.IdentityType : ""
+  }
+} : r.status == 401 || (type(body?.Code) == "string" && (body.Code startsWith "InvalidAccessKeyId" || body.Code == "SignatureDoesNotMatch")) ? {
   "result": "invalid",
   "reason": "Unauthorized"
 } : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["principal_id"] ?? "",
+    "account": {"id": input["account_id"] ?? ""}
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "arn": input["arn"] ?? "",
+    "identity_type": input["identity_type"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
@@ -506,20 +526,40 @@ let ts = time.nowRFC3339();
 let nonce = time.nowUnix();
 let params =
   "AccessKeyId=" + strings.urlQueryEscape((components["alibaba-sts-access-key-id"]?.secret ?? "")) +
+  "&Action=GetCallerIdentity&Format=JSON" +
   "&SecurityToken=" + strings.urlQueryEscape((components["alibaba-sts-security-token"]?.secret ?? "")) +
-  "&Action=GetCallerIdentity&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
+  "&SignatureMethod=HMAC-SHA1&SignatureNonce=" + nonce +
   "&SignatureVersion=1.0&Timestamp=" + strings.urlQueryEscape(ts) + "&Version=2015-04-01";
 let string_to_sign = "GET&%2F&" + replace(replace(replace(strings.urlQueryEscape(params), "+", "%20"), "*", "%2A"), "%7E", "~");
 let sig = strings.urlQueryEscape(base64.encode(crypto.hmacSha1(bytes(finding["secret"] + "&"), bytes(string_to_sign))));
 let r = http.get("https://sts.aliyuncs.com/?" + params + "&Signature=" + sig, {
   "Accept": "application/json"
 });
-r.status == 200 && (r.body contains "\"Arn\"") ? {
-  "result": "valid"
-} : r.status in [401, 403] || (r.body contains "InvalidAccessKeyId") || (r.body contains "SignatureDoesNotMatch") ? {
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 200 && type(body?.Arn) == "string" && body.Arn != "" && type(body?.AccountId) == "string" && body.AccountId != "" ? {
+  "result": "valid", "analysis": {
+    "account_id": body.AccountId, "arn": body.Arn,
+    "principal_id": type(body?.PrincipalId) == "string" ? body.PrincipalId : "",
+    "identity_type": type(body?.IdentityType) == "string" ? body.IdentityType : ""
+  }
+} : r.status == 401 || (type(body?.Code) == "string" && (body.Code startsWith "InvalidAccessKeyId" || body.Code == "SignatureDoesNotMatch")) ? {
   "result": "invalid",
   "reason": "Unauthorized"
 } : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["principal_id"] ?? "",
+    "account": {"id": input["account_id"] ?? ""}
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "arn": input["arn"] ?? "",
+    "identity_type": input["identity_type"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
@@ -590,15 +630,25 @@ confidence = "high"
 keywords = ["sk-ant-admin01"]
 validate = '''
 let r = http.get("https://api.anthropic.com/v1/organizations/me", {
-    "x-api-key": finding["secret"],
-    "anthropic-version": "2023-06-01"
-  }); r.status == 200 && (r.json?.id ?? "") != "" && (r.json?.type ?? "") == "organization" ? {
-    "result": "valid",
-    "metadata": {"organization": (r.json?.name ?? "")}
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "x-api-key": finding["secret"], "anthropic-version": "2023-06-01", "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+
+r.status == 200 && (type(body?.id) == "string" && body.id != "" && body?.type == "organization") ? {
+  "result": "valid", "analysis": {
+    "id": body.id,
+    "name": type(body?.name) == "string" ? body?.name : ""
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "account": {"id": input["id"] ?? "", "name": input["name"] ?? ""}
+  },
+  "capabilities": []
+}
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1053,12 +1103,22 @@ keywords = [
 validate = '''
 let r = azure.validateServicePrincipal((components["azure-tenant-id"]?.secret ?? ""), (components["azure-client-id"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "metadata": {"tenant_id": r.tenant_id, "client_id": r.client_id}
-} : r.status in [400, 401, 403, 404] ? {
+  "analysis": {"client_id": r.client_id, "tenant_id": r.tenant_id}
+} : r.status in [400, 401] ? {
   "result": "invalid",
   "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["client_id"] ?? "",
+    "account": {"id": input["tenant_id"] ?? ""}
+  },
+  "capabilities": []
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -1158,12 +1218,22 @@ keywords = [
 validate = '''
 let r = azure.validateStorage((components["azure-storage-account-name"]?.secret ?? ""), finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "metadata": {"account": r.account, "containers": r.containers}
-} : r.status in [400, 401, 403, 404] ? {
+  "analysis": {"account": r.account},
+  "metadata": {"containers": r.containers}
+} : r.status == 401 || (r.status == 403 && r.error_code == "AuthenticationFailed") ? {
   "result": "invalid",
   "metadata": {"error_code": r.error_code, "error_message": r.error_message}
 } : validate.unknown(r)
 
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "account": {"name": input["account"] ?? ""}
+  },
+  "capabilities": ["read"]
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 4.0
@@ -2313,14 +2383,27 @@ keywords = [
     "co_api_key",
 ]
 validate = '''
-let r = http.get("https://api.cohere.com/v1/connectors", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); r.status == 200 && (r.body contains '"connectors"') && (r.body contains '"total_count"') ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+let r = http.post("https://api.cohere.com/v1/check-api-key", {
+  "Authorization": "Bearer " + finding["secret"], "Content-Type": "application/json", "Accept": "application/json"
+}, "{}");
+let body = type(r.json) == "map" ? r.json : {};
+
+r.status == 200 && (body?.valid == true) ? {
+  "result": "valid", "analysis": {
+    "id": type(body?.owner_id) == "string" ? body?.owner_id : "",
+    "organization_id": type(body?.organization_id) == "string" ? body?.organization_id : ""
+  }
+} : r.status == 401 || (r.status == 200 && body?.valid == false) ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "account": {"id": input["organization_id"] ?? ""}
+  },
+  "capabilities": []
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 4.0 || tokenRatio(finding["secret"]) >= 2.5
@@ -2913,16 +2996,28 @@ confidence = "high"
 keywords = ["cog_"]
 validate = '''
 let r = http.get("https://api.devin.ai/v3/self", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  });
-r.status == 200 && ((r.body contains "\"principal_type\"") || (r.body contains "\"service_user_id\"")) ? {
-    "result": "valid"
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"], "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
 
+r.status == 200 && (body?.principal_type == "service_user" && type(body?.service_user_id) == "string" && body.service_user_id != "") ? {
+  "result": "valid", "analysis": {
+    "id": body.service_user_id,
+    "name": type(body?.service_user_name) == "string" ? body?.service_user_name : "",
+    "org_id": type(body?.org_id) == "string" ? body?.org_id : ""
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "name": input["name"] ?? "",
+    "account": {"id": input["org_id"] ?? ""}
+  },
+  "capabilities": []
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -3289,6 +3384,29 @@ description = "Detected an ElevenLabs API Key, which may expose AI voice synthes
 regex = '''(?i)(?:elevenlabs)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(sk_[0-9a-f]{48})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["elevenlabs"]
+validate = '''
+let r = http.get("https://api.elevenlabs.io/v1/user", {
+  "xi-api-key": finding["secret"], "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+
+r.status == 200 && (type(body?.user_id) == "string" && body.user_id != "") ? {
+  "result": "valid", "analysis": {
+    "id": body.user_id,
+    "workspace_id": type(body?.workspace_id) == "string" ? body?.workspace_id : ""
+  }
+} : r.status == 401 && type(body?.detail) == "map" && body.detail?.status == "invalid_api_key" ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "account": {"id": input["workspace_id"] ?? ""}
+  },
+  "capabilities": []
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.5
 '''
@@ -3973,12 +4091,24 @@ keywords = ["provider_x509"]
 validate = '''
 let r = gcp.validate(finding["secret"]); r.status == 200 ? {
   "result": "valid",
-  "metadata": {"credential_type": r.credential_type, "project_id": r.project_id, "client_email": r.client_email}
+  "analysis": {"client_email": r.client_email, "project_id": r.project_id}
 } : r.status in [400, 401] ? {
     "result": "invalid",
     "metadata": {"error_code": r.error_code, "error_message": r.error_message}
   } : validate.unknown(r)
 
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "email": input["client_email"] ?? ""
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "declared_project_id": input["project_id"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}
 '''
 filter = '''
 containsAny(finding["secret"], ["image-pulling@authenticated-image-pulling.iam.gserviceaccount.com"])
@@ -6458,6 +6588,114 @@ description = "Uncovered a Launchdarkly Access Token, potentially compromising f
 regex = '''(?i)(?:launchdarkly)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9=_\-]{40})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["launchdarkly"]
+validate = '''
+let r = http.get("https://app.launchdarkly.com/api/v2/caller-identity", {
+  "Authorization": finding["secret"], "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 200 && type(body?.accountId) == "string" && body.accountId != "" && type(body?.tokenId) == "string" && body.tokenId != "" ? {
+  "result": "valid", "analysis": {
+    "account_id": body.accountId, "token_id": body.tokenId,
+    "member_id": type(body?.memberId) == "string" ? body.memberId : "",
+    "token_name": type(body?.tokenName) == "string" ? body.tokenName : "",
+    "service_token": type(body?.serviceToken) == "bool" ? body.serviceToken : nil,
+    "scopes": type(body?.scopes) == "array" ? filter(body.scopes, {type(#) == "string"}) : []
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let headers = {"Authorization": finding["secret"], "Accept": "application/json"};
+let tokenID = input["token_id"] ?? "";
+let r = tokenID matches "^[a-zA-Z0-9_-]{1,128}$" ? http.get("https://app.launchdarkly.com/api/v2/tokens/" + tokenID, headers) : {};
+let body = r?.status == 200 && type(r?.json) == "map" && r.json?._id == tokenID ? r.json : {};
+let personal = input["service_token"] == false;
+let memberID = input["member_id"] ?? "";
+let inspectMember = personal && len(body) > 0 && memberID matches "^[a-zA-Z0-9_-]{1,128}$";
+let mr = inspectMember ? http.get("https://app.launchdarkly.com/api/v2/members/" + memberID, headers) : {};
+let owner = mr?.status == 200 && type(mr?.json) == "map" && mr.json?._id == memberID ? mr.json : {};
+let memberRole = type(owner?.role) == "string" && type(owner?.customRoles) == "array" && len(owner.customRoles) == 0 ? owner.role : "";
+let roleIDs = type(body?.customRoleIds) == "array" ? filter(body.customRoleIds, {type(#) == "string"}) : [];
+let selected = take(uniq(filter(roleIDs, {# matches "^[a-zA-Z0-9_-]{1,128}$"})), inspectMember ? 4 : 5);
+let roles = map(selected, {
+  let roleID = #;
+  let response = http.get("https://app.launchdarkly.com/api/v2/roles/" + roleID, headers);
+  let role = response.status == 200 && type(response.json) == "map" && (response.json?.key == roleID || response.json?._id == roleID) && type(response.json?.policy) == "array" ? response.json : {};
+  {"id": roleID, "key": type(role?.key) == "string" ? role.key : "", "retrieved": len(role) > 0,
+    "name": type(role?.name) == "string" ? role.name : "",
+    "base_permissions": type(role?.basePermissions) == "string" ? role.basePermissions : "",
+    "policy": type(role?.policy) == "array" ? concat(role.policy, type(role?._presetStatements) == "array" ? role._presetStatements : []) : [],
+    "complete": len(role) > 0 && (role?._presetStatements == nil || type(role._presetStatements) == "array")}
+});
+let inline = type(body?.inlineRole) == "array" ? body.inlineRole : [];
+let policies = concat(inline, flatten(map(roles, {#.policy})));
+let complete = len(body) > 0 && (body?.customRoleIds == nil || (type(body.customRoleIds) == "array" && all(body.customRoleIds, {type(#) == "string"}))) &&
+  (body?.inlineRole == nil || type(body.inlineRole) == "array") && len(roles) == len(uniq(roleIDs)) && all(roles, {#.complete}) &&
+  all(policies, {type(#) == "map" && #?.effect in ["allow", "deny"] &&
+    all([#?.actions, #?.notActions, #?.resources, #?.notResources], {# == nil || (type(#) == "array" && all(#, {type(#) == "string"}))}) &&
+    (len(#?.actions ?? []) > 0 || len(#?.notActions ?? []) > 0) && (len(#?.resources ?? []) > 0 || len(#?.notResources ?? []) > 0)});
+let tokenRole = type(body?.role) == "string" && len(roleIDs) == 0 && len(inline) == 0 ? body.role : "";
+let ranks = {"reader": 1, "writer": 2, "admin": 3, "owner": 3, "owner/admin": 3};
+let memberRank = ranks[memberRole] ?? 0;
+let rank = complete ? min(ranks[tokenRole] ?? 0, input["service_token"] == true ? 3 : memberRank) : 0;
+// A deliberately small set of documented actions and resource forms. Ambiguous
+// selectors, action patterns, and potentially overlapping denies cannot prove a grant.
+let grants = complete && (input["service_token"] == true || memberRank == 3) ? filter([
+  {"capability": "read", "actions": ["viewProject"], "resource": "^proj/[a-zA-Z0-9_*-]+$"},
+  {"capability": "write", "actions": ["updateOn", "createFlag", "deleteFlag", "updateRules", "updateTargets"], "resource": "^proj/[a-zA-Z0-9_*-]+:env/[a-zA-Z0-9_*-]+:flag/[a-zA-Z0-9_*-]+$"},
+  {"capability": "manage_users", "actions": ["updateRole", "updateCustomRole", "createMember", "deleteMember"], "resource": "^member/[a-zA-Z0-9_*-]+$"}
+], {
+  let grant = #;
+  any(grant.actions, {
+    let action = #;
+    any(policies, {#.effect == "allow" && len(#?.notResources ?? []) == 0 &&
+      (action in (#?.actions ?? []) || "*" in (#?.actions ?? [])) &&
+      all(#?.notActions ?? [], {# matches "^[a-zA-Z]+$" && # != action}) &&
+      any(#?.resources ?? [], {# == "*" || # matches grant.resource})}) &&
+    none(policies, {#.effect == "deny" &&
+      (len(#?.notActions ?? []) > 0 || any(#?.actions ?? [], {# == action || !(# matches "^[a-zA-Z]+$")}))})
+  })
+}) : [];
+let capabilities = analysis.capabilities({
+  "read": rank >= 1 || any(grants, {#.capability == "read"}),
+  "write": rank >= 2 || any(grants, {#.capability == "write"}),
+  "manage_users": rank >= 3 || any(grants, {#.capability == "manage_users"}),
+  "admin": rank >= 3
+});
+let member = type(body?._member) == "map" && body._member?._id == input["member_id"] ? body._member : {};
+{
+  "identity": {"id": input["service_token"] == false ? input["member_id"] ?? "" : "",
+    "email": input["service_token"] == false && type(member?.email) == "string" ? member.email : "",
+    "account": {"id": input["account_id"] ?? ""}},
+  "metadata": fromPairs(filter(toPairs({"token_id": tokenID, "token_name": input["token_name"] ?? "", "service_token": input["service_token"],
+    "scopes": input["scopes"] ?? [],
+    "role": type(body?.role) == "string" ? body.role : "", "custom_role_ids": roleIDs,
+    "member_role": personal && memberRank > 0 && memberRank < (ranks[tokenRole] ?? 0) ? memberRole : "",
+    "custom_roles": map(filter(roles, {#.retrieved}), {
+      {"id": #.id, "key": #.key, "name": #.name, "base_permissions": #.base_permissions,
+       "policy": map(filter(#.policy, {type(#) == "map"}), {
+         {"effect": type(#?.effect) == "string" ? #.effect : "",
+           "actions": type(#?.actions) == "array" ? filter(#.actions, {type(#) == "string"}) : [],
+           "resources": type(#?.resources) == "array" ? filter(#.resources, {type(#) == "string"}) : [],
+           "notActions": type(#?.notActions) == "array" ? filter(#.notActions, {type(#) == "string"}) : [],
+           "notResources": type(#?.notResources) == "array" ? filter(#.notResources, {type(#) == "string"}) : []}
+       })}
+    }),
+    "inline_policy": map(filter(inline, {type(#) == "map"}), {
+      {"effect": type(#?.effect) == "string" ? #.effect : "",
+       "actions": type(#?.actions) == "array" ? filter(#.actions, {type(#) == "string"}) : [],
+       "resources": type(#?.resources) == "array" ? filter(#.resources, {type(#) == "string"}) : [],
+       "notActions": type(#?.notActions) == "array" ? filter(#.notActions, {type(#) == "string"}) : [],
+       "notResources": type(#?.notResources) == "array" ? filter(#.notResources, {type(#) == "string"}) : []}
+    }),
+    "notes": filter([
+      !complete ? "Token permission details could not be fully retrieved or interpreted." : "",
+      personal && memberRank == 0 ? "The member's effective permissions could not be established; custom and team roles were not evaluated." : "",
+      complete && len(policies) > 0 && len(capabilities) == 0 ? "Custom policy permissions could not be mapped to supported capabilities." : ""
+    ], {# != ""})}), {#[1] != nil && #[1] != "" && #[1] != []})),
+  "capabilities": capabilities
+}
+'''
 filter = '''
 entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
@@ -6472,16 +6710,33 @@ regex = '''\b(lip_[A-Za-z0-9_]{16,60})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["lip_"]
 validate = '''
-let r = http.get("https://lichess.org/api/account", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid",
-    "metadata": {"username": (r.json?.username ?? "")}
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+let r = http.post("https://lichess.org/api/token/test", {
+  "Content-Type": "text/plain", "Accept": "application/json"
+}, finding["secret"]);
+let body = type(r.json) == "map" ? r.json : {};
+let token = body[finding["secret"]];
+r.status == 200 && type(token) == "map" && type(token?.userId) == "string" && token.userId != "" ? {
+  "result": "valid", "analysis": {
+    "user_id": token.userId,
+    "scopes": type(token?.scopes) == "string" ? strings.splitTrim(token.scopes, ",") : [],
+    "expires_at_ms": type(token?.expires) == "float" ? token.expires : nil
+  }
+} : r.status == 200 && finding["secret"] in body && token == nil ? {
+  "result": "invalid", "reason": "Invalid or expired token"
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(scopes, {# in ["study:read", "engine:read", "preference:read", "follow:read", "team:read", "email:read", "challenge:read", "puzzle:read"]}),
+  "write": any(scopes, {# in ["study:write", "engine:write", "preference:write", "follow:write", "challenge:write", "challenge:bulk", "tournament:write", "racer:write", "puzzle:write", "msg:write", "board:play", "bot:play", "team:write", "team:lead", "note:write"]})
+});
+{
+  "identity": {"id": input["user_id"] ?? ""},
+  "metadata": fromPairs(filter(toPairs({"scopes": scopes, "expires_at_ms": input["expires_at_ms"]}), {#[1] != nil && #[1] != "" && #[1] != []})),
+  "capabilities": capabilities
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -7337,18 +7592,42 @@ regex = '''(?i:(?:mux[_.-]?(?:access[_.-]?)?token[_.-]?(?:secret|private|key))(?
 confidence = "high"
 keywords = ["mux"]
 validate = '''
-let r = http.get("https://api.mux.com/video/v1/assets?limit=1", {
-    "Authorization": "Basic " + base64.encode(bytes((components["mux-access-token-id.1"]?.secret ?? "") + ":" + finding["secret"])),
-    "Accept": "application/json"
-  }); r.status == 200 ? {
-    "result": "valid"
-  } : r.status == 403 ? {
-    "result": "valid",
-    "reason": "Authenticated Mux token without Video read permission"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+let r = http.get("https://api.mux.com/system/v1/whoami", {
+  "Authorization": "Basic " + base64.encode(bytes((components["mux-access-token-id.1"]?.secret ?? "") + ":" + finding["secret"])),
+  "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+let data = type(body?.data) == "map" ? body.data : {};
+r.status == 200 && type(data?.organization_id) == "string" && data.organization_id != "" && type(data?.environment_id) == "string" && data.environment_id != "" && type(data?.permissions) == "array" && all(data.permissions, {type(#) == "string"}) ? {
+  "result": "valid", "analysis": {
+    "organization_id": data.organization_id,
+    "organization_name": type(data?.organization_name) == "string" ? data.organization_name : "",
+    "environment_id": data.environment_id,
+    "environment_name": type(data?.environment_name) == "string" ? data.environment_name : "",
+    "environment_type": type(data?.environment_type) == "string" ? data.environment_type : "",
+    "token_name": type(data?.access_token_name) == "string" ? data.access_token_name : "",
+    "permissions": data.permissions
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let permissions = input["permissions"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(permissions, {# in ["video:read", "data:read", "system:read", "robots:read"]}),
+  "write": any(permissions, {# in ["video:write", "data:write", "system:write", "robots:write"]})
+});
+{
+  "identity": {"account": {"id": input["organization_id"], "name": input["organization_name"] ?? ""}},
+  "metadata": fromPairs(filter(toPairs({
+    "environment_id": input["environment_id"],
+    "environment_name": input["environment_name"] ?? "",
+    "environment_type": input["environment_type"] ?? "",
+    "token_name": input["token_name"] ?? "",
+    "permissions": permissions
+  }), {#[1] != nil && #[1] != "" && #[1] != []})),
+  "capabilities": capabilities
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -7488,6 +7767,38 @@ description = "Notion API token"
 regex = '''\b(ntn_[0-9]{11}[A-Za-z0-9]{32}[A-Za-z0-9]{3})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["ntn_"]
+validate = '''
+let r = http.get("https://api.notion.com/v1/users/me", {
+  "Authorization": "Bearer " + finding["secret"], "Notion-Version": "2026-03-11", "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+let bot = type(body?.bot) == "map" ? body.bot : {};
+let owner = type(bot?.owner) == "map" ? bot.owner : {};
+let user = type(owner?.user) == "map" ? owner.user : {};
+r.status == 200 && (body?.object == "user" && body?.type == "bot" && type(body?.id) == "string" && body.id != "") ? {
+  "result": "valid", "analysis": {
+    "id": body.id,
+    "name": type(body?.name) == "string" ? body?.name : "",
+    "workspace_id": type(bot?.workspace_id) == "string" ? bot?.workspace_id : "",
+    "workspace_name": type(bot?.workspace_name) == "string" ? bot?.workspace_name : "",
+    "owner_id": type(user?.id) == "string" ? user?.id : ""
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "name": input["name"] ?? "",
+    "account": {"id": input["workspace_id"] ?? "", "name": input["workspace_name"] ?? ""}
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "owner_id": input["owner_id"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 4.0
 '''
@@ -8010,12 +8321,28 @@ confidence = "high"
 keywords = ["paypal"]
 validate = '''
 let r = http.post("https://api-m.paypal.com/v1/oauth2/token", {
-    "Authorization": "Basic " + base64.encode(bytes((components["paypal-client-id.1"]?.secret ?? "") + ":" + finding["secret"])),
-    "Accept": "application/json",
-    "Content-Type": "application/x-www-form-urlencoded"
-  }, "grant_type=client_credentials"); r.status == 200 && (r.json?.access_token ?? "") != "" ? {
-    "result": "valid"
-  } : validate.unknown(r)
+  "Authorization": "Basic " + base64.encode(bytes((components["paypal-client-id.1"]?.secret ?? "") + ":" + finding["secret"])),
+  "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"
+}, "grant_type=client_credentials");
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 200 && type(body?.access_token) == "string" && body.access_token != "" ? {
+  "result": "valid", "analysis": {
+    "app_id": type(body?.app_id) == "string" ? body.app_id : "",
+    "scopes": type(body?.scope) == "string" ? strings.splitTrim(body.scope, " ") : []
+  }
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(scopes, {# in ["https://uri.paypal.com/services/disputes/read-buyer", "https://uri.paypal.com/services/disputes/read-seller", "https://uri.paypal.com/services/reporting/search/read", "https://uri.paypal.com/services/vault/payment-tokens/read"]}),
+  "write": any(scopes, {# in ["https://uri.paypal.com/services/payments/refund", "https://uri.paypal.com/services/payments/payment/authcapture", "https://uri.paypal.com/payments/payouts", "https://uri.paypal.com/services/disputes/update-seller"]})
+});
+{
+  "metadata": fromPairs(filter(toPairs({"app_id": input["app_id"] ?? "", "scopes": scopes}), {#[1] != nil && #[1] != "" && #[1] != []})),
+  "capabilities": capabilities
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -8493,20 +8820,39 @@ regex = '''(?i)\b(phx_[a-zA-Z0-9_\-]{41,49})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["phx_"]
 validate = '''
-let us = http.get("https://us.posthog.com/api/users/@me/", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); us.status in [200, 403] ? {
-    "result": "valid",
-    "metadata": {"region": "us", "email": (us.json?.email ?? ""), "organization": (us.json?.organization?.name ?? "")}
-  } : (let eu = http.get("https://eu.posthog.com/api/users/@me/", {
-    "Authorization": "Bearer " + finding["secret"]
-  }); eu.status in [200, 403] ? {
-    "result": "valid",
-    "metadata": {"region": "eu", "email": (eu.json?.email ?? ""), "organization": (eu.json?.organization?.name ?? "")}
-  } : (us.status == 401 && eu.status == 401) ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(eu))
+let headers = {"Authorization": "Bearer " + finding["secret"], "Accept": "application/json"};
+let path = "/api/personal_api_keys/@current/";
+let us = http.get("https://us.posthog.com" + path, headers);
+let useUS = us.status == 200 && type(us.json) == "map" && type(us.json?.id) in ["string", "float"] && us.json.id != "" && type(us.json?.user_id) in ["string", "float"] && us.json.user_id != "" && type(us.json?.scopes) == "array" && all(us.json.scopes, {type(#) == "string"});
+let r = useUS ? us : http.get("https://eu.posthog.com" + path, headers);
+let body = type(r.json) == "map" ? r.json : {};
+let keyID = type(body?.id) == "string" ? body.id : type(body?.id) == "float" ? string(int(body.id)) : "";
+let userID = type(body?.user_id) == "string" ? body.user_id : type(body?.user_id) == "float" ? string(int(body.user_id)) : "";
+r.status == 200 && keyID != "" && userID != "" && type(body?.scopes) == "array" && all(body.scopes, {type(#) == "string"}) ? {
+  "result": "valid", "analysis": {
+    "region": useUS ? "us" : "eu", "key_id": keyID, "user_id": userID,
+    "scopes": filter(body.scopes, {type(#) == "string"}),
+    "scoped_teams": type(body?.scoped_teams) == "array" ? filter(body.scoped_teams, {type(#) in ["string", "float"]}) : [],
+    "scoped_organizations": type(body?.scoped_organizations) == "array" ? filter(body.scoped_organizations, {type(#) == "string"}) : [],
+    "expires_at": type(body?.expires_at) == "string" ? body.expires_at : nil
+  }
+} : us.status == 401 && r.status == 401 ? {"result": "invalid", "reason": "Unauthorized in both regions"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let resources = ["action", "annotation", "cohort", "dashboard", "event", "experiment", "feature_flag", "insight", "organization", "organization_member", "person", "project", "query", "session_recording", "survey"];
+let capabilities = analysis.capabilities({
+  "read": any(resources, {let resource = #; resource + ":read" in scopes || resource + ":write" in scopes}),
+  "write": any(resources, {# + ":write" in scopes}),
+  "manage_users": "organization_member:write" in scopes
+});
+{
+  "identity": {"id": input["user_id"] ?? ""},
+  "metadata": fromPairs(filter(toPairs({"key_id": input["key_id"] ?? "", "region": input["region"] ?? "", "scopes": scopes,
+    "scoped_teams": input["scoped_teams"] ?? [], "scoped_organizations": input["scoped_organizations"] ?? [], "expires_at": input["expires_at"]}), {#[1] != nil && #[1] != "" && #[1] != []})),
+  "capabilities": capabilities
+}
 '''
 filter = '''
 entropy(finding["secret"]) <= 3.0
@@ -8534,6 +8880,34 @@ description = "Uncovered a Postman API token, potentially compromising API testi
 regex = '''\b(PMAK-(?i)[a-f0-9]{24}\-[a-f0-9]{34})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["pmak-"]
+validate = '''
+let r = http.get("https://api.getpostman.com/me", {
+  "X-Api-Key": finding["secret"], "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+let user = type(body?.user) == "map" ? body.user : {};
+let userID = type(user?.id) == "string" ? user?.id : type(user?.id) == "float" ? string(int(user?.id)) : "";
+r.status == 200 && (userID != "") ? {
+  "result": "valid", "analysis": {
+    "id": userID,
+    "username": type(user?.username) == "string" ? user?.username : "",
+    "name": type(user?.fullName) == "string" ? user?.fullName : "",
+    "email": type(user?.email) == "string" ? user?.email : ""
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "username": input["username"] ?? "",
+    "name": input["name"] ?? "",
+    "email": input["email"] ?? ""
+  },
+  "capabilities": []
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.0
 '''
@@ -9306,6 +9680,35 @@ description = "Found a Sentry.io Access Token (old format), risking unauthorized
 regex = '''(?i)(?:sentry)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{64})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "medium"
 keywords = ["sentry"]
+validate = '''
+let base = trim(env.getOrDefault("SENTRY_BASE_URL", "https://sentry.io"), "/");
+let r = http.get(base + "/api/0/", {"Authorization": "Bearer " + finding["secret"], "Accept": "application/json"});
+let body = type(r.json) == "map" ? r.json : {};
+let auth = type(body?.auth) == "map" ? body.auth : {};
+let user = type(body?.user) == "map" ? body.user : {};
+r.status == 200 && type(auth?.scopes) == "array" && all(auth.scopes, {type(#) == "string"}) ? {
+  "result": "valid", "analysis": {
+    "id": type(user?.id) == "string" ? user.id : type(user?.id) == "float" ? string(int(user.id)) : "",
+    "username": type(user?.username) == "string" ? user.username : "",
+    "name": type(user?.name) == "string" ? user.name : "",
+    "email": type(user?.email) == "string" ? user.email : "",
+    "scopes": filter(auth.scopes, {type(#) == "string"})
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(scopes, {# in ["org:read", "project:read", "team:read", "member:read", "event:read"]}),
+  "write": any(scopes, {# in ["org:write", "org:admin", "org:ci", "project:write", "project:admin", "project:releases", "team:write", "team:admin", "member:write", "member:admin", "event:write", "event:admin"]}),
+  "manage_users": any(scopes, {# in ["member:write", "member:admin"]})
+});
+{
+  "identity": {"id": input["id"] ?? "", "username": input["username"] ?? "", "name": input["name"] ?? "", "email": input["email"] ?? ""},
+  "metadata": {"scopes": scopes}, "capabilities": capabilities
+}
+'''
 filter = '''
 entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 '''
@@ -9316,9 +9719,38 @@ entropy(finding["secret"]) < 3.0 || tokenRatio(finding["secret"]) >= 2.5
 [[rules]]
 id = "sentry-org-token"
 description = "Found a Sentry.io Organization Token, risking unauthorized access to error tracking services and sensitive application data."
-regex = '''\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}(?:[^a-zA-Z0-9+/]|\z)'''
+regex = '''\b(sntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43})(?:[^a-zA-Z0-9+/]|\z)'''
 confidence = "high"
 keywords = ["sntrys_eyjpyxqio"]
+validate = '''
+let base = trim(env.getOrDefault("SENTRY_BASE_URL", "https://sentry.io"), "/");
+let r = http.get(base + "/api/0/", {"Authorization": "Bearer " + finding["secret"], "Accept": "application/json"});
+let body = type(r.json) == "map" ? r.json : {};
+let auth = type(body?.auth) == "map" ? body.auth : {};
+let user = type(body?.user) == "map" ? body.user : {};
+r.status == 200 && type(auth?.scopes) == "array" && all(auth.scopes, {type(#) == "string"}) ? {
+  "result": "valid", "analysis": {
+    "id": type(user?.id) == "string" ? user.id : type(user?.id) == "float" ? string(int(user.id)) : "",
+    "username": type(user?.username) == "string" ? user.username : "",
+    "name": type(user?.name) == "string" ? user.name : "",
+    "email": type(user?.email) == "string" ? user.email : "",
+    "scopes": filter(auth.scopes, {type(#) == "string"})
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(scopes, {# in ["org:read", "project:read", "team:read", "member:read", "event:read"]}),
+  "write": any(scopes, {# in ["org:write", "org:admin", "org:ci", "project:write", "project:admin", "project:releases", "team:write", "team:admin", "member:write", "member:admin", "event:write", "event:admin"]}),
+  "manage_users": any(scopes, {# in ["member:write", "member:admin"]})
+});
+{
+  "identity": {"id": input["id"] ?? "", "username": input["username"] ?? "", "name": input["name"] ?? "", "email": input["email"] ?? ""},
+  "metadata": {"scopes": scopes}, "capabilities": capabilities
+}
+'''
 filter = '''
 entropy(finding["secret"]) < 4.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
@@ -9332,6 +9764,35 @@ description = "Found a Sentry.io User Token, risking unauthorized access to erro
 regex = '''\b(sntryu_[a-f0-9]{64})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["sntryu_"]
+validate = '''
+let base = trim(env.getOrDefault("SENTRY_BASE_URL", "https://sentry.io"), "/");
+let r = http.get(base + "/api/0/", {"Authorization": "Bearer " + finding["secret"], "Accept": "application/json"});
+let body = type(r.json) == "map" ? r.json : {};
+let auth = type(body?.auth) == "map" ? body.auth : {};
+let user = type(body?.user) == "map" ? body.user : {};
+r.status == 200 && type(auth?.scopes) == "array" && all(auth.scopes, {type(#) == "string"}) ? {
+  "result": "valid", "analysis": {
+    "id": type(user?.id) == "string" ? user.id : type(user?.id) == "float" ? string(int(user.id)) : "",
+    "username": type(user?.username) == "string" ? user.username : "",
+    "name": type(user?.name) == "string" ? user.name : "",
+    "email": type(user?.email) == "string" ? user.email : "",
+    "scopes": filter(auth.scopes, {type(#) == "string"})
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(scopes, {# in ["org:read", "project:read", "team:read", "member:read", "event:read"]}),
+  "write": any(scopes, {# in ["org:write", "org:admin", "org:ci", "project:write", "project:admin", "project:releases", "team:write", "team:admin", "member:write", "member:admin", "event:write", "event:admin"]}),
+  "manage_users": any(scopes, {# in ["member:write", "member:admin"]})
+});
+{
+  "identity": {"id": input["id"] ?? "", "username": input["username"] ?? "", "name": input["name"] ?? "", "email": input["email"] ?? ""},
+  "metadata": {"scopes": scopes}, "capabilities": capabilities
+}
+'''
 filter = '''
 entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
@@ -9899,6 +10360,34 @@ keywords = [
     "sq0atp-",
     "eaaa",
 ]
+validate = '''
+let r = http.post("https://connect.squareup.com/oauth2/token/status", {
+  "Authorization": "Bearer " + finding["secret"], "Content-Type": "application/json",
+  "Accept": "application/json", "Square-Version": "2026-09-16"
+}, "{}");
+let body = type(r.json) == "map" ? r.json : {};
+r.status == 200 && type(body?.merchant_id) == "string" && body.merchant_id != "" && type(body?.scopes) == "array" && all(body.scopes, {type(#) == "string"}) ? {
+  "result": "valid", "analysis": {
+    "merchant_id": body.merchant_id,
+    "client_id": type(body?.client_id) == "string" ? body.client_id : "",
+    "scopes": filter(body.scopes, {type(#) == "string"}),
+    "expires_at": type(body?.expires_at) == "string" ? body.expires_at : nil
+  }
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let scopes = input["scopes"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(scopes, {# in ["PAYMENTS_READ", "ORDERS_READ", "CUSTOMERS_READ", "ITEMS_READ", "INVENTORY_READ", "MERCHANT_PROFILE_READ", "BANK_ACCOUNTS_READ", "EMPLOYEES_READ", "TIMECARDS_READ", "INVOICES_READ", "LOYALTY_READ", "GIFTCARDS_READ", "APPOINTMENTS_READ", "PAYOUTS_READ", "VENDOR_READ"]}),
+  "write": any(scopes, {# in ["PAYMENTS_WRITE", "ORDERS_WRITE", "CUSTOMERS_WRITE", "ITEMS_WRITE", "INVENTORY_WRITE", "EMPLOYEES_WRITE", "TIMECARDS_WRITE", "INVOICES_WRITE", "LOYALTY_WRITE", "GIFTCARDS_WRITE", "APPOINTMENTS_WRITE", "VENDOR_WRITE"]})
+});
+{
+  "identity": {"account": {"id": input["merchant_id"] ?? ""}},
+  "metadata": fromPairs(filter(toPairs({"client_id": input["client_id"] ?? "", "scopes": scopes, "expires_at": input["expires_at"]}), {#[1] != nil && #[1] != "" && #[1] != []})),
+  "capabilities": capabilities
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 2.0
 '''
@@ -9969,14 +10458,25 @@ keywords = [
 ]
 validate = '''
 let r = http.get("https://api.stripe.com/v1/account", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 && (r.json?.object ?? "") == "account" ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"], "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+let business = type(body?.business_profile) == "map" ? body.business_profile : {};
+r.status == 200 && (body?.object == "account" && type(body?.id) == "string" && body.id != "") ? {
+  "result": "valid", "analysis": {
+    "id": body.id,
+    "name": type(business?.name) == "string" ? business?.name : ""
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "account": {"id": input["id"] ?? "", "name": input["name"] ?? ""}
+  },
+  "capabilities": []
+}
 '''
 filter = '''
 matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
@@ -10095,17 +10595,39 @@ regex = '''(?:^|[^A-Za-z0-9+/])([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b'''
 confidence = "high"
 keywords = ["tableau"]
 validate = '''
-let r = http.post("https://" + (components["tableau-server-host.1"]?.secret ?? "") + "/api/3.26/auth/signin", {
-    "Content-Type": "application/json",
-    "Accept": "application/json"
-  }, "{\"credentials\":{\"personalAccessTokenName\":\"" + (components["tableau-personal-access-token-name.1"]?.secret ?? "")
-    + "\",\"personalAccessTokenSecret\":\"" + finding["secret"] + "\",\"site\":{}}}");
-  r.status == 200 && (r.json?.credentials?.token ?? "") != "" ? {
-    "result": "valid"
-  } : r.status in [400, 401, 403] ? {
-    "result": "invalid",
-    "reason": "Invalid Tableau credentials"
-  } : validate.unknown(r)
+let contentURL = env.getOrDefault("TABLEAU_SITE_CONTENT_URL", "");
+let r = contentURL == "" ? {} : http.post("https://" + (components["tableau-server-host.1"]?.secret ?? "") + "/api/3.26/auth/signin", {
+  "Content-Type": "application/json", "Accept": "application/json"
+}, toJSON({"credentials": {
+  "personalAccessTokenName": components["tableau-personal-access-token-name.1"]?.secret ?? "",
+  "personalAccessTokenSecret": finding["secret"], "site": {"contentUrl": contentURL}
+}}));
+let body = type(r?.json) == "map" ? r.json : {};
+let credentials = type(body?.credentials) == "map" ? body.credentials : {};
+let user = type(credentials?.user) == "map" ? credentials.user : {};
+let site = type(credentials?.site) == "map" ? credentials.site : {};
+contentURL == "" ? {
+  "result": "needs_validation", "reason": "Tableau Cloud requires TABLEAU_SITE_CONTENT_URL; set it and allowlist it with --provider-env-vars"
+} : r.status == 200 && (type(credentials?.token) == "string" && credentials.token != "") ? {
+  "result": "valid", "analysis": {
+    "id": type(user?.id) == "string" ? user?.id : "",
+    "site_id": type(site?.id) == "string" ? site?.id : "",
+    "site_content_url": type(site?.contentUrl) == "string" ? site?.contentUrl : ""
+  }
+} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "account": {"id": input["site_id"] ?? ""}
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "site_content_url": input["site_content_url"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5
@@ -11138,14 +11660,30 @@ confidence = "medium"
 keywords = ["vultr"]
 validate = '''
 let r = http.get("https://api.vultr.com/v2/account", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 && (r.body contains "\"account\"") ? {
-    "result": "valid"
-  } : r.status == 401 && (r.body contains "Invalid API token") ? {
-    "result": "invalid",
-    "reason": "Invalid API token"
-  } : validate.unknown(r)
+  "Authorization": "Bearer " + finding["secret"], "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+let account = type(body?.account) == "map" ? body.account : {};
+r.status == 200 && type(account?.email) == "string" && account.email != "" ? {
+  "result": "valid", "analysis": {
+    "email": account.email,
+    "name": type(account?.name) == "string" ? account.name : "",
+    "acls": type(account?.acls) == "array" ? filter(account.acls, {type(#) == "string"}) : []
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+let acls = input["acls"] ?? [];
+let capabilities = analysis.capabilities({
+  "read": any(acls, {# in ["subscriptions_view", "subscriptions", "billing"]}),
+  "write": any(acls, {# in ["provisioning", "dns", "upgrade", "objstore", "loadbalancer"]}),
+  "manage_users": "manage_users" in acls
+});
+{
+  "identity": {"name": input["name"] ?? "", "email": input["email"] ?? ""},
+  "metadata": fromPairs(filter(toPairs({"acls": acls}), {#[1] != nil && #[1] != "" && #[1] != []})), "capabilities": capabilities
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.4
@@ -11270,15 +11808,33 @@ keywords = [
 ]
 validate = '''
 let r = http.post("https://api.wandb.ai/graphql", {
-    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
-    "Content-Type": "application/json"
-  }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
-    "result": "valid",
-    "metadata": {"email": (r.json?.data?.viewer?.email ?? ""), "username": (r.json?.data?.viewer?.username ?? "")}
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])), "Content-Type": "application/json"
+}, toJSON({"query": "query { viewer { id email username entity } }"}));
+let body = type(r.json) == "map" ? r.json : {};
+let data = type(body?.data) == "map" ? body.data : {};
+let viewer = type(data?.viewer) == "map" ? data.viewer : {};
+r.status == 200 && ((body?.errors == nil || body.errors == []) && type(viewer?.id) == "string" && viewer.id != "") ? {
+  "result": "valid", "analysis": {
+    "id": viewer.id,
+    "username": type(viewer?.username) == "string" ? viewer?.username : "",
+    "email": type(viewer?.email) == "string" ? viewer?.email : "",
+    "entity": type(viewer?.entity) == "string" ? viewer?.entity : ""
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "username": input["username"] ?? "",
+    "email": input["email"] ?? ""
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "entity": input["entity"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
@@ -11295,15 +11851,33 @@ confidence = "high"
 keywords = ["wandb_v1_"]
 validate = '''
 let r = http.post("https://api.wandb.ai/graphql", {
-    "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])),
-    "Content-Type": "application/json"
-  }, "{\"query\":\"query { viewer { email username } }\"}"); r.status == 200 && (r.body contains "\"username\"") ? {
-    "result": "valid",
-    "metadata": {"email": (r.json?.data?.viewer?.email ?? ""), "username": (r.json?.data?.viewer?.username ?? "")}
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
+  "Authorization": "Basic " + base64.encode(bytes("api:" + finding["secret"])), "Content-Type": "application/json"
+}, toJSON({"query": "query { viewer { id email username entity } }"}));
+let body = type(r.json) == "map" ? r.json : {};
+let data = type(body?.data) == "map" ? body.data : {};
+let viewer = type(data?.viewer) == "map" ? data.viewer : {};
+r.status == 200 && ((body?.errors == nil || body.errors == []) && type(viewer?.id) == "string" && viewer.id != "") ? {
+  "result": "valid", "analysis": {
+    "id": viewer.id,
+    "username": type(viewer?.username) == "string" ? viewer?.username : "",
+    "email": type(viewer?.email) == "string" ? viewer?.email : "",
+    "entity": type(viewer?.entity) == "string" ? viewer?.entity : ""
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)
+'''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "username": input["username"] ?? "",
+    "email": input["email"] ?? ""
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "entity": input["entity"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}
 '''
 filter = '''
 entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5

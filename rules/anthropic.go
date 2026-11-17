@@ -5,6 +5,26 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+// https://platform.claude.com/docs/en/api/organization/retrieve
+const anthropicAdminValidateExpr = `let r = http.get("https://api.anthropic.com/v1/organizations/me", {
+  "x-api-key": finding["secret"], "anthropic-version": "2023-06-01", "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+
+r.status == 200 && (type(body?.id) == "string" && body.id != "" && body?.type == "organization") ? {
+  "result": "valid", "analysis": {
+    "id": body.id,
+    "name": type(body?.name) == "string" ? body?.name : ""
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)`
+const anthropicAdminAnalyzeExpr = `let input = validation.analysis;
+{
+  "identity": {
+    "account": {"id": input["id"] ?? "", "name": input["name"] ?? ""}
+  },
+  "capabilities": []
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "anthropic-api-key",
 	Confidence:  "high",
@@ -39,16 +59,8 @@ var _ = rulebuilder.Add(config.Rule{
 	Keywords: []string{
 		"sk-ant-admin01",
 	},
-	ValidateExpr: `let r = http.get("https://api.anthropic.com/v1/organizations/me", {
-    "x-api-key": finding["secret"],
-    "anthropic-version": "2023-06-01"
-  }); r.status == 200 && (r.json?.id ?? "") != "" && (r.json?.type ?? "") == "organization" ? {
-    "result": "valid",
-    "metadata": {"organization": (r.json?.name ?? "")}
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+	ValidateExpr: anthropicAdminValidateExpr,
+	AnalyzeExpr:  anthropicAdminAnalyzeExpr,
 	Tests: []config.RuleTest{
 		rulebuilder.Match("Valid admin key example", "sk-ant-admin01-abc12fake-456def789ghij-klmnopqrstuvwx-3456yza789bcde-12fakehijklmnopby56aaaogaopaaaabc123xyzAA", "sk-ant-admin01-abc12fake-456def789ghij-klmnopqrstuvwx-3456yza789bcde-12fakehijklmnopby56aaaogaopaaaabc123xyzAA"),
 		rulebuilder.Match("true positive 1", `anthropic_api_token = "sk-ant-admin01-4v8l67z---wfu0y1vd_3l1cmfzxoud8et6xy88z3pomb2z7epjl8r_uz93d025diy14kz56coijonpywz2z4vn644cqy1AA"`, "sk-ant-admin01-4v8l67z---wfu0y1vd_3l1cmfzxoud8et6xy88z3pomb2z7epjl8r_uz93d025diy14kz56coijonpywz2z4vn644cqy1AA"),

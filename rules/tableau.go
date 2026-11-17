@@ -5,6 +5,41 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+// https://help.tableau.com/current/api/rest_api/en-us/REST/rest_api_ref_authentication.htm#sign_in
+// Cloud requires an existing site's content URL; it has no default-site fallback.
+// The site is explicit configuration, not an identity inferred from the hostname.
+const tableauValidateExpr = `let contentURL = env.getOrDefault("TABLEAU_SITE_CONTENT_URL", "");
+let r = contentURL == "" ? {} : http.post("https://" + (components["tableau-server-host.1"]?.secret ?? "") + "/api/3.26/auth/signin", {
+  "Content-Type": "application/json", "Accept": "application/json"
+}, toJSON({"credentials": {
+  "personalAccessTokenName": components["tableau-personal-access-token-name.1"]?.secret ?? "",
+  "personalAccessTokenSecret": finding["secret"], "site": {"contentUrl": contentURL}
+}}));
+let body = type(r?.json) == "map" ? r.json : {};
+let credentials = type(body?.credentials) == "map" ? body.credentials : {};
+let user = type(credentials?.user) == "map" ? credentials.user : {};
+let site = type(credentials?.site) == "map" ? credentials.site : {};
+contentURL == "" ? {
+  "result": "needs_validation", "reason": "Tableau Cloud requires TABLEAU_SITE_CONTENT_URL; set it and allowlist it with --provider-env-vars"
+} : r.status == 200 && (type(credentials?.token) == "string" && credentials.token != "") ? {
+  "result": "valid", "analysis": {
+    "id": type(user?.id) == "string" ? user?.id : "",
+    "site_id": type(site?.id) == "string" ? site?.id : "",
+    "site_content_url": type(site?.contentUrl) == "string" ? site?.contentUrl : ""
+  }
+} : validate.unknown(r)`
+const tableauAnalyzeExpr = `let input = validation.analysis;
+{
+  "identity": {
+    "id": input["id"] ?? "",
+    "account": {"id": input["site_id"] ?? ""}
+  },
+  "capabilities": [],
+  "metadata": fromPairs(filter(toPairs({
+    "site_content_url": input["site_content_url"] ?? ""
+  }), {#[1] != nil && #[1] != "" && #[1] != []}))
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "tableau-personal-access-token-name.1",
 	Confidence:  "high",
@@ -47,18 +82,9 @@ var _ = rulebuilder.Add(config.Rule{
 		{RuleID: "tableau-personal-access-token-name.1", Within: "20L"},
 		{RuleID: "tableau-server-host.1", Within: "20L"},
 	},
-	ValidateExpr: `let r = http.post("https://" + (components["tableau-server-host.1"]?.secret ?? "") + "/api/3.26/auth/signin", {
-    "Content-Type": "application/json",
-    "Accept": "application/json"
-  }, "{\"credentials\":{\"personalAccessTokenName\":\"" + (components["tableau-personal-access-token-name.1"]?.secret ?? "")
-    + "\",\"personalAccessTokenSecret\":\"" + finding["secret"] + "\",\"site\":{}}}");
-  r.status == 200 && (r.json?.credentials?.token ?? "") != "" ? {
-    "result": "valid"
-  } : r.status in [400, 401, 403] ? {
-    "result": "invalid",
-    "reason": "Invalid Tableau credentials"
-  } : validate.unknown(r)`,
-	FilterExpr: rulebuilder.MinEntropy(3.5),
+	ValidateExpr: tableauValidateExpr,
+	FilterExpr:   rulebuilder.MinEntropy(3.5),
+	AnalyzeExpr:  tableauAnalyzeExpr,
 	Tests: []config.RuleTest{
 		{
 			Name:  "true positive 1",

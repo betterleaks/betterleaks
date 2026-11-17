@@ -5,6 +5,26 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+// https://docs.stripe.com/api/accounts/retrieve (account capabilities are product features, not key grants)
+const stripeValidateExpr = `let r = http.get("https://api.stripe.com/v1/account", {
+  "Authorization": "Bearer " + finding["secret"], "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+let business = type(body?.business_profile) == "map" ? body.business_profile : {};
+r.status == 200 && (body?.object == "account" && type(body?.id) == "string" && body.id != "") ? {
+  "result": "valid", "analysis": {
+    "id": body.id,
+    "name": type(business?.name) == "string" ? business?.name : ""
+  }
+} : r.status == 401 ? {"result": "invalid", "reason": "Unauthorized"} : validate.unknown(r)`
+const stripeAnalyzeExpr = `let input = validation.analysis;
+{
+  "identity": {
+    "account": {"id": input["id"] ?? "", "name": input["name"] ?? ""}
+  },
+  "capabilities": []
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "stripe-access-token",
 	Confidence:  "high",
@@ -18,17 +38,10 @@ var _ = rulebuilder.Add(config.Rule{
 		"rk_live",
 		"rk_prod",
 	},
-	ValidateExpr: `let r = http.get("https://api.stripe.com/v1/account", {
-    "Authorization": "Bearer " + finding["secret"],
-    "Accept": "application/json"
-  }); r.status == 200 && (r.json?.object ?? "") == "account" ? {
-    "result": "valid"
-  } : r.status == 401 ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)`,
+	ValidateExpr: stripeValidateExpr,
 	FilterExpr: `matchesAny(finding["secret"], ["^sk_live_a2V5Xz"])
 || entropy(finding["secret"]) <= 2.0`,
+	AnalyzeExpr: stripeAnalyzeExpr,
 	Tests: []config.RuleTest{
 		rulebuilder.Match("assignment", `stripeToken = "sk_test_5fbbd6p84oe7ut4qrttebiwar77s63"`, "sk_test_5fbbd6p84oe7ut4qrttebiwar77s63"),
 		rulebuilder.Match("stripe assignment 2", `stripeToken = "sk_prod_5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lca8hqn2j0qefi1vg8f9p1t7tnza246j0vcrp"`, "sk_prod_5fbbd6p84oe7ut4qrttebiwar77s63donnl8x7lipmar1rysjl9p9f4p8u7nz6lca8hqn2j0qefi1vg8f9p1t7tnza246j0vcrp"),
