@@ -12210,6 +12210,50 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# zoom-client-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zoom-client-id"
+description = "Detected a Zoom client ID, used alongside a client secret to authenticate Zoom API requests."
+regex = '''(?i:(?:zoom)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9_\-]{21,22})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["zoom"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# zoom-client-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zoom-client-secret"
+description = "Detected a Zoom client secret, which may allow unauthorized access to Zoom APIs when paired with a client ID."
+regex = '''(?i:(?:zoom)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{32})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["zoom"]
+validate = '''
+(components["zoom-client-id"]?.secret ?? "") == "" ? {"result": "needs_validation", "reason": "validation needs the zoom-client-id value set beside the key"} : (
+let r = http.post("https://zoom.us/oauth/token", {"Content-Type": "application/x-www-form-urlencoded", "Authorization": "Basic " + base64.encode(bytes((components["zoom-client-id"]?.secret ?? "") + ":" + finding["secret"])), "User-Agent": "Go-http-client/1.1"}, "grant_type=client_credentials");
+(r.status in [200]) ? {
+    "result": "valid",
+    "analysis": {
+      "scopes": string(r.json?.scope ?? ""),
+    }
+  } :
+(r.status in [400] && (r.json?.reason == "The app has been disabled by the developer")) ? {"result": "valid"} :
+(r.status in [400] && (r.json?.reason == "Invalid client_id or client_secret")) ? {"result": "invalid"} :
+validate.unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+components = [
+    { id = "zoom-client-id", optional = true, within = "5L" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
 # zuplo-consumer-api-key.1
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
