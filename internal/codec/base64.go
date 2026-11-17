@@ -31,19 +31,26 @@ func decodeBase64(encodedValue string) string {
 		buffer = make([]byte, size)
 	}
 
-	// Try standard base64 decoding
-	n, err := base64.StdEncoding.Decode(buffer, []byte(encodedValue))
-	if err == nil && isPrintableASCII(buffer[:n]) {
-		return string(buffer[:n])
-	}
-
-	// Try base64url decoding
-	n, err = base64.RawURLEncoding.Decode(buffer, []byte(encodedValue))
-	if err == nil && isPrintableASCII(buffer[:n]) {
-		return string(buffer[:n])
+	raw := []byte(encodedValue)
+	for _, encoding := range base64Encodings {
+		n, err := encoding.Decode(buffer, raw)
+		if err == nil && isPrintableASCII(buffer[:n]) {
+			return string(buffer[:n])
+		}
 	}
 
 	return ""
+}
+
+// base64Encodings covers both alphabets in both padded and unpadded form.
+// Producers disagree: Python's base64.urlsafe_b64encode pads the URL-safe
+// alphabet, and Java's Base64.getEncoder().withoutPadding() leaves the
+// standard alphabet unpadded, so all four appear in real data.
+var base64Encodings = [...]*base64.Encoding{
+	base64.StdEncoding,
+	base64.RawURLEncoding,
+	base64.RawStdEncoding,
+	base64.URLEncoding,
 }
 
 var base64Values [256]byte
