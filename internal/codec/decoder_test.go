@@ -289,3 +289,54 @@ func TestBase64ScratchParity(t *testing.T) {
 		}
 	}
 }
+
+func FuzzDecodeBase64Payload(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte("\t\n\v\f\r\x1b~"))
+	f.Add([]byte("\xff\xfe\x00"))
+	f.Add([]byte("雪\u0301"))
+	f.Add([]byte(strings.Repeat("printable!", 31) + "\x7f"))
+	allBytes := make([]byte, 256)
+	for i := range allBytes {
+		allBytes[i] = byte(i)
+	}
+	f.Add(allBytes)
+
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > 16<<10 {
+			t.Skip()
+		}
+		// The suffix clears the minimum length and includes '+' (or '-') in
+		// every alignment, so the decoder's identifier heuristic admits it.
+		value := string(body) + "~~~~~~~~~~~~"
+		accept := true
+		for _, b := range body {
+			if b < 0x09 || b > 0x7e {
+				accept = false
+				break
+			}
+		}
+		const prefix = "雪\x00\x1b\x7f!"
+		const neighbor = "fixture 1234~~~~"
+		for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+			token := enc.EncodeToString([]byte(value))
+			next := enc.EncodeToString([]byte(neighbor))
+			raw := prefix + token + "!" + next
+			want, count := token, 1
+			if accept {
+				want, count = value, 2
+			}
+			decoded, segments := Decode(raw, nil)
+			if decoded != prefix+want+"!"+neighbor || len(segments) != count {
+				t.Fatalf("padding/alphabet %q, body %x: incorrect decoded text or segment count", enc.EncodeToString([]byte("~~~!")), body)
+			}
+			if accept {
+				assert.Equal(t, []int{len(prefix), len(prefix) + len(token)}, AdjustMatchIndex(segments, []int{len(prefix), len(prefix) + len(value)}))
+			}
+			// Even a rejected binary token must leave the neighboring token's
+			// source coordinates intact.
+			start := len(prefix) + len(want) + 1
+			assert.Equal(t, []int{len(prefix) + len(token) + 1, len(raw)}, AdjustMatchIndex(segments, []int{start, start + len(neighbor)}))
+		}
+	})
+}
