@@ -5,6 +5,13 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+const zoomAnalyzeExpr = `let input = validation.analysis;
+{
+  "metadata": {
+    "scopes": input["scopes"] ?? ""
+  },
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "zoom-client-id",
 	Confidence:  "medium",
@@ -40,6 +47,7 @@ let r = http.post("https://zoom.us/oauth/token", {"Content-Type": "application/x
 validate.unknown(r)
 )`,
 	FilterExpr: `entropy(finding["secret"]) <= 3.5`,
+	AnalyzeExpr: zoomAnalyzeExpr,
 	Tests: []config.RuleTest{
 		{
 			Name:   "shape 1",

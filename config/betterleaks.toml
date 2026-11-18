@@ -12246,6 +12246,14 @@ let r = http.post("https://zoom.us/oauth/token", {"Content-Type": "application/x
 validate.unknown(r)
 )
 '''
+analyze = '''
+let input = validation.analysis;
+{
+  "metadata": {
+    "scopes": input["scopes"] ?? ""
+  },
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.5
 '''
