@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"math/rand/v2"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -153,6 +154,11 @@ func TestDecode(t *testing.T) {
 }
 
 func TestEncodingMatchBoundaries(t *testing.T) {
+	// Also exercise each alignment after short alphabet runs and binary bytes.
+	prefixes := []string{""}
+	for offset := range 32 {
+		prefixes = append(prefixes, strings.Repeat("abc!def\xff", 4)+strings.Repeat("!", offset))
+	}
 	for _, tc := range []struct {
 		name, input string
 		want        []encodingMatch
@@ -181,6 +187,12 @@ func TestEncodingMatchBoundaries(t *testing.T) {
 				{encoding: encodings[3], startEnd: startEnd{17, 34}},
 			},
 		},
+		{name: "code point within a short alphabet run", input: "abcU+0041 ", want: nil},
+		{name: "15 alphabet bytes", input: "YWJjZGVmZ2hpamt", want: nil},
+		{name: "16 alphabet bytes at EOF", input: "YWJjZGVmZ2hpamts", want: []encodingMatch{{encodings[3], startEnd{0, 16}}}},
+		{name: "32 hex bytes at EOF", input: strings.Repeat("41", 16), want: []encodingMatch{{encodings[2], startEnd{0, 32}}}},
+		{name: "escaped unicode", input: `\u0041\u0042 `, want: []encodingMatch{{encodings[1], startEnd{0, 12}}}},
+
 		{
 			name: "later matches survive compaction", input: "%41YWJjZGVmZ2hpamts=cXJzdHV2d3h5ekFC=!U+0041",
 			want: []encodingMatch{
@@ -191,13 +203,15 @@ func TestEncodingMatchBoundaries(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := findEncodingMatches(tc.input)
-			if !assert.Len(t, got, len(tc.want)) {
-				return
-			}
-			for i, want := range tc.want {
-				assert.Equal(t, want.startEnd, got[i].startEnd)
-				assert.Equal(t, want.encoding.kind, got[i].encoding.kind)
+			for _, prefix := range prefixes {
+				got := findEncodingMatches(prefix + tc.input)
+				if !assert.Len(t, got, len(tc.want), "offset %d", len(prefix)) {
+					continue
+				}
+				for i, want := range tc.want {
+					assert.Equal(t, startEnd{len(prefix) + want.start, len(prefix) + want.end}, got[i].startEnd)
+					assert.Equal(t, want.encoding.kind, got[i].encoding.kind)
+				}
 			}
 		})
 	}
