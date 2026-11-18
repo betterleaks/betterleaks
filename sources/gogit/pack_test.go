@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
+	"github.com/betterleaks/betterleaks/v2/internal/gitpack"
 	format "github.com/go-git/go-git/v5/plumbing/format/config"
 	"github.com/go-git/go-git/v5/plumbing/format/packfile"
 	"github.com/stretchr/testify/require"
@@ -31,6 +32,8 @@ func TestPackedObjectBounds(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, z.Close())
 	good := append([]byte{0x33}, compressed.Bytes()...)
+	badChecksum := bytes.Clone(good)
+	badChecksum[len(badChecksum)-1] ^= 1
 	for _, tc := range []struct {
 		name  string
 		data  []byte
@@ -41,6 +44,7 @@ func TestPackedObjectBounds(t *testing.T) {
 		{"truncated-header", []byte{0xb0}, false},
 		{"overflow", append([]byte{0xb0}, bytes.Repeat([]byte{0xff}, 10)...), false},
 		{"invalid-zlib", []byte{0x33, 0, 0}, false},
+		{"bad-zlib-checksum", badChecksum, false},
 		{"truncated-zlib", good[:len(good)-1], false},
 		{"overrun", append([]byte{0x32}, compressed.Bytes()...), false},
 		{"short-result", append([]byte{0x34}, compressed.Bytes()...), false},
@@ -94,8 +98,12 @@ func TestPackedObjects(t *testing.T) {
 				gitFixture(t, repo, "init", "-q", "--object-format="+string(objectFormat))
 				gitFixture(t, repo, "config", "user.name", "Pack Test")
 				gitFixture(t, repo, "config", "user.email", "pack@example.test")
+				// Include shared binary content large enough to exercise delta
+				// checkpoint selection under this fixture's 1 MiB cache budget.
+				padding := strings.Repeat("\x00π\t\xff", 64<<10)
 				for revision := range 20 {
 					var content strings.Builder
+					content.WriteString(padding)
 					for line := range 1000 {
 						value := 0
 						if line%37 == 0 {
@@ -178,7 +186,7 @@ func TestApplyDelta(t *testing.T) {
 		{"offset", "abcdef", "\x06\x03\x91\x02\x03", "cde"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := applyDelta(t.Context(), tc.base, tc.delta, 1<<20)
+			got, err := gitpack.ApplyDelta(t.Context(), tc.base, tc.delta, 1<<20)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 		})
@@ -187,7 +195,7 @@ func TestApplyDelta(t *testing.T) {
 	header := binary.AppendUvarint(nil, uint64(len(base)))
 	header = binary.AppendUvarint(header, uint64(len(base)))
 	header = append(header, 0x80)
-	got, err := applyDelta(t.Context(), base, string(header), 1<<20)
+	got, err := gitpack.ApplyDelta(t.Context(), base, string(header), 1<<20)
 	require.NoError(t, err)
 	require.Equal(t, base, got)
 	for _, delta := range []string{
@@ -196,14 +204,14 @@ func TestApplyDelta(t *testing.T) {
 		"\x03\x03\x90", "\x03\x04\x90\x03", "\x03\x00\x00",
 		"\x03" + strings.Repeat("\xff", 10),
 	} {
-		_, err := applyDelta(t.Context(), "abc", delta, 1<<20)
+		_, err := gitpack.ApplyDelta(t.Context(), "abc", delta, 1<<20)
 		require.Error(t, err, "%x", delta)
 	}
-	_, err = applyDelta(t.Context(), "abc", "\x03\x04\x90\x03\x01d", 3)
+	_, err = gitpack.ApplyDelta(t.Context(), "abc", "\x03\x04\x90\x03\x01d", 3)
 	require.ErrorContains(t, err, "limit")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err = applyDelta(ctx, "abc", "\x03\x03\x90\x03", 10)
+	_, err = gitpack.ApplyDelta(ctx, "abc", "\x03\x03\x90\x03", 10)
 	require.ErrorIs(t, err, context.Canceled)
 }
 
@@ -225,7 +233,7 @@ func FuzzApplyDelta(f *testing.F) {
 			return
 		}
 		want, wantErr := packfile.PatchDelta([]byte(base), []byte(delta))
-		got, err := applyDelta(t.Context(), base, delta, 1<<20)
+		got, err := gitpack.ApplyDelta(t.Context(), base, delta, 1<<20)
 		if wantErr != nil {
 			require.Error(t, err)
 			return

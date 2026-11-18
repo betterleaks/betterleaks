@@ -28,11 +28,24 @@ func (r *repository) Head() (*gitobj.Reference, error) {
 	return gitobj.ResolveReference(r.Storer, gitobj.HEAD)
 }
 func (r *repository) CommitObject(id gitobj.Hash) (*gitobj.Commit, error) {
+	store, cached := r.Storer.(*objectStorage)
+	if cached {
+		if err := store.ctx.Err(); err != nil {
+			return nil, err
+		}
+		if c := store.commits[id.Bytes()[0]].Load(); c != nil && c.Hash == id {
+			return c, nil
+		}
+	}
 	o, err := r.Storer.EncodedObject(gitobj.CommitObject, id)
 	if err != nil {
 		return nil, err
 	}
-	return gitobj.DecodeCommit(r.Storer, o)
+	c, err := gitobj.DecodeCommit(r.Storer, o)
+	if cached && err == nil && o.Size() <= 16<<10 {
+		store.commits[id.Bytes()[0]].Store(c)
+	}
+	return c, err
 }
 func (r *repository) TreeObject(id gitobj.Hash) (*gitobj.Tree, error) {
 	o, err := r.Storer.EncodedObject(gitobj.TreeObject, id)

@@ -11,18 +11,63 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
 )
 
-// Only materialized immutable objects enter the cache. The LRU computes an
-// object's hash before taking its mutex, so a large unpublished object cannot
-// block concurrent cache hits.
-type objectCache struct{ *gitobj.ObjectLRU }
+// Keep frequently accessed small objects in independent shards. Large blob
+// chains share the rest of the budget, and cannot displace the metadata needed
+// to traverse the same commits.
+type objectCache struct {
+	large *gitobj.ObjectLRU
+	small [16]*gitobj.ObjectLRU
+}
+
+func newObjectCache(budget gitobj.FileSize) *objectCache {
+	c := new(objectCache)
+	if budget >= 16<<20 {
+		shardSize := budget / 4 / gitobj.FileSize(len(c.small))
+		for i := range c.small {
+			c.small[i] = gitobj.NewObjectLRU(shardSize)
+		}
+		budget -= shardSize * gitobj.FileSize(len(c.small))
+	}
+	c.large = gitobj.NewObjectLRU(budget)
+	return c
+}
+
+func (c *objectCache) Get(id gitobj.Hash) (gitobj.EncodedObject, bool) {
+	if shard := c.small[int(id.Bytes()[0])%len(c.small)]; shard != nil {
+		if o, ok := shard.Get(id); ok {
+			return o, true
+		}
+	}
+	return c.large.Get(id)
+}
+
+func (c *objectCache) Put(o gitobj.EncodedObject) {
+	if o.Size() < 32<<10 && c.small[0] != nil {
+		c.small[int(o.Hash().Bytes()[0])%len(c.small)].Put(o)
+		return
+	}
+	c.large.Put(o)
+}
+
+func (c *objectCache) Clear() {
+	for _, s := range c.small {
+		if s != nil {
+			s.Clear()
+		}
+	}
+	c.large.Clear()
+}
 
 // The decoded-tree budget includes entries, names, and cache overhead.
 type treeCache struct {
+	r      *repository
+	shards [4]treeCacheShard
+}
+type treeCacheShard struct {
 	mu      sync.Mutex
 	entries map[gitobj.Hash]*list.Element
 	lru     list.List
 	bytes   int
-	r       *repository
 }
 type cachedTree struct {
 	id    gitobj.Hash
@@ -30,7 +75,8 @@ type cachedTree struct {
 	bytes int
 }
 
-func (c *treeCache) get(id gitobj.Hash) (*gitobj.Tree, error) {
+func (cache *treeCache) get(id gitobj.Hash) (*gitobj.Tree, error) {
+	c := &cache.shards[int(id.Bytes()[0])%len(cache.shards)]
 	c.mu.Lock()
 	if e := c.entries[id]; e != nil {
 		c.lru.MoveToFront(e)
@@ -39,17 +85,15 @@ func (c *treeCache) get(id gitobj.Hash) (*gitobj.Tree, error) {
 		return t, nil
 	}
 	c.mu.Unlock()
-	t, err := c.r.TreeObject(id)
+	t, err := cache.r.TreeObject(id)
 	if err != nil {
 		return nil, err
 	}
 	// Count allocated slice capacity, not only its populated entries. Go's
 	// append growth can otherwise undercharge large decoded trees substantially.
-	size := 256 + cap(t.Entries)*int(reflect.TypeFor[gitobj.TreeEntry]().Size())
-	for _, entry := range t.Entries {
-		size += (len(entry.Name) + 15) &^ 15
-	}
-	if size > 8<<20 {
+	size := 256 + t.RawSize + cap(t.Entries)*int(reflect.TypeFor[gitobj.TreeEntry]().Size())
+	const shardBudget = (32 << 20) / len(cache.shards)
+	if size > shardBudget {
 		return t, nil
 	}
 	c.mu.Lock()
@@ -63,7 +107,7 @@ func (c *treeCache) get(id gitobj.Hash) (*gitobj.Tree, error) {
 	}
 	c.entries[id] = c.lru.PushFront(&cachedTree{id, t, size})
 	c.bytes += size
-	for c.bytes > 32<<20 {
+	for c.bytes > shardBudget {
 		e := c.lru.Back()
 		value := e.Value.(*cachedTree)
 		delete(c.entries, value.id)

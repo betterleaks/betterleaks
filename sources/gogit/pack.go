@@ -2,8 +2,6 @@ package gogit
 
 import (
 	"bufio"
-	"compress/zlib"
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -14,6 +12,7 @@ import (
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
 	"github.com/betterleaks/betterleaks/v2/internal/gitpack"
+	"github.com/klauspost/compress/zlib"
 )
 
 type objectPack struct {
@@ -129,7 +128,7 @@ var packInflaters = sync.Pool{New: func() any {
 // readPacked reconstructs a packed object. It walks the delta chain down to a
 // cached or undeltified base reading only record headers, then inflates and
 // applies one delta at a time back up. Chain depth costs one position per
-// link, never stack frames or retained delta instructions.
+// link. Large intermediate versions borrow ranges between checkpoints.
 func (s *objectStorage) readPacked(p *objectPack, offset int64, id gitobj.Hash) (*storedObject, error) {
 	type link struct {
 		id     gitobj.Hash
@@ -183,18 +182,40 @@ func (s *objectStorage) readPacked(p *objectPack, offset int64, id gitobj.Hash) 
 		}
 		p, offset = next, nextOffset
 	}
+	if len(chain) == 0 {
+		return base, nil
+	}
+	var versions gitpack.DeltaChain
+	versions.Reset(base.raw)
 	for i := len(chain) - 1; i >= 0; i-- {
 		l := chain[i]
+		if len(base.raw) >= 64<<10 {
+			if cached := s.cached(l.id); cached != nil {
+				base = cached
+				versions.Reset(base.raw)
+				continue
+			}
+		}
 		e, err := s.inflate(l.pack, l.offset, true)
 		if err != nil {
 			return nil, fmt.Errorf("pack object %s: %w", l.id, err)
 		}
-		raw, err := applyDelta(s.ctx, base.raw, e.raw, s.limit)
+		// Materializing every large intermediate can evict the very bases
+		// neighboring commits need. Bound borrowed inputs to eight deltas.
+		checkpoint := i%8 == 0 || s.disk != nil
+		err = versions.Apply(s.ctx, e.raw, s.limit, checkpoint)
+		if errors.Is(err, gitpack.ErrLimit) {
+			err = limitf("%s", err)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("delta %s: %w", l.id, err)
 		}
-		base = &storedObject{id: l.id, kind: base.kind, raw: raw}
-		s.keep(base)
+		if raw, ready := versions.Text(); ready {
+			base = &storedObject{id: l.id, kind: base.kind, raw: raw}
+			if checkpoint || len(raw) < 256<<10 {
+				s.keep(base)
+			}
+		}
 	}
 	return base, nil
 }
@@ -253,13 +274,4 @@ func (s *objectStorage) inflate(p *objectPack, offset int64, deltas bool) (packE
 	}
 	e.raw = out.String()
 	return e, nil
-}
-
-// applyDelta preserves the scan's skipped-content classification for shared decoder limits.
-func applyDelta(ctx context.Context, base, delta string, limit int64) (string, error) {
-	raw, err := gitpack.ApplyDelta(ctx, base, delta, limit)
-	if errors.Is(err, gitpack.ErrLimit) {
-		return "", limitf("%s", err)
-	}
-	return raw, err
 }
