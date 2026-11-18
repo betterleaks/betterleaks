@@ -138,7 +138,7 @@ func TestPatchCacheConcurrent(t *testing.T) {
 }
 
 func TestCachedPatchCallbacks(t *testing.T) {
-	objects := &objectCache{gitobj.NewObjectLRU(1 << 20)}
+	objects := newObjectCache(1 << 20)
 	from := &storedObject{id: gitobj.NewHash(strings.Repeat("1", 40)), kind: gitobj.BlobObject, raw: "first\nold\nlast\n"}
 	to := &storedObject{id: gitobj.NewHash(strings.Repeat("2", 40)), kind: gitobj.BlobObject, raw: "first\nTOKEN\nlast\n"}
 	objects.Put(from)
@@ -189,7 +189,7 @@ func TestPatchCachePreservesBinaryArchiveMembers(t *testing.T) {
 	_, err = member.Write([]byte(content))
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
-	objects := &objectCache{gitobj.NewObjectLRU(1 << 20)}
+	objects := newObjectCache(1 << 20)
 	to := &storedObject{id: gitobj.NewHash(strings.Repeat("2", 40)), kind: gitobj.BlobObject, raw: archive.String()}
 	objects.Put(to)
 	w := worker{source: &Source{MaxArchiveDepth: 1}, store: &objectStorage{ctx: t.Context(), objects: objects}, patches: &patchCache{}, maxBlob: 1 << 20}
@@ -214,8 +214,35 @@ func TestPatchCachePreservesBinaryArchiveMembers(t *testing.T) {
 	require.Empty(t, w.patches.entries, "archive extraction must run for every commit")
 }
 
+func TestSmallGitObjectsSurviveLargeBlobEvictions(t *testing.T) {
+	cache := newObjectCache(16 << 20)
+	seed := &storedObject{id: gitobj.NewHash(strings.Repeat("1", 40)), kind: gitobj.TreeObject, raw: "tree"}
+	cache.Put(seed)
+	raw := strings.Repeat("x", 1<<20)
+	var first, last *storedObject
+	for i := 0; i < 20; i++ {
+		last = &storedObject{id: gitobj.NewHash(fmt.Sprintf("%040x", i+1)), kind: gitobj.BlobObject, raw: raw}
+		cache.Put(last)
+		if i == 0 {
+			first = last
+		}
+	}
+	_, ok := cache.Get(first.id)
+	require.False(t, ok)
+	for _, want := range []*storedObject{seed, last} {
+		got, ok := cache.Get(want.id)
+		require.True(t, ok)
+		require.Same(t, want, got)
+	}
+	cache.Clear()
+	for _, id := range []gitobj.Hash{seed.id, last.id} {
+		_, ok := cache.Get(id)
+		require.False(t, ok)
+	}
+}
+
 func TestObjectCacheMaterializedObjects(t *testing.T) {
-	c := &objectCache{gitobj.NewObjectLRU(1024)}
+	c := newObjectCache(1024)
 	memory := gitobj.NewMemoryObject(gitobj.FromObjectFormat(format.SHA1))
 	memory.SetType(gitobj.BlobObject)
 	writer, err := memory.Writer()
@@ -272,7 +299,7 @@ func (o *slowHashObject) Hash() gitobj.Hash {
 }
 
 func TestObjectHashDoesNotBlockCache(t *testing.T) {
-	c := &objectCache{gitobj.NewObjectLRU(1024)}
+	c := newObjectCache(1024)
 	seed := &storedObject{kind: gitobj.BlobObject, id: gitobj.NewHash(strings.Repeat("1", 40)), raw: "seed"}
 	c.Put(seed)
 	obj := &slowHashObject{EncodedObject: &storedObject{kind: gitobj.BlobObject, id: gitobj.NewHash(strings.Repeat("2", 40)), raw: "slow"}, entered: make(chan struct{}), release: make(chan struct{})}

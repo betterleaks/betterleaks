@@ -39,6 +39,15 @@ func detectRenames(changes gitobj.Changes) (gitobj.Changes, error) {
 	return gitobj.DetectRenames(changes, &gitobj.DiffTreeOptions{DetectRenames: true, RenameScore: 50, RenameLimit: 1000, OnlyExactRenames: false})
 }
 
+// Changed paths can escape through findings. At the root, concatenating an
+// empty prefix would keep the entire encoded tree backing a single filename.
+func changedPath(prefix, name string) string {
+	if prefix == "" {
+		return strings.Clone(name)
+	}
+	return prefix + name
+}
+
 func rawTreeChanges(ctx context.Context, cache *treeCache, c *gitobj.Commit, parent gitobj.Hash) (gitobj.Changes, error) {
 	var old *gitobj.Tree
 	if !parent.IsZero() {
@@ -75,7 +84,7 @@ func rawTreeChanges(ctx context.Context, cache *treeCache, c *gitobj.Commit, par
 		if err := charge(len(prefix) + len(entry.Name)); err != nil {
 			return err
 		}
-		name := prefix + entry.Name
+		name := changedPath(prefix, entry.Name)
 		if entry.Mode == filemode.Dir {
 			sub, err := cache.get(entry.Hash)
 			if err != nil {
@@ -162,7 +171,8 @@ func rawTreeChanges(ctx context.Context, cache *treeCache, c *gitobj.Commit, par
 						return err
 					}
 				} else {
-					changes = append(changes, &gitobj.Change{From: gitobj.ChangeEntry{Name: prefix + left.Name, Tree: from, TreeEntry: left}, To: gitobj.ChangeEntry{Name: prefix + right.Name, Tree: to, TreeEntry: right}})
+					name := changedPath(prefix, left.Name)
+					changes = append(changes, &gitobj.Change{From: gitobj.ChangeEntry{Name: name, Tree: from, TreeEntry: left}, To: gitobj.ChangeEntry{Name: name, Tree: to, TreeEntry: right}})
 				}
 				continue
 			}

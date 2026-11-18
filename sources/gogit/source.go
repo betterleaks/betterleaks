@@ -285,7 +285,7 @@ func (s *Source) commits(ctx context.Context, r *repository, walk *history, sel 
 	accept := s.selector()
 	workers := s.Workers
 	if workers == 0 {
-		workers = min(max(runtime.GOMAXPROCS(0), 1), 8)
+		workers = min(runtime.GOMAXPROCS(0), 8)
 	}
 	maxBlob := s.MaxBlobBytes
 	if maxBlob == 0 {
@@ -327,6 +327,9 @@ func (s *Source) commits(ctx context.Context, r *repository, walk *history, sel 
 				continue
 			}
 			selected++
+			if !sel.merges && !sel.messages && len(walk.store.parents(commit)) > 1 {
+				continue // Still counts toward MaxCount and its parents have already been enqueued.
+			}
 			select {
 			case jobs <- commit:
 			case <-workCtx.Done():
@@ -417,14 +420,19 @@ func (w *worker) commit(ctx context.Context, c *gitobj.Commit, yield sources.Fra
 	if err != nil {
 		return err
 	}
-	for _, change := range changes {
+	for i, change := range changes {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if change.To.Name == "" {
 			continue
 		}
-		fileAttrs := maps.Clone(attrs)
+		// Earlier paths own separate maps. The final path can take ownership
+		// of the original commit attributes.
+		fileAttrs := attrs
+		if i+1 < len(changes) {
+			fileAttrs = maps.Clone(attrs)
+		}
 		fileAttrs[sources.AttrPath] = change.To.Name
 		fileAttrs[sources.AttrResource] = sources.ResourceGitPatchContent
 		fileAttrs[sources.AttrGitBlobSHA] = change.To.TreeEntry.Hash.String()

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
 	"github.com/betterleaks/betterleaks/v2/internal/gitpack"
@@ -31,11 +32,15 @@ type objectStorage struct {
 	packedRefs map[gitobj.ReferenceName]*gitobj.Reference
 	packedErr  error
 	objects    *objectCache
-	ctx        context.Context
-	limit      int64
-	packs      []*objectPack
-	disk       *diskObjectCache
-	shallow    map[gitobj.Hash]struct{}
+	loadLocks  [256]sync.Mutex
+	// Cache decoded parents shared by the walk and its workers. Only commit
+	// bodies up to 16 KiB qualify, bounding their retained input to 4 MiB.
+	commits [256]atomic.Pointer[gitobj.Commit]
+	ctx     context.Context
+	limit   int64
+	packs   []*objectPack
+	disk    *diskObjectCache
+	shallow map[gitobj.Hash]struct{}
 }
 
 func (s *objectStorage) EncodedObject(kind gitobj.ObjectType, id gitobj.Hash) (gitobj.EncodedObject, error) {
@@ -141,6 +146,17 @@ func (s *objectStorage) parents(c *gitobj.Commit) []gitobj.Hash {
 }
 
 func (s *objectStorage) read(id gitobj.Hash) (*storedObject, error) {
+	if err := s.ctx.Err(); err != nil {
+		return nil, err
+	}
+	if o := s.cached(id); o != nil {
+		return o, nil
+	}
+	// Neighboring commits often request the same tree or blob concurrently.
+	// Only top-level reads take this lock; delta-base walks never nest it.
+	lock := &s.loadLocks[id.Bytes()[0]]
+	lock.Lock()
+	defer lock.Unlock()
 	if err := s.ctx.Err(); err != nil {
 		return nil, err
 	}
