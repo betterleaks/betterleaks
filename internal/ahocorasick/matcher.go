@@ -5,8 +5,13 @@ package ahocorasick
 
 import (
 	"math/bits"
-	"unicode"
+	"strings"
 	"unicode/utf8"
+)
+
+const (
+	longS      = "ſ"
+	kelvinSign = "K"
 )
 
 // Matcher is a flat Aho-Corasick DFA. Pattern IDs are their input indexes.
@@ -17,6 +22,7 @@ type Matcher struct {
 	transitions []uint32
 	shift       uint
 	classes     [256]byte
+	prefixPairs *prefixPairs
 
 	// outputs lists the pattern IDs completed at each state. It includes outputs
 	// inherited through failure links, which is how overlapping matches are found.
@@ -24,9 +30,7 @@ type Matcher struct {
 
 	// lengths stores each pattern's matcher-byte length, indexed by pattern ID.
 	// Visit uses it to recover the source start offset of a completed match.
-	lengths []int
-
-	// maxLength bounds the source-offset ring used by Visit.
+	lengths   []int
 	maxLength int
 
 	// foldASCII makes ASCII matching case-insensitive. Visit also recognizes
@@ -45,6 +49,7 @@ func Compile(patterns []string, foldASCII bool) *Matcher {
 	nodes := []node{{next: make(map[byte]uint32)}}
 	lengths := make([]int, len(patterns))
 	maxLength := 0
+
 	var alphabet [256]bool
 	for id, pattern := range patterns {
 		state := uint32(0)
@@ -116,95 +121,105 @@ func Compile(patterns []string, foldASCII bool) *Matcher {
 	for b := range m.classes {
 		m.classes[b] = classes[fold(byte(b), foldASCII)]
 	}
+	m.prefixPairs = compilePrefixPairs(patterns, foldASCII)
 	return m
 }
 
 // Visit calls fn for every match. Returning false stops traversal.
 func (m *Matcher) Visit(text string, fn func(patternID, start, end int) bool) {
 	state := uint32(0)
-	for i := 0; i < len(text); i++ {
-		b := text[i]
-		if m.foldASCII && b >= utf8.RuneSelf {
-			// Long s and Kelvin sign are the only non-ASCII runes that fold
-			// to ASCII. Everything else breaks an ASCII keyword, including
-			// malformed UTF-8. No Unicode table lookup is needed here.
-			if (b == 0xc5 && i+1 < len(text) && text[i+1] == 0xbf) ||
-				(b == 0xe2 && i+2 < len(text) && text[i+1] == 0x84 && text[i+2] == 0xaa) {
-				m.visitUnicode(text, i, state, fn)
-				return
-			}
-			state = 0
-			continue
+	var largeStarts []int
+	// Sample periodically so dense source text gets a tight DFA loop while
+	// sparse stretches can skip pairs. Sampling never changes eligibility.
+	nextSample := 0
+	sparse := false
+	for i := 0; i < len(text); {
+		if i >= nextSample {
+			nextSample = i + min(4096, len(text)-i)
+			sparse = m.prefixPairs != nil && !m.prefixPairs.dense(text[i:nextSample])
 		}
-		state = m.transitions[int(state)+int(m.classes[b])]
-		for _, id := range m.outputs[state>>m.shift] {
-			if !fn(int(id), i+1-m.lengths[id], i+1) {
-				return
+		end := nextSample
+		if sparse {
+			if state == 0 {
+				i += m.prefixPairs.skip(text[i:])
+			}
+			// Consume the two possible starts checked by the last pair probe.
+			end = i + min(2, len(text)-i)
+		}
+		for i < end {
+			b := text[i]
+			if m.foldASCII && b >= utf8.RuneSelf {
+				if strings.HasPrefix(text[i:], longS) || strings.HasPrefix(text[i:], kelvinSign) {
+					i, state = m.visitUnicode(text, i, state, &largeStarts, fn)
+				} else {
+					state = 0
+					i++
+				}
+				continue
+			}
+			i++
+			state = m.transitions[int(state)+int(m.classes[b])]
+			for _, id := range m.outputs[state>>m.shift] {
+				if !fn(int(id), i-m.lengths[id], i) {
+					return
+				}
 			}
 		}
 	}
 }
 
-// Unicode folding changes the relationship between matcher bytes and source
-// bytes. Resume with the original offset-ring algorithm, seeded with the
-// ASCII prefix that produced state. The ordinary ASCII path needs no ring.
-func (m *Matcher) visitUnicode(text string, offset int, state uint32, fn func(patternID, start, end int) bool) {
+// Track source offsets while a live prefix can contain a multi-byte fold.
+// Return to byte traversal as soon as all subsequent starts are ASCII again.
+func (m *Matcher) visitUnicode(text string, offset int, state uint32, largeStarts *[]int, fn func(int, int, int) bool) (int, uint32) {
 	var localStarts [128]int
 	starts := localStarts[:]
 	if m.maxLength > len(starts) {
-		starts = make([]int, m.maxLength)
-	}
-	position := offset
-	for i := max(0, offset-m.maxLength); i < offset; i++ {
-		starts[i%len(starts)] = i
-	}
-
-	for i := offset; i < len(text); {
-		b := text[i]
-		size := 1
-		if m.foldASCII && b >= utf8.RuneSelf {
-			r, runeSize := utf8.DecodeRuneInString(text[i:])
-			folded, ok := foldRuneASCII(r)
-			if !ok {
-				state = 0
-				i += runeSize
-				continue
-			}
-			b, size = folded, runeSize
-		} else {
-			b = fold(b, m.foldASCII)
+		if *largeStarts == nil {
+			*largeStarts = make([]int, m.maxLength)
 		}
-
-		// Patterns are measured in matcher bytes, while a Unicode rune that folds
-		// to ASCII occupies multiple source bytes. Keep the source start of the
-		// last maxLength matcher bytes so callbacks still receive byte offsets.
-		starts[position%len(starts)] = i
+		starts = *largeStarts
+	}
+	lastFoldEnd := offset
+	position := 0
+	for i := offset; i < len(text); {
+		start := i
+		b := text[i]
+		if b < utf8.RuneSelf {
+			i++
+		} else {
+			switch {
+			case strings.HasPrefix(text[i:], longS):
+				b = 's'
+				i += len(longS)
+			case strings.HasPrefix(text[i:], kelvinSign):
+				b = 'k'
+				i += len(kelvinSign)
+			default:
+				return i + 1, 0
+			}
+			lastFoldEnd = i
+		}
+		starts[position%len(starts)] = start
+		position++
 		state = m.transitions[int(state)+int(m.classes[b])]
 		for _, id := range m.outputs[state>>m.shift] {
-			end := i + size
-			start := end
-			if length := m.lengths[id]; length > 0 {
-				start = starts[(position+1-length)%len(starts)]
+			pos := position - m.lengths[id]
+			// The prefix before offset was consumed one source byte at a time.
+			matchStart := offset + pos
+			if pos == position {
+				matchStart = i // empty pattern
+			} else if pos >= 0 {
+				matchStart = starts[pos%len(starts)]
 			}
-			if !fn(int(id), start, end) {
-				return
+			if !fn(int(id), matchStart, i) {
+				return len(text), 0
 			}
 		}
-		position++
-		i += size
-	}
-}
-
-// foldRuneASCII reports the ASCII member of a rune's Unicode simple-fold set.
-func foldRuneASCII(r rune) (byte, bool) {
-	for next := r; ; next = unicode.SimpleFold(next) {
-		if next < utf8.RuneSelf {
-			return fold(byte(next), true), true
-		}
-		if folded := unicode.SimpleFold(next); folded == r {
-			return 0, false
+		if state == 0 || i-lastFoldEnd >= m.maxLength {
+			return i, state
 		}
 	}
+	return len(text), state
 }
 
 func fold(b byte, enabled bool) byte {

@@ -2,6 +2,7 @@ package codec
 
 import (
 	"math"
+	"strings"
 )
 
 // Lookup tables for byte classification.
@@ -125,8 +126,38 @@ type encoding struct {
 	precedence int
 }
 
-// findEncodingMatches finds as many encodings as it can for this pass
-// using a single-pass byte-level scanner instead of regex.
+const minBase64Run = 16
+
+// Cache the next possible start of each escape syntax. On long stretches
+// without escapes, only uninterrupted runs of 16 or more Base64 bytes can
+// produce a match (hex needs at least 32, and uses a subset of the alphabet).
+type encodingMarkers struct {
+	percent, backslash, codePoint int
+}
+
+func (m *encodingMarkers) next(data string, from int) int {
+	if m.percent <= from {
+		m.percent = len(data)
+		if j := strings.IndexByte(data[from:], '%'); j >= 0 {
+			m.percent = from + j
+		}
+	}
+	if m.backslash <= from {
+		m.backslash = len(data)
+		if j := strings.IndexByte(data[from:], '\\'); j >= 0 {
+			m.backslash = from + j
+		}
+	}
+	if m.codePoint <= from {
+		m.codePoint = len(data)
+		if j := strings.Index(data[from:], "U+"); j >= 0 {
+			m.codePoint = from + j
+		}
+	}
+	return min(m.percent, m.backslash, m.codePoint)
+}
+
+// findEncodingMatches finds the encoding candidates for one decode pass.
 func findEncodingMatches(data string) []encodingMatch {
 	n := len(data)
 	if n == 0 {
@@ -135,8 +166,32 @@ func findEncodingMatches(data string) []encodingMatch {
 
 	var all []encodingMatch
 	i := 0
+	var markers encodingMarkers
+	marker := n
+	if n >= minBase64Run {
+		marker = 0
+	}
 
 	for i < n {
+		if i >= marker {
+			marker = markers.next(data, i)
+		}
+		// Look back from the sixteenth byte. A delimiter proves that every
+		// run through that delimiter is too short, and gives the next token
+		// a real boundary even if it contains a U+ sequence.
+		for marker-i >= minBase64Run {
+			j := i + minBase64Run - 1
+			for j >= i && isB64Char[data[j]] {
+				j--
+			}
+			if j < i {
+				break
+			}
+			i = j + 1
+		}
+		if i == n {
+			break
+		}
 		c := data[i]
 
 		// --- Percent encoding: %XX ---
@@ -328,7 +383,7 @@ func findEncodingMatches(data string) []encodingMatch {
 					encoding: encodings[2], // hex
 					startEnd: startEnd{start, start + runLen},
 				})
-			} else if runLen >= 16 && possibleBase64Prefix(data[start:end]) {
+			} else if runLen >= minBase64Run && possibleBase64Prefix(data[start:end]) {
 				// Reject impossible Base64 before allocating candidate storage.
 				// Higher-precedence failures must still suppress adjacent encodings.
 				// Include trailing = in candidates that remain.

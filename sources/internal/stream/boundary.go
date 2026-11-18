@@ -1,6 +1,9 @@
 package stream
 
-import "bufio"
+import (
+	"bufio"
+	"bytes"
+)
 
 const maxPeekSize = 25 * 1_000 // 25 KB
 
@@ -70,15 +73,25 @@ func readUntilSafeBoundary(r *bufio.Reader, data []byte, initialSize int, maxPee
 		peek, err := r.Peek(min(budget, max(1, r.Buffered())))
 		consumed := 0
 		found := false
-		for _, b := range peek {
-			consumed++
-			if b == '\n' {
-				newlineCount++
-				if newlineCount >= 2 {
-					found = true
+		for consumed < len(peek) {
+			if newlineCount == 0 {
+				// Skip binary data and long lines in the optimized byte search.
+				next := bytes.IndexByte(peek[consumed:], '\n')
+				if next < 0 {
+					consumed = len(peek)
 					break
 				}
-			} else if !isWhitespace[b] {
+				consumed += next + 1
+				newlineCount = 1
+				continue
+			}
+			b := peek[consumed]
+			consumed++
+			if b == '\n' {
+				found = true
+				break
+			}
+			if !isWhitespace[b] {
 				newlineCount = 0
 			}
 		}

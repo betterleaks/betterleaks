@@ -123,11 +123,16 @@ func readUntilSafeBoundaryByteWise(r *bufio.Reader, data []byte, initialSize int
 func Test_readUntilSafeBoundaryMatchesByteWise(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	alphabet := []byte("ab \t\r\n\n\n")
-	for round := 0; round < 3000; round++ {
+	// Keep the original whitespace-heavy rounds, then mix in arbitrary bytes.
+	for round := range 6000 {
 		n := rng.Intn(600)
 		stream := make([]byte, n)
 		for i := range stream {
-			stream[i] = alphabet[rng.Intn(len(alphabet))]
+			if round >= 3000 && rng.Intn(2) == 0 {
+				stream[i] = byte(rng.Intn(256))
+			} else {
+				stream[i] = alphabet[rng.Intn(len(alphabet))]
+			}
 		}
 		initial := min(1+rng.Intn(64), n)
 		if initial == 0 {
