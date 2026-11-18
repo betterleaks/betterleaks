@@ -7846,6 +7846,49 @@ entropy(finding["secret"]) <= 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# nx-cloud-access-token
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "nx-cloud-access-token"
+description = "Detected an Nx Cloud access token, which may allow access to remote computation caching and workspace task execution in Nx Cloud."
+regex = '''(?i:(?:nxcloud|nx_cloud|nx\-cloud)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:[A-Za-z0-9+/=]{64}|[A-Za-z0-9+/=]{56}))(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = [
+    "nxcloud",
+    "nx_cloud",
+    "nx-cloud",
+]
+validate = '''
+let r = http.get("https://cloud.nx.app/nx-cloud/data/v1/cipes?" + "limit=1", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+(r.status in [200] && (r.json?.items ?? "") != "") ? {"result": "valid"} :
+(r.status in [401]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# nx-cloud-access-token-nx-json
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "nx-cloud-access-token-nx-json"
+description = "Detected an Nx Cloud access token, which may allow access to remote computation caching and workspace task execution in Nx Cloud."
+regex = '''\b(?i:(?:accesstoken)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}((?:[A-Za-z0-9+/=]{64}|[A-Za-z0-9+/=]{56}))(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+path = '''(?i)(?:^|/)nx\.json$'''
+confidence = "high"
+keywords = ["accesstoken"]
+validate = '''
+let r = http.get("https://cloud.nx.app/nx-cloud/data/v1/cipes?" + "limit=1", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+(r.status in [200] && (r.json?.items ?? "") != "") ? {"result": "valid"} :
+(r.status in [401]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 4.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # nylas-api-key.1
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
