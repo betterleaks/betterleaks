@@ -12176,6 +12176,25 @@ entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# zhipu-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "zhipu-api-key"
+description = "Detected a Zhipu AI API key, which may allow unauthorized access to BigModel GLM services and resources."
+regex = '''\b([a-f0-9]{32}\.[A-Za-z0-9]{16,17})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["zhipu"]
+validate = '''
+let r = http.get("https://open.bigmodel.cn/api/paas/v4/models", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+(r.status in [200]) ? {"result": "valid"} :
+(r.status in [401]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # zoho-client-id.1
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
