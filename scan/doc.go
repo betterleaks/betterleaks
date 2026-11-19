@@ -11,6 +11,13 @@
 // that select it. An engine is retained rather than copied and must be safe for
 // concurrent use.
 //
+// When a provider assignment rule extracts the same secret as a
+// generic-api-key, generic-password, or generic-credential-uri finding at an
+// overlapping location, both findings are reported. Generic credential words
+// such as "key" do not pair. Path, filter, required components, and minimum
+// confidence still apply to each finding. A later validation pass drops the
+// generic finding when one of those provider rules is confirmed live.
+//
 // Use Scanner.Scan for callbacks and per-call statistics, or Scanner.ScanString
 // for small inputs. Calls may run concurrently with independent sources and share
 // the detection worker limit set by WithWorkers. Sources use their own bounded

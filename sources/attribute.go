@@ -55,4 +55,8 @@ const (
 	// Filesystem
 	AttrFSSymlink       = "fs.symlink"
 	AttrFSFirstFragment = "fs.first_fragment"
+
+	// Scan records provider rules that matched the same secret as a generic finding.
+	// Validation uses this to drop the generic when one of those rules is confirmed live.
+	AttrScanPairedRules = "scan.paired_rules"
 )
