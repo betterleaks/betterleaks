@@ -13,7 +13,8 @@
 //
 // A generic-api-key, generic-password, or generic-credential-uri finding is
 // also reported as a provider rule when that provider's keyword appears in
-// the fragment and its regex matches the same secret. Generic credential
+// the fragment and the secret matches the provider regex's value pattern.
+// The keyword does not have to sit next to the secret. Generic credential
 // words such as "key" do not pair. Path, filter, required components, and
 // minimum confidence still apply to the provider finding. A later validation
 // pass drops the generic finding when one of those provider rules is confirmed live.

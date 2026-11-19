@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/betterleaks/betterleaks/v2/internal/codec"
-	"github.com/betterleaks/betterleaks/v2/internal/regexspan"
 	"github.com/betterleaks/betterleaks/v2/internal/ruletiming"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -183,7 +182,8 @@ func (s *Scanner) discardFinding(logger *slog.Logger, r *compiledRule, finding *
 }
 
 // routeGenericFindings adds a provider finding only when that rule's keyword
-// appears in the fragment and its regex matches the same secret. Path, filter,
+// appears in the fragment and the secret matches the provider regex's value
+// pattern. The keyword does not have to sit next to the secret. Path, filter,
 // and required components still apply. The generic finding stays until
 // validation confirms the provider rule.
 func (s *Scanner) routeGenericFindings(logger *slog.Logger, ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, genericRule *compiledRule, encodedSegments []*codec.EncodedSegment, priorFindings *findingIndex, hits []genericHit, state *detectionState) ([]report.Finding, error) {
@@ -344,82 +344,45 @@ func sameSecretOccurrence(a, b *report.Finding) bool {
 		locationsOverlap(a.Location, b.Location)
 }
 
-func routeSpansForRule(rule *compiledRule, ruleIndex int, alerts []routeAlert, raw string) []regexspan.Span {
-	if rule.span == nil {
-		return nil
-	}
-	var windows regexspan.Windows
-	for _, alert := range alerts {
-		if alert.ruleIndex != ruleIndex {
-			continue
-		}
-		windows.Add(raw, alert.start, alert.end, rule.span)
-	}
-	return windows.Spans
-}
-
-// providerRegexClaimsHit reports whether the provider regex matches the same
-// source occurrence as the generic finding. The provider keyword must also
-// appear in the fragment outside that generic match.
-func (s *Scanner) providerRegexClaimsHit(rule *compiledRule, raw string, ruleIndex int, alerts []routeAlert, hit genericHit) (bool, error) {
+// providerRegexClaimsHit reports whether a provider keyword in this fragment
+// can take the generic secret. The keyword must sit outside the generic match,
+// and the secret must match the provider rule's value pattern. The keyword does
+// not have to be next to the secret.
+func (s *Scanner) providerRegexClaimsHit(rule *compiledRule, _ string, ruleIndex int, alerts []routeAlert, hit genericHit) (bool, error) {
 	if !keywordOutsideMatch(alerts, ruleIndex, hit.start, hit.end) {
 		return false, nil
 	}
-	spans := routeSpansForRule(rule, ruleIndex, alerts, raw)
-	matches, err := s.ruleRegexMatchIndexes(rule, raw, spans)
-	if err != nil {
+	return s.secretMatchesProviderRule(rule, hit.finding.Match.Value)
+}
+
+// secretMatchesProviderRule reports whether the provider regex accepts secret
+// as its captured value. The probe is an assignment using the rule's own
+// keyword, so a distant api_key can still match the value pattern.
+func (s *Scanner) secretMatchesProviderRule(rule *compiledRule, secret string) (bool, error) {
+	if rule.regex == nil || secret == "" || strings.ContainsAny(secret, "\r\n") {
+		return false, nil
+	}
+	if err := rule.regex.Compile(); err != nil {
 		return false, err
 	}
-	for _, indexes := range matches {
-		if len(indexes) < 2 || indexes[0] < 0 || indexes[1] < indexes[0] {
+	for _, keyword := range rule.rule.Keywords {
+		if _, genericWord := s.genericKeywords[strings.ToLower(keyword)]; genericWord {
 			continue
 		}
-		value := ruleRegexValue(rule, raw, indexes)
-		if value == "" || value != hit.finding.Match.Value {
-			continue
+		line := keyword + "=" + secret
+		var indexes []int
+		if rule.regex.NumSubexp() > 0 {
+			if found := rule.regex.FindAllStringSubmatchIndex(line, 1); len(found) > 0 {
+				indexes = found[0]
+			}
+		} else if found := rule.regex.FindAllStringIndex(line, 1); len(found) > 0 {
+			indexes = found[0]
 		}
-		if spansOverlap(indexes[0], indexes[1], hit.start, hit.end) {
+		if ruleRegexValue(rule, line, indexes) == secret {
 			return true, nil
 		}
 	}
 	return false, nil
-}
-
-func (s *Scanner) ruleRegexMatchIndexes(r *compiledRule, raw string, spans []regexspan.Span) ([][]int, error) {
-	if r.regex == nil {
-		return nil, nil
-	}
-	if r.span != nil && r.span.RequiredByte != 0 && strings.IndexByte(raw, r.span.RequiredByte) < 0 {
-		return nil, nil
-	}
-	if err := r.regex.Compile(); err != nil {
-		return nil, err
-	}
-	find := func(segment string) ([][]int, error) {
-		if r.regex.NumSubexp() > 0 {
-			return r.regex.FindAllStringSubmatchIndex(segment, -1), nil
-		}
-		return r.regex.FindAllStringIndex(segment, -1), nil
-	}
-	if len(spans) == 0 {
-		return find(raw)
-	}
-	var matches [][]int
-	for _, span := range spans {
-		part, err := find(raw[span.Start:span.End])
-		if err != nil {
-			return nil, err
-		}
-		for _, indexes := range part {
-			for i, index := range indexes {
-				if index >= 0 {
-					indexes[i] += span.Start
-				}
-			}
-		}
-		matches = append(matches, part...)
-	}
-	return matches, nil
 }
 
 func ruleRegexValue(r *compiledRule, raw string, indexes []int) string {

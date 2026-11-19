@@ -16,7 +16,7 @@ const (
 	routeSecret2 = "m8Rn3qMy0Wx5oS9tU2zV7aB4cD6eF1gI"
 )
 
-func TestKeywordWithoutRegexMatchStaysGeneric(t *testing.T) {
+func TestKeywordAndValuePatternPairDistantGeneric(t *testing.T) {
 	scanner := mustNew(t, &config.Config{Rules: []config.Rule{
 		routeProvider("adafruit-api-key", "adafruit", "Adafruit key"),
 		routeGenericAPI(),
@@ -26,10 +26,12 @@ func TestKeywordWithoutRegexMatchStaysGeneric(t *testing.T) {
 		"    {'api_key': '" + routeSecret + "'}\n" +
 		")\n"
 
-	findings := scanner.ScanString(raw)
-	require.Len(t, findings, 1)
-	require.Equal(t, "generic-api-key", findings[0].RuleID)
-	require.Equal(t, routeSecret, findings[0].Match.Value)
+	var ruleIDs []string
+	for _, finding := range scanner.ScanString(raw) {
+		require.Equal(t, routeSecret, finding.Match.Value)
+		ruleIDs = append(ruleIDs, finding.RuleID)
+	}
+	require.ElementsMatch(t, []string{"generic-api-key", "adafruit-api-key"}, ruleIDs)
 }
 
 func TestKeywordRoutesWhenProviderRegexMatchesHit(t *testing.T) {
@@ -118,9 +120,11 @@ func TestProviderFilterRejectsRoutedGeneric(t *testing.T) {
 func TestOnlyRegexMatchingProviderPairsGeneric(t *testing.T) {
 	generic := routeGenericAPI()
 	generic.Regex = `(?i)(?:api_key|adafruit|stripe)[\s'"\x60]{0,3}[:=][\s'"\x60]{0,3}([a-zA-Z0-9_-]{16,})`
+	stripe := routeProvider("stripe-api-key", "stripe", "Stripe key")
+	stripe.Regex = rulebuilder.Assignment([]string{"stripe"}, `sk_live_[a-z]{32}`)
 	scanner := mustNew(t, &config.Config{Rules: []config.Rule{
 		routeProvider("adafruit-api-key", "adafruit", "Adafruit key"),
-		routeProvider("stripe-api-key", "stripe", "Stripe key"),
+		stripe,
 		generic,
 	}})
 	raw := "stripe billing\n// api_key\nadafruit hardware\nadafruit = \"" + routeSecret + "\"\n"

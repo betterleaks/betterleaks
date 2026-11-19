@@ -40,12 +40,12 @@ func TestAdafruitKeywordRoutesWhenRegexMatches(t *testing.T) {
 					distantIDs = append(distantIDs, f.RuleID)
 				}
 			}
-			require.Equal(t, []string{"generic-api-key"}, distantIDs)
+			require.ElementsMatch(t, []string{"generic-api-key", "adafruit-api-key"}, distantIDs)
 		})
 	}
 }
 
-func TestAdafruitDistantGenericStaysGeneric(t *testing.T) {
+func TestAdafruitDistantGenericReportsBoth(t *testing.T) {
 	cfg := testConfig(t, "adafruit-api-key", "generic-api-key")
 	const secret = "4v8l67z---wfu0y1vd_3l1cmfzxoud8e"
 	raw := "handler('adafruit')\napi_key = \"" + secret + "\"\n"
@@ -58,10 +58,10 @@ func TestAdafruitDistantGenericStaysGeneric(t *testing.T) {
 			ruleIDs = append(ruleIDs, f.RuleID)
 		}
 	}
-	require.Equal(t, []string{"generic-api-key"}, ruleIDs)
+	require.ElementsMatch(t, []string{"generic-api-key", "adafruit-api-key"}, ruleIDs)
 }
 
-func TestCoverallsKeywordWithoutRegexStaysGeneric(t *testing.T) {
+func TestCoverallsKeywordPairsMatchingAPIKey(t *testing.T) {
 	cfg := testConfig(t, "coveralls-personal-api-token", "generic-api-key")
 	const secret = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4p5q6r7s8t"
 	raw := "embedding_model_handler_obj = embedding_model_handler('coveralls', 'embedding_model')\n" +
@@ -76,5 +76,5 @@ func TestCoverallsKeywordWithoutRegexStaysGeneric(t *testing.T) {
 			ruleIDs = append(ruleIDs, f.RuleID)
 		}
 	}
-	require.Equal(t, []string{"generic-api-key"}, ruleIDs)
+	require.ElementsMatch(t, []string{"generic-api-key", "coveralls-personal-api-token"}, ruleIDs)
 }
