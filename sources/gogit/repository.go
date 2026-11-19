@@ -80,7 +80,7 @@ func (s *Source) open(ctx context.Context) (*repository, func(), error) {
 	if budget == 0 {
 		budget = 256
 	}
-	objects := &objectCache{gitobj.NewObjectLRU(gitobj.FileSize(budget) << 20)}
+	objects := newObjectCache(gitobj.FileSize(budget) << 20)
 	reader := &objectStorage{fs: fs, objects: objects, ctx: ctx, limit: max(s.MaxBlobBytes, defaultMaxBlobBytes), shallow: shallow}
 	if err := reader.loadConfig(); err != nil {
 		return nil, nil, err

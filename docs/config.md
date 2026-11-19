@@ -7,6 +7,10 @@ Unknown keys are errors at every level, including inherited configurations.
 Errors identify the field and its line and column; a misspelled key is never
 silently ignored.
 
+For credential design and provider integration, see the
+[provider guide](provider_guide.md), covering token formats, checksums,
+validation, revocation, and rule testing.
+
 Configuration selection follows this order:
 
 1. `--config` / `-c`.
@@ -39,6 +43,85 @@ requests. It uses the same config resolution as `config show`, including
 `--config` and the config environment variables. A positional config path takes
 precedence over `--config`. Use the listed IDs with `validate --rule` or
 `analyze --rule`, or `revoke --rule`.
+
+## Check a config and its rule tests
+
+```sh
+# Check the selected config, including embedded defaults when none is selected
+betterleaks config check
+
+# Check one config or every .toml file directly inside a directory
+betterleaks config check path/to/config.toml
+betterleaks config check path/to/configs
+
+# Exercise the same tests with the standard library regex backend
+betterleaks --regex-engine stdlib config check path/to/config.toml
+```
+
+`config check` validates configuration, compiles regexes and all expressions,
+and executes `[[rules.tests]]` using the scanner. It reports failing tests by
+file, rule ID, and test name, with expected and actual results, and returns a
+nonzero exit status if any test or configuration fails. It runs all fixtures
+after an assertion failure. Configs without tests still receive compilation
+checks and report zero tests. Validation, analysis, and revocation expressions
+are compiled but never executed; tests make no provider requests.
+
+Each directory entry is an independent config, so its component definitions
+must be in that file or inherited through `[extend]`. Directory checks are not
+recursive.
+
+Put examples below their owning rule:
+
+```toml
+[[rules]]
+id = "example-key"
+regex = '''\bexample_([A-Za-z0-9]{16})\b'''
+keywords = ["example_"]
+
+[[rules.tests]]
+name = "environment assignment"
+input = "EXAMPLE_KEY=example_aB3dE5fG7hI9jK1m"
+attributes = { path = "local.env" }
+expect = [{ secret = "aB3dE5fG7hI9jK1m" }]
+
+[[rules.tests]]
+name = "too short"
+input = "example_short"
+expect = []
+```
+
+Each test has a nonempty name unique within its rule, an `input` string (empty
+is allowed), optional source `attributes`, and an explicit `expect` array.
+Use `expect = []` for a negative case. Each expected finding specifies the
+extracted `secret`, optional named `captures`, and optional `componentSets`:
+
+```toml
+expect = [
+  { secret = "synthetic-key", captures = { token = "synthetic-key" }, componentSets = [{ "account-id" = "acct_123" }] },
+]
+```
+
+Assertions compare exact finding counts, values, captures, and component
+combinations. Finding and component-set order does not matter; duplicates are
+counted. Omitting captures or component sets asserts that none are present.
+An optional `rule` in an expected finding must equal the owning rule's ID.
+
+Rule tests isolate the owning rule and its required and optional components,
+so unrelated rules cannot suppress it through specificity. Only the owning
+rule's findings are asserted. Keywords, extraction, path restrictions, global
+and rule filters, component proximity, and allow comments use scanner behavior.
+Global prefilters also apply. Filter evaluation errors fail the test. Tests
+describe a single fragment and do not enable recursive decoding.
+
+The default `mode = "finding"` respects `skipReport`. Use `mode = "match"`
+only on a `skipReport = true` leaf rule to expose its standalone match for
+testing. This bypasses reporting suppression while preserving matching and
+filtering. It cannot remove a primary rule's component requirements. Also add
+a normal finding-mode negative case to check that a hidden component stays hidden.
+
+`config show` preserves rule tests. They do not affect detection
+hashes and are never executed during ordinary scans. Inherited rules keep their
+tests; replacing or disabling a rule replaces or removes its tests too.
 
 ## Inspect configuration hashes
 
@@ -93,7 +176,8 @@ Changing a component definition also changes its parent's rule hash. Provider
 expressions participate even in detection-only scans; runtime flags do not change
 what the hash identifies.
 Only the overall hash includes the global `filter` and `prefilter` and the order
-of rules. Config title, description, file path, and minimum version are excluded.
+of rules. Config title, description, file path, minimum version, and rule tests
+are excluded.
 
 Hashes describe current configuration data, not an existing scanner's snapshot.
 Compute them from the same state used to construct your scanner and source
@@ -191,6 +275,7 @@ Each `[[rules]]` entry can use:
 - `analyze`: Expr expression to enrich a valid credential with identity and capabilities.
 - `revoke`: optional Expr expression executed only by the `revoke` command to invalidate a credential. Scans never execute it.
 - `components`: required or optional component rules used to build multipart findings.
+- `tests`: detection fixtures in `[[rules.tests]]` tables, executed by `config check`.
 
 `keywords` are strongly recommended. Betterleaks checks them with an
 Aho-Corasick trie before running the heavier regex.
@@ -471,6 +556,26 @@ Analysis results may also include a `metadata` object for provider-specific
 evidence discovered during analysis, such as permission names.
 Unlike opt-in HTTP debug data, analysis metadata is part of normal JSON output.
 
+Each stage owns its output; validation and enrichment metadata remain separate:
+
+| Report field | Purpose |
+| :--- | :--- |
+| `analysis.status_reason` | Optional explanation of credential status. |
+| `analysis.status_metadata` | Public evidence from validation or revocation. |
+| `analysis.metadata` | Public evidence from enrichment. |
+| `analysis.metadata.notes` | Optional array of strings describing enrichment caveats. |
+| `analysis.metadata.analysis_error` | Runtime failure or request-limit error during enrichment. |
+
+Both metadata maps survive even when they contain the same key. The private
+`validation.analysis` handoff never appears in reports.
+
+Analyzers return only `identity`, `capabilities`, and `metadata`, all optional.
+Use `metadata.notes` for useful caveats; omit routine success messages and generic
+severity explanations. Notes are trimmed, empty entries are dropped, and duplicate
+entries are removed in order. Empty notes are omitted. The runtime owns
+`metadata.analysis_error`; analysis expressions cannot supply that key directly.
+All public evidence and diagnostics are sanitized for credential values.
+
 Analysis expressions can use the same pure `filter` matching helpers as
 validation expressions. They also receive an `analysis` namespace:
 
@@ -564,9 +669,10 @@ Validation has a closed result contract:
 `metadata` is an optional object exported as `Analysis.StatusMetadata`.
 `analysis` is an optional private object available only to the subsequent
 expression as `validation.analysis`. Unknown top-level keys are errors.
-Enrichment writes its own `Analysis.Reason` and `Analysis.Metadata`; neither
-replaces the status explanation or metadata. Enrichment failures retain the
-validation status.
+Enrichment writes its own `Analysis.Metadata`, identity, and capabilities. It
+does not replace the status explanation or validation metadata. Enrichment
+failures appear in `analysis.metadata.analysis_error` while preserving validation
+status and evidence; severity remains `unknown` when no capabilities were obtained.
 
 ### Validation functions
 
@@ -636,7 +742,7 @@ r.status == 200 && (r.json?.slug ?? "") != "" ? {
 
 For more complex validation setups, such as Basic Auth, dynamic request bodies,
 HMAC signatures, or composite rules, check the built-in
-rules in `cmd/generate/config/rules`.
+rules in [`rules/`](../rules).
 
 ## Explicit credential revocation
 
@@ -787,6 +893,24 @@ the same rules validate against GitHub Enterprise Server:
 ```sh
 export GITHUB_BASE_URL=https://github.example.com/api/v3
 betterleaks github --validate --provider-env-vars GITHUB_BASE_URL https://github.example.com/owner
+```
+
+The built-in Sentry rules default to `https://sentry.io`. For a regional or
+self-hosted instance, set `SENTRY_BASE_URL` to its trusted base URL, without
+`/api/0`, and allowlist the variable:
+
+```sh
+export SENTRY_BASE_URL=https://sentry.example.com
+betterleaks filesystem . -a --provider-env-vars SENTRY_BASE_URL
+```
+
+Tableau Cloud requires a site content URL for personal-access-token sign-in.
+Set `TABLEAU_SITE_CONTENT_URL` to the site slug from the Tableau URL and
+allowlist it. Without it, the rule returns `needs_validation` without a request.
+
+```sh
+export TABLEAU_SITE_CONTENT_URL=example-site
+betterleaks filesystem . -a --provider-env-vars TABLEAU_SITE_CONTENT_URL
 ```
 
 Use `env.get` instead when the env var is required for the validator to be

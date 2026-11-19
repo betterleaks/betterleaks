@@ -176,7 +176,7 @@ func TestExpressionRegexFailuresFollowRuntimeErrorPolicy(t *testing.T) {
 		require.Equal(t, report.ValidationStatusValid, result.Analysis.Status)
 		require.Equal(t, report.SeverityUnknown, result.Analysis.Severity)
 		require.Empty(t, result.Analysis.Capabilities)
-		require.Contains(t, result.Analysis.Reason, "backend compilation failed")
+		require.Contains(t, result.Analysis.Metadata["analysis_error"], "backend compilation failed")
 	})
 }
 

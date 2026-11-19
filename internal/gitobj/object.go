@@ -2,6 +2,7 @@
 package gitobj
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,8 @@ type Tree struct {
 	Hash    Hash
 	Entries []TreeEntry
 	store   ObjectReader
+	// RawSize counts the backing string shared by decoded entry names.
+	RawSize int
 }
 type ChangeEntry struct {
 	Name      string
@@ -59,10 +62,15 @@ func objectText(o EncodedObject) (string, error) {
 }
 
 func parseID(s string, size int) (Hash, error) {
-	if len(s) != size*2 || !IsHash(s) {
+	if len(s) != size*2 {
 		return Hash{}, errors.New("malformed Git object ID")
 	}
-	return NewHash(s), nil
+	var id Hash
+	id.ResetBySize(size)
+	if _, err := hex.Decode(id.data[:size], []byte(s)); err != nil {
+		return Hash{}, errors.New("malformed Git object ID")
+	}
+	return id, nil
 }
 
 func DecodeCommit(_ ObjectReader, o EncodedObject) (*Commit, error) {
@@ -202,25 +210,42 @@ func DecodeTree(store ObjectReader, o EncodedObject) (*Tree, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &Tree{Hash: o.Hash(), store: store}
+	t := &Tree{Hash: o.Hash(), store: store, RawSize: len(raw)}
+	// Each entry has one NUL after its name. Hashes can contain extra NULs,
+	// so also bound the estimate by the shortest possible encoded entry.
+	hashSize := t.Hash.Size()
+	if len(raw) != 0 {
+		capacity := min(strings.Count(raw, "\x00"), len(raw)/(hashSize+4), 4096)
+		t.Entries = make([]TreeEntry, 0, capacity)
+	}
 	for len(raw) > 0 {
 		mode, rest, ok := strings.Cut(raw, " ")
 		if !ok {
 			return nil, errors.New("malformed Git tree mode")
 		}
 		name, rest, ok := strings.Cut(rest, "\x00")
-		if !ok || name == "" || len(rest) < t.Hash.Size() {
+		if !ok || name == "" || len(rest) < hashSize {
 			return nil, errors.New("malformed Git tree entry")
 		}
-		n, err := strconv.ParseUint(mode, 8, 32)
-		if err != nil {
-			return nil, err
+		var entryMode filemode.FileMode
+		switch mode {
+		case "100644":
+			entryMode = filemode.Regular
+		case "40000":
+			entryMode = filemode.Dir
+		case "100755":
+			entryMode = filemode.Executable
+		default:
+			n, err := strconv.ParseUint(mode, 8, 32)
+			if err != nil {
+				return nil, err
+			}
+			entryMode = canonicalMode(filemode.FileMode(n))
 		}
-		id := FromObjectFormat(SHA1)
-		id.ResetBySize(t.Hash.Size())
-		id.Write([]byte(rest[:id.Size()]))
-		t.Entries = append(t.Entries, TreeEntry{Name: strings.Clone(name), Mode: canonicalMode(filemode.FileMode(n)), Hash: id})
-		raw = rest[id.Size():]
+		id := Hash{sha256: t.Hash.sha256}
+		copy(id.data[:hashSize], rest[:hashSize])
+		t.Entries = append(t.Entries, TreeEntry{Name: name, Mode: entryMode, Hash: id})
+		raw = rest[hashSize:]
 	}
 	return t, nil
 }

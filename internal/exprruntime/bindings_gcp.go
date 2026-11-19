@@ -113,7 +113,7 @@ func validateGCPCredentialWithRuntime(rt *runtimeBindings, e *Runtime, credentia
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
-		return map[string]any{"status": int64(resp.StatusCode)}
+		return map[string]any{"status": int64(0)}
 	}
 	if rt != nil {
 		rt.captureDebug(http.MethodPost, tokenURL, body, req, resp, respBody)
@@ -146,6 +146,9 @@ func validateGCPCredentialWithRuntime(rt *runtimeBindings, e *Runtime, credentia
 			result["error_code"] = "missing_access_token"
 			result["error_message"] = "GCP token response did not include access_token"
 		}
+	} else if resp.StatusCode == http.StatusOK {
+		result["status"] = int64(0)
+		result["error_code"] = "invalid_token_response"
 	}
 
 	return result

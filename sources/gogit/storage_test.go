@@ -121,6 +121,55 @@ func TestAlternateObjectDirectories(t *testing.T) {
 	}
 }
 
+func TestObjectDirectoriesFromEnv(t *testing.T) {
+	// Git names receive-pack quarantine objects through GIT_OBJECT_DIRECTORY
+	// and GIT_ALTERNATE_OBJECT_DIRECTORIES. Both are prefixes of the on-disk
+	// objects/info/alternates list and must be visible to the scanner.
+	t.Run("object-directory", func(t *testing.T) {
+		repo := initRepo(t)
+		commitFile(t, repo, "file", "TOKEN_QUARANTINE\n", "initial")
+		quarantine := filepath.Join(t.TempDir(), "quarantine")
+		require.NoError(t, os.Rename(filepath.Join(repo, ".git", "objects"), quarantine))
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git", "objects", "info"), 0700))
+		t.Setenv("GIT_OBJECT_DIRECTORY", quarantine)
+		require.Equal(t, map[string]string{"TOKEN_QUARANTINE\n": "file:1"}, textOccurrences(collect(t, &Source{RepoPath: repo, AllowExternalObjects: true})))
+	})
+	t.Run("alternate-list", func(t *testing.T) {
+		repo := initRepo(t)
+		commitFile(t, repo, "file", "TOKEN_ALTERNATE_ENV\n", "initial")
+		pool := filepath.Join(t.TempDir(), "pool")
+		require.NoError(t, os.Rename(filepath.Join(repo, ".git", "objects"), pool))
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git", "objects", "info"), 0700))
+		t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", pool)
+		require.Equal(t, map[string]string{"TOKEN_ALTERNATE_ENV\n": "file:1"}, textOccurrences(collect(t, &Source{RepoPath: repo, AllowExternalObjects: true})))
+	})
+	t.Run("confinement", func(t *testing.T) {
+		repo := initRepo(t)
+		commitFile(t, repo, "file", "TOKEN_CONFINE\n", "initial")
+		external := filepath.Join(t.TempDir(), "objects")
+		require.NoError(t, os.Rename(filepath.Join(repo, ".git", "objects"), external))
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git", "objects", "info"), 0700))
+		t.Setenv("GIT_OBJECT_DIRECTORY", external)
+		_, _, err := (&Source{RepoPath: repo}).open(t.Context())
+		require.ErrorIs(t, err, ErrExternalStore)
+		require.Equal(t, map[string]string{"TOKEN_CONFINE\n": "file:1"}, textOccurrences(collect(t, &Source{RepoPath: repo, AllowExternalObjects: true})))
+	})
+	t.Run("relative-internal", func(t *testing.T) {
+		// A relative GIT_OBJECT_DIRECTORY resolves against the working
+		// directory. When it names a directory inside the repository it is
+		// internal storage and needs no external-objects opt-in.
+		repo := initRepo(t)
+		commitFile(t, repo, "file", "TOKEN_RELATIVE\n", "initial")
+		pool := filepath.Join(repo, ".git", "pool")
+		require.NoError(t, os.Rename(filepath.Join(repo, ".git", "objects"), pool))
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git", "objects", "info"), 0700))
+		t.Chdir(repo)
+		t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join(".git", "pool"))
+		require.Equal(t, map[string]string{"TOKEN_RELATIVE\n": "file:1"},
+			textOccurrences(collect(t, &Source{RepoPath: repo})))
+	})
+}
+
 func TestMissingConfig(t *testing.T) {
 	repo := initRepo(t)
 	commitFile(t, repo, "file", "TOKEN_NO_CONFIG\n", "initial")

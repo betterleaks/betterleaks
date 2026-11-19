@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/bits"
 	"regexp/syntax"
 	"runtime"
 	"slices"
@@ -51,8 +52,41 @@ func logTrace(logger *slog.Logger, msg string, args ...any) {
 type ruleCandidates struct {
 	// Indexes match rulesBySpecificity, preserving rule order without building
 	// a map and sorted slice for every fragment and decode pass.
-	marked  []bool
-	windows []regexspan.Windows
+	marked      []uint64
+	windows     []regexspan.Windows
+	usedWindows []int
+}
+
+func (c *ruleCandidates) mark(index int) {
+	c.marked[index/64] |= 1 << uint(index%64)
+}
+
+// Yield in specificity order, visiting only set bits in each word.
+func (c *ruleCandidates) indexes(yield func(int) bool) {
+	for i, word := range c.marked {
+		for word != 0 {
+			if !yield(i*64 + bits.TrailingZeros64(word)) {
+				return
+			}
+			word &= word - 1
+		}
+	}
+}
+
+func (c *ruleCandidates) addWindow(index int, raw string, start, end int, plan *regexspan.Plan) {
+	w := &c.windows[index]
+	if len(w.Spans) == 0 {
+		c.usedWindows = append(c.usedWindows, index)
+	}
+	w.Add(raw, start, end, plan)
+}
+
+func (c *ruleCandidates) reset() {
+	clear(c.marked)
+	for _, i := range c.usedWindows {
+		c.windows[i].Reset()
+	}
+	c.usedWindows = c.usedWindows[:0]
 }
 
 // Scanner is an immutable rule engine with thread-safe lazy regex compilation. A
@@ -201,7 +235,7 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 	}
 	s.candidatePool.New = func() any {
 		return &ruleCandidates{
-			marked:  make([]bool, len(s.rulesBySpecificity)),
+			marked:  make([]uint64, (len(s.rulesBySpecificity)+63)/64),
 			windows: make([]regexspan.Windows, len(s.rulesBySpecificity)),
 		}
 	}
@@ -381,6 +415,11 @@ func (s *Scanner) run(ctx context.Context, source sources.Source, yield func(sca
 			workers.Go(func() {
 				findings, err := s.detectFragmentWithState(runCtx, fragment, &state)
 				s.workerSlots.Release(1)
+				if len(findings) == 0 && err == nil {
+					// An empty fragment result needs no handler or consumer wakeup.
+					<-resultSlots
+					return
+				}
 				resultsCh <- fragmentResult{findings: findings, err: err, fatal: err != nil}
 			})
 			return nil
@@ -521,34 +560,28 @@ ScanLoop:
 					if rule.guard != nil && !rule.guard.possible(currentRaw, end) {
 						continue
 					}
-					candidates.marked[ruleIndex] = true
+					candidates.mark(ruleIndex)
 					if rule.span != nil && rule.searchAnchors == nil {
-						candidates.windows[ruleIndex].Add(currentRaw, start, end, rule.span)
+						candidates.addWindow(ruleIndex, currentRaw, start, end, rule.span)
 					}
 				}
 				// Additional anchors locate matches but never admit a rule.
 				for _, ruleIndex := range s.anchorRuleIndexes[patternID] {
-					candidates.windows[ruleIndex].Add(currentRaw, start, end, s.rulesBySpecificity[ruleIndex].span)
+					candidates.addWindow(ruleIndex, currentRaw, start, end, s.rulesBySpecificity[ruleIndex].span)
 				}
 				return true
 			})
 			// Always include rules that have no keywords.
 			for _, ruleIndex := range s.noKeywordIndexes {
-				candidates.marked[ruleIndex] = true
+				candidates.mark(ruleIndex)
 			}
 
 		RulesLoop:
-			for ruleIndex := range s.rulesBySpecificity {
-				if !candidates.marked[ruleIndex] {
-					continue
-				}
+			for ruleIndex := range candidates.indexes {
 				rule := &s.rulesBySpecificity[ruleIndex]
 				select {
 				case <-ctx.Done():
-					clear(candidates.marked)
-					for i := range candidates.windows {
-						candidates.windows[i].Reset()
-					}
+					candidates.reset()
 					s.candidatePool.Put(candidates)
 					break ScanLoop
 				default:
@@ -587,10 +620,7 @@ ScanLoop:
 				}
 			}
 			// Pool entries must be blank because later scans may run on any goroutine.
-			clear(candidates.marked)
-			for i := range candidates.windows {
-				candidates.windows[i].Reset()
-			}
+			candidates.reset()
 			s.candidatePool.Put(candidates)
 			if detectionErr != nil {
 				break ScanLoop

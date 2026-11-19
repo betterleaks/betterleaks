@@ -1,0 +1,24 @@
+package rules
+
+import (
+	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
+)
+
+// TODO: Replace the placeholders below with the provider's real format, then
+// delete the TODO comments. See .github/CONTRIBUTING.md for the conventions.
+var _ = rulebuilder.Add(config.Rule{
+	ID:          "{{name}}-api-key",
+	Confidence:  "high",
+	Description: "TODO: Detected a ... API key, which may allow ...",
+	// TODO: Token suits a distinctive prefix. Use rulebuilder.Assignment for a
+	// value that is only recognizable next to a name, such as {{name}}_token.
+	Regex:    rulebuilder.Token(`{{name}}_[A-Za-z0-9]{32}`),
+	Keywords: []string{"{{name}}_"},
+	// TODO: Check the credential against the provider's API, if it is safe to.
+	// ValidateExpr: rulebuilder.BearerGetValidationExpr("https://api.example.com/v1/me", `(r.json?.id ?? "") != ""`),
+	Tests: []config.RuleTest{
+		rulebuilder.Match("bare key", "{{name}}_Zx8kQ2mP4vR7tY1wB5nC9dF3gH6jK0Lq", "{{name}}_Zx8kQ2mP4vR7tY1wB5nC9dF3gH6jK0Lq"),
+		rulebuilder.NoMatch("too short", "{{name}}_short"),
+	},
+})

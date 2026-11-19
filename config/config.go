@@ -193,7 +193,7 @@ func (c *Config) Rule(id string) (Rule, bool) {
 
 // Hash identifies the resolved configuration, including rule order, finding
 // metadata, global filters, and validate, analyze, and revoke expressions. Config
-// title, description, path, and minimum version are excluded.
+// title, description, path, minimum version, and rule tests are excluded.
 //
 // The hash describes the current configuration; it is not cached or validated.
 // Compute it after customization, from the same state used to construct the

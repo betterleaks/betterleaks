@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"math/rand/v2"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,6 +80,20 @@ func TestDecode(t *testing.T) {
 			expected: `b64urlsafe-test-secret-underscores??`,
 		},
 		{
+			// Same value as "hyphen url b64" above, padded.
+			// Python's base64.urlsafe_b64encode always pads.
+			name:     "b64-url-safe: padded hyphen url b64",
+			chunk:    `YmV0dGVybGVha3M-PmZpbmRzLXNlY3JldHM=`,
+			expected: `betterleaks>>finds-secrets`,
+		},
+		{
+			// Same value, standard alphabet without padding, as produced by
+			// Java's Base64.getEncoder().withoutPadding().
+			name:     "unpadded standard b64",
+			chunk:    `YmV0dGVybGVha3M+PmZpbmRzLXNlY3JldHM`,
+			expected: `betterleaks>>finds-secrets`,
+		},
+		{
 			name:     "invalid base64 string",
 			chunk:    `a3d3fa7c2bb99e469ba55e5834ce79ee4853a8a3`,
 			expected: `a3d3fa7c2bb99e469ba55e5834ce79ee4853a8a3`,
@@ -139,6 +154,11 @@ func TestDecode(t *testing.T) {
 }
 
 func TestEncodingMatchBoundaries(t *testing.T) {
+	// Also exercise each alignment after short alphabet runs and binary bytes.
+	prefixes := []string{""}
+	for offset := range 32 {
+		prefixes = append(prefixes, strings.Repeat("abc!def\xff", 4)+strings.Repeat("!", offset))
+	}
 	for _, tc := range []struct {
 		name, input string
 		want        []encodingMatch
@@ -167,6 +187,12 @@ func TestEncodingMatchBoundaries(t *testing.T) {
 				{encoding: encodings[3], startEnd: startEnd{17, 34}},
 			},
 		},
+		{name: "code point within a short alphabet run", input: "abcU+0041 ", want: nil},
+		{name: "15 alphabet bytes", input: "YWJjZGVmZ2hpamt", want: nil},
+		{name: "16 alphabet bytes at EOF", input: "YWJjZGVmZ2hpamts", want: []encodingMatch{{encodings[3], startEnd{0, 16}}}},
+		{name: "32 hex bytes at EOF", input: strings.Repeat("41", 16), want: []encodingMatch{{encodings[2], startEnd{0, 32}}}},
+		{name: "escaped unicode", input: `\u0041\u0042 `, want: []encodingMatch{{encodings[1], startEnd{0, 12}}}},
+
 		{
 			name: "later matches survive compaction", input: "%41YWJjZGVmZ2hpamts=cXJzdHV2d3h5ekFC=!U+0041",
 			want: []encodingMatch{
@@ -177,13 +203,15 @@ func TestEncodingMatchBoundaries(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := findEncodingMatches(tc.input)
-			if !assert.Len(t, got, len(tc.want)) {
-				return
-			}
-			for i, want := range tc.want {
-				assert.Equal(t, want.startEnd, got[i].startEnd)
-				assert.Equal(t, want.encoding.kind, got[i].encoding.kind)
+			for _, prefix := range prefixes {
+				got := findEncodingMatches(prefix + tc.input)
+				if !assert.Len(t, got, len(tc.want), "offset %d", len(prefix)) {
+					continue
+				}
+				for i, want := range tc.want {
+					assert.Equal(t, startEnd{len(prefix) + want.start, len(prefix) + want.end}, got[i].startEnd)
+					assert.Equal(t, want.encoding.kind, got[i].encoding.kind)
+				}
 			}
 		})
 	}
@@ -235,7 +263,7 @@ func TestBase64ScratchParity(t *testing.T) {
 		if !hasByte(value, likelyBase64Chars) {
 			return ""
 		}
-		for _, encoding := range []*base64.Encoding{base64.StdEncoding, base64.RawURLEncoding} {
+		for _, encoding := range base64Encodings {
 			decoded, err := encoding.DecodeString(value)
 			if err == nil && isPrintableASCII(decoded) {
 				return string(decoded)
@@ -260,4 +288,55 @@ func TestBase64ScratchParity(t *testing.T) {
 			}
 		}
 	}
+}
+
+func FuzzDecodeBase64Payload(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte("\t\n\v\f\r\x1b~"))
+	f.Add([]byte("\xff\xfe\x00"))
+	f.Add([]byte("雪\u0301"))
+	f.Add([]byte(strings.Repeat("printable!", 31) + "\x7f"))
+	allBytes := make([]byte, 256)
+	for i := range allBytes {
+		allBytes[i] = byte(i)
+	}
+	f.Add(allBytes)
+
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > 16<<10 {
+			t.Skip()
+		}
+		// The suffix clears the minimum length and includes '+' (or '-') in
+		// every alignment, so the decoder's identifier heuristic admits it.
+		value := string(body) + "~~~~~~~~~~~~"
+		accept := true
+		for _, b := range body {
+			if b < 0x09 || b > 0x7e {
+				accept = false
+				break
+			}
+		}
+		const prefix = "雪\x00\x1b\x7f!"
+		const neighbor = "fixture 1234~~~~"
+		for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+			token := enc.EncodeToString([]byte(value))
+			next := enc.EncodeToString([]byte(neighbor))
+			raw := prefix + token + "!" + next
+			want, count := token, 1
+			if accept {
+				want, count = value, 2
+			}
+			decoded, segments := Decode(raw, nil)
+			if decoded != prefix+want+"!"+neighbor || len(segments) != count {
+				t.Fatalf("padding/alphabet %q, body %x: incorrect decoded text or segment count", enc.EncodeToString([]byte("~~~!")), body)
+			}
+			if accept {
+				assert.Equal(t, []int{len(prefix), len(prefix) + len(token)}, AdjustMatchIndex(segments, []int{len(prefix), len(prefix) + len(value)}))
+			}
+			// Even a rejected binary token must leave the neighboring token's
+			// source coordinates intact.
+			start := len(prefix) + len(want) + 1
+			assert.Equal(t, []int{len(prefix) + len(token) + 1, len(raw)}, AdjustMatchIndex(segments, []int{start, start + len(neighbor)}))
+		}
+	})
 }

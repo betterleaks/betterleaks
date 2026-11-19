@@ -40,9 +40,8 @@ func TestRedact_ComponentSets(t *testing.T) {
 		Match: Match{Full: "line containing secret", Value: "secret"},
 
 		Analysis: Analysis{
-			Reason:   "primary=secret",
 			Identity: &AnalysisIdentity{ID: "comp-secret-1"},
-			Metadata: map[string]any{"scope": "comp-secret-2"},
+			Metadata: map[string]any{"scope": "comp-secret-2", "notes": []string{"primary=secret"}},
 		},
 		ComponentSets: []ComponentSet{
 			{
@@ -67,7 +66,7 @@ func TestRedact_ComponentSets(t *testing.T) {
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[0].Match.Captures["label"])
 	assert.Equal(t, "REDACTED", f.ComponentSets[0].Components[1].Match.Value)
 	assert.Equal(t, "match REDACTED here", f.ComponentSets[0].Components[1].Match.Full)
-	assert.Equal(t, "primary=[redacted]", f.Analysis.Reason)
+	assert.Equal(t, []string{"primary=[redacted]"}, f.Analysis.Metadata["notes"])
 	assert.Equal(t, "[redacted]", f.Analysis.Metadata["scope"])
 	require.NotNil(t, f.Analysis.Identity)
 	assert.Equal(t, "[redacted]", f.Analysis.Identity.ID)
@@ -189,7 +188,7 @@ func TestFindingJSONSchema(t *testing.T) {
 			EndColumn:   78,
 		},
 		Attributes: map[string]string{"resource": "fs.content"},
-		Analysis:   Analysis{Severity: SeverityHigh, Identity: &AnalysisIdentity{ID: "user-1", Username: "octocat"}, Capabilities: []Capability{CapabilityRead, CapabilityManageUsers}, Metadata: map[string]any{"permissions": []any{"read_job"}}, Status: ValidationStatusValid, Reason: "The provider accepted the credential."},
+		Analysis:   Analysis{Severity: SeverityHigh, Identity: &AnalysisIdentity{ID: "user-1", Username: "octocat"}, Capabilities: []Capability{CapabilityRead, CapabilityManageUsers}, Metadata: map[string]any{"permissions": []any{"read_job"}, "notes": []any{"Only the returned permissions were inspected."}}, Status: ValidationStatusValid, StatusReason: "Authenticated", StatusMetadata: map[string]any{"project_id": "project-1"}},
 		Tags:       []string{},
 	}
 
@@ -208,12 +207,13 @@ func TestFindingJSONSchema(t *testing.T) {
 		"end_column":   float64(78),
 	}, got["location"])
 	assert.Equal(t, map[string]any{
-		"status":       "valid",
-		"reason":       "The provider accepted the credential.",
-		"severity":     "high",
-		"identity":     map[string]any{"id": "user-1", "username": "octocat"},
-		"capabilities": []any{"read", "manage_users"},
-		"metadata":     map[string]any{"permissions": []any{"read_job"}},
+		"status":          "valid",
+		"status_reason":   "Authenticated",
+		"status_metadata": map[string]any{"project_id": "project-1"},
+		"severity":        "high",
+		"identity":        map[string]any{"id": "user-1", "username": "octocat"},
+		"capabilities":    []any{"read", "manage_users"},
+		"metadata":        map[string]any{"permissions": []any{"read_job"}, "notes": []any{"Only the returned permissions were inspected."}},
 	}, got["analysis"])
 	assert.NotContains(t, got["attributes"], "confidence")
 	assert.NotContains(t, got, "validation")
@@ -392,8 +392,8 @@ func TestRedactedCopySanitizesValidation(t *testing.T) {
 		primary, component := "test-token", "test-token-companion"
 		validation := Analysis{
 			Status: ValidationStatusValid,
-			Reason: primary + " " + component,
 			Metadata: map[string]any{
+				"notes":    []string{primary + " " + component},
 				"req_url":  "https://example.invalid/?token=" + primary,
 				"req_body": component,
 				"resp_body": []any{map[string]any{
@@ -427,7 +427,7 @@ func TestRedactedCopySanitizesValidation(t *testing.T) {
 			assert.NotContains(t, string(encoded), primary)
 			assert.NotContains(t, string(encoded), component)
 			assert.Equal(t, ValidationStatusValid, got.Status)
-			assert.Equal(t, "[redacted] [redacted]", got.Reason)
+			assert.Equal(t, []string{"[redacted] [redacted]"}, got.Metadata["notes"])
 			assert.Equal(t, "[redacted]", got.Metadata["req_body"])
 			assert.Equal(t, 200, got.Metadata["status"])
 			assert.NotContains(t, got.Metadata, "empty")

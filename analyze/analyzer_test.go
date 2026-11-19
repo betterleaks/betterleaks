@@ -142,7 +142,7 @@ func TestValidateCredentialPipeline(t *testing.T) {
 		status                     report.ValidationStatus
 		severity                   report.Severity
 		username                   string
-		wantReason                 bool
+		wantAnalysisError          bool
 	}{
 		{"validation only", `{"result":"valid"}`, `invalid syntax ???`, false, report.ValidationStatusValid, report.SeverityNone, "", false},
 		{"analysis", `{"result":"valid","analysis":{"owner":"demo-user"}}`, `{"identity":{"username":validation["analysis"]["owner"]},"capabilities":["write"]}`, true, report.ValidationStatusValid, report.SeverityHigh, "demo-user", false},
@@ -171,8 +171,8 @@ func TestValidateCredentialPipeline(t *testing.T) {
 				require.NotNil(t, result.Analysis.Identity)
 				assert.Equal(t, tc.username, result.Analysis.Identity.Username)
 			}
-			if tc.wantReason {
-				assert.NotEmpty(t, result.Analysis.Reason)
+			if tc.wantAnalysisError {
+				assert.NotEmpty(t, result.Analysis.Metadata["analysis_error"])
 			}
 		})
 	}

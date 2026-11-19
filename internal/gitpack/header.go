@@ -72,8 +72,10 @@ func ReadHeader(r interface {
 		}
 		h.BaseOffset = offset - int64(distance)
 	case gitobj.REFDeltaObject:
-		h.BaseID.ResetBySize(hashSize)
-		_, err = h.BaseID.ReadFrom(r)
+		var id gitobj.Hash
+		id.ResetBySize(hashSize)
+		_, err = id.ReadFrom(r)
+		h.BaseID = id
 	}
 	return h, err
 }

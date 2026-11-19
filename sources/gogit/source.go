@@ -82,8 +82,10 @@ type Source struct {
 	// message and adds the commits it records to history and commit-messages.
 	Include, Exclude []string
 	// AllowExternalObjects permits Git storage outside the repository: a .git
-	// file, commondir, or object alternate that points elsewhere. Linked
-	// worktrees registered by their main repository are always allowed.
+	// file, commondir, or object alternate that points elsewhere, including the
+	// directories GIT_OBJECT_DIRECTORY and GIT_ALTERNATE_OBJECT_DIRECTORIES
+	// name. Linked worktrees registered by their main repository are always
+	// allowed.
 	AllowExternalObjects bool
 	Prefilter            sources.PrefilterFunc
 	// MaxArchiveDepth controls nested archive expansion; zero disables it.
@@ -283,7 +285,7 @@ func (s *Source) commits(ctx context.Context, r *repository, walk *history, sel 
 	accept := s.selector()
 	workers := s.Workers
 	if workers == 0 {
-		workers = min(max(runtime.GOMAXPROCS(0), 1), 8)
+		workers = min(runtime.GOMAXPROCS(0), 8)
 	}
 	maxBlob := s.MaxBlobBytes
 	if maxBlob == 0 {
@@ -325,6 +327,9 @@ func (s *Source) commits(ctx context.Context, r *repository, walk *history, sel 
 				continue
 			}
 			selected++
+			if !sel.merges && !sel.messages && len(walk.store.parents(commit)) > 1 {
+				continue // Still counts toward MaxCount and its parents have already been enqueued.
+			}
 			select {
 			case jobs <- commit:
 			case <-workCtx.Done():
@@ -415,14 +420,19 @@ func (w *worker) commit(ctx context.Context, c *gitobj.Commit, yield sources.Fra
 	if err != nil {
 		return err
 	}
-	for _, change := range changes {
+	for i, change := range changes {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if change.To.Name == "" {
 			continue
 		}
-		fileAttrs := maps.Clone(attrs)
+		// Earlier paths own separate maps. The final path can take ownership
+		// of the original commit attributes.
+		fileAttrs := attrs
+		if i+1 < len(changes) {
+			fileAttrs = maps.Clone(attrs)
+		}
 		fileAttrs[sources.AttrPath] = change.To.Name
 		fileAttrs[sources.AttrResource] = sources.ResourceGitPatchContent
 		fileAttrs[sources.AttrGitBlobSHA] = change.To.TreeEntry.Hash.String()

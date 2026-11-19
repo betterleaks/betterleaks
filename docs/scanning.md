@@ -884,10 +884,14 @@ as needed; reopening a replaced or modified file causes an incomplete scan.
 ### Storage outside the repository
 
 A `.git` file, `commondir`, or `objects/info/alternates` can point at Git storage
-anywhere on disk. By default Betterleaks refuses storage outside the repository's
-directory, so a crafted repository cannot make it read, and report the secrets
-of, another repository on the same machine. Linked worktrees created with
-`git worktree add` are allowed because their main repository registers them.
+anywhere on disk. Git can also name object directories through
+`GIT_OBJECT_DIRECTORY` and `GIT_ALTERNATE_OBJECT_DIRECTORIES`, which a
+`receive-pack` quarantine uses. Betterleaks reads them like alternates, before
+the `objects/info/alternates` entries. By default Betterleaks refuses storage
+outside the repository's directory, so a crafted repository cannot make it read,
+and report the secrets of, another repository on the same machine. Linked
+worktrees created with `git worktree add` are allowed because their main
+repository registers them.
 Shared refs come from the common Git directory; `refs/bisect`, `refs/rewritten`,
 and `refs/worktree` come from the selected worktree. Reflog scanning includes
 the journals of all registered worktrees.
@@ -895,8 +899,9 @@ When `extensions.worktreeConfig` is enabled, worktree remote and branch
 settings override individual shared settings. Unspecified settings are retained,
 and URL rewrite rules are applied after merging.
 
-Repositories cloned with `--shared` or `--reference`, and submodule checkouts
-scanned directly, need `--allow-external-objects`. Relative alternates are not
+Repositories cloned with `--shared` or `--reference`, submodule checkouts
+scanned directly, and directories named by the object-directory environment
+variables need `--allow-external-objects`. Relative alternates are not
 supported.
 
 Symlinks inside Git storage must stay inside it, and storage files must be
@@ -966,6 +971,16 @@ repositories with deep delta chains; `0` disables it and the maximum is 4096.
 These three tuning fields have no CLI flags. `RemoteURL` overrides the fetch
 remote used for finding links. Don't change a Source while it is scanning.
 
+`CommitParents(ctx, rev)` returns a commit's parent object IDs, first parent
+first. A root commit has none and a merge has more than one, so a pre-receive
+hook can skip merges in-process instead of running `git rev-list --parents -n 1`.
+`rev` names a single commit (an object ID, ref, tag, or a bounded `^`/`~`
+suffix), not a range, and message-search suffixes are rejected because resolving
+them would walk history. Reading the resolved commit's parents does not. It
+reads objects under the same confinement as a scan (a quarantine named by
+`GIT_OBJECT_DIRECTORY` needs `AllowExternalObjects`) and requires a local
+`RepoPath`.
+
 For a complete program that applies the configuration's source prefilter and
 reports warnings, see [`examples/git.go`](../examples/git.go).
 
@@ -1025,6 +1040,28 @@ while read -r old new ref; do
     --no-ext-diff --no-textconv --no-color --src-prefix=a/ --dst-prefix=b/ "${range[@]}"
 done | betterleaks stdin --git-diff --redact
 ```
+
+The SDK can instead read the quarantine in-process, without invoking Git: within
+the hook, `GIT_OBJECT_DIRECTORY` and `GIT_ALTERNATE_OBJECT_DIRECTORIES` name the
+quarantine objects, and a `gogit.Source` with `AllowExternalObjects` reads them.
+`Revision` takes a single revision or an `old..new` range, so scan a ref update
+as `old..new`; add `Include: []string{"merges"}` to scan conflict-resolution
+patches, matching `--diff-merges=first-parent`:
+
+```go
+// old, new, ref come from a line of the pre-receive stdin.
+src := &gogit.Source{
+    RepoPath:             ".",
+    Revision:             old + ".." + new, // an existing-ref update
+    Include:              []string{"merges"},
+    AllowExternalObjects: true,
+}
+```
+
+Deleted refs (`new` all zeros) have nothing to scan. A created ref (`old` all
+zeros) has no `old` to bound the range; `Revision` cannot exclude every existing
+ref, so scan the new tip (`Revision: new`) or use the `stdin --git-diff` loop
+above, whose `--not --all` selects only commits on no existing ref.
 
 ---
 
@@ -2127,7 +2164,10 @@ carry no version field.
 The schema version is independent of the Betterleaks application version and
 changes when the report contract introduces a breaking change.
 Credential state uses `analysis.status`, `status_reason`, and `status_metadata`;
-permission enrichment uses `reason`, `metadata`, identity and capabilities.
+permission enrichment uses `metadata`, identity, and capabilities. The metadata
+maps remain separate. Optional enrichment caveats appear in `metadata.notes`,
+and enrichment runtime failures appear in `metadata.analysis_error` without
+changing credential status. See the [result contract](config.md#validation-and-credential-analysis).
 `component_sets_truncated` means the 100-combination discovery limit omitted
 possible credentials. Such a search cannot establish invalidity unless every
 possible combination was actually tested; a tested successful combination can

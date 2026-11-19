@@ -254,11 +254,6 @@ func writeCredentialText(w io.Writer, result CredentialReport, noColor bool) err
 					return err
 				}
 			}
-			if set.Analysis.Reason != "" {
-				if _, err := fmt.Fprintf(w, "│      reason: %s\n", set.Analysis.Reason); err != nil {
-					return err
-				}
-			}
 		}
 	}
 	_, err := fmt.Fprint(w, "└○\n\n")

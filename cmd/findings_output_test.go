@@ -475,7 +475,7 @@ func TestFindingCollectorPrettyRedactsCompanionsAndAnalysis(t *testing.T) {
 		RuleID:        "multipart",
 		Match:         report.Match{Full: primary + " " + companion, Value: primary, Line: primary + " " + companion},
 		Location:      report.Location{Path: "service.env", StartLine: 1, StartColumn: 1},
-		Analysis:      report.Analysis{Status: report.ValidationStatusValid, Reason: primary + " " + companion},
+		Analysis:      report.Analysis{Status: report.ValidationStatusValid, Metadata: map[string]any{"notes": []string{primary + " " + companion}}},
 		ComponentSets: []report.ComponentSet{{Components: []report.ComponentFinding{{RuleID: "part", Match: report.Match{Value: companion}}}}},
 	}
 	require.NoError(t, collector.Add(finding))

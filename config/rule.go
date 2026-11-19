@@ -73,6 +73,30 @@ type Rule struct {
 	// supplied components independently of filtering.
 	// Returns true = skip (discard this finding); false = keep.
 	FilterExpr string `toml:"filter"`
+
+	// Tests are detection fixtures executed by config check, never by scanning.
+	Tests []RuleTest `toml:"tests,omitempty"`
+}
+
+// RuleTest describes one source fragment and its exact expected findings for the
+// owning rule. Other rules run only when referenced as components.
+type RuleTest struct {
+	Name       string            `toml:"name"`
+	Mode       string            `toml:"mode,omitempty"`
+	Input      string            `toml:"input"`
+	Attributes map[string]string `toml:"attributes,omitempty"`
+	// Expect must be explicit. An empty array asserts no findings.
+	Expect []ExpectedFinding `toml:"expect"`
+}
+
+// ExpectedFinding asserts the extracted value, named captures, and component
+// combinations. Ordering is ignored, but duplicate findings are counted.
+type ExpectedFinding struct {
+	// Rule may be omitted; when supplied it must identify the owning rule.
+	Rule          string              `toml:"rule,omitempty"`
+	Secret        string              `toml:"secret"`
+	Captures      map[string]string   `toml:"captures,omitempty"`
+	ComponentSets []map[string]string `toml:"componentSets,omitempty"`
 }
 
 // Component references another rule that contributes a nearby match to a multipart finding.
@@ -153,7 +177,7 @@ func (r *Rule) Validate() error {
 		}
 	}
 
-	return nil
+	return r.validateTests()
 }
 
 // validatePatterns checks syntax without creating runtime regex objects.
@@ -175,4 +199,46 @@ func (r *Rule) validatePatterns() (int, error) {
 	}
 
 	return maxCapture, nil
+}
+
+func (r *Rule) validateTests() error {
+	names := make(map[string]bool, len(r.Tests))
+	for i, test := range r.Tests {
+		fail := func(message string) error {
+			return fmt.Errorf("rule %q test %d (%q): %s", r.ID, i+1, test.Name, message)
+		}
+		if strings.TrimSpace(test.Name) == "" || names[test.Name] {
+			return fail("test names must be nonempty and unique within a rule")
+		}
+		names[test.Name] = true
+		if test.Expect == nil {
+			return fail("expect is required; use [] for a negative case")
+		}
+		switch test.Mode {
+		case "", "finding":
+		case "match":
+			if !r.SkipReport || len(r.Components) != 0 {
+				return fail("match mode requires an owning skipReport leaf rule")
+			}
+		default:
+			return fail(fmt.Sprintf("unknown mode %q", test.Mode))
+		}
+		for _, expected := range test.Expect {
+			if expected.Rule != "" && expected.Rule != r.ID {
+				return fail(fmt.Sprintf("expected rule must be %q", r.ID))
+			}
+			for _, set := range expected.ComponentSets {
+				for id := range set {
+					found := false
+					for _, component := range r.Components {
+						found = found || component.RuleID == id
+					}
+					if !found {
+						return fail(fmt.Sprintf("unknown expected component %q", id))
+					}
+				}
+			}
+		}
+	}
+	return nil
 }

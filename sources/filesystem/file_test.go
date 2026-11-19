@@ -16,6 +16,46 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestFileBrotliCompression(t *testing.T) {
+	const content = "ARCHIVE_TEST_SECRET\n"
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "token.txt", Mode: 0600, Size: int64(len(content))}))
+	_, err := io.WriteString(tw, content)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{
+		{"plain.txt.br", []byte(content)},
+		{"archive.tar.br", archive.Bytes()},
+	} {
+		var compressed bytes.Buffer
+		w, err := (archives.Brotli{}).OpenWriter(&compressed)
+		require.NoError(t, err)
+		_, err = w.Write(tc.data)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		for _, detect := range []bool{false, true} {
+			mode := "directory"
+			if detect {
+				mode = "container"
+			}
+			t.Run(tc.name+"/"+mode, func(t *testing.T) {
+				s := File{Path: tc.name, Content: bytes.NewReader(compressed.Bytes()), MaxArchiveDepth: 8, DetectArchive: detect, StrictArchives: detect}
+				var fragments []string
+				require.NoError(t, s.Fragments(t.Context(), func(f sources.Fragment, err error) error {
+					require.NoError(t, err)
+					fragments = append(fragments, f.Raw)
+					return nil
+				}))
+				require.Equal(t, []string{content}, fragments)
+			})
+		}
+	}
+}
+
 // panicReader panics on the first Read, emulating a decompressor that blows up
 // on malformed content after OpenReader already succeeded.
 type panicReader struct {

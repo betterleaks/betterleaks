@@ -3833,7 +3833,7 @@ func TestContextRetentionIsExplicit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testConfig()
 			cfg.Rules[0].ValidateExpr = `{"result":"valid", "metadata": {"evidence":finding.context}}`
-			cfg.Rules[0].AnalyzeExpr = `{"reason":finding.context}`
+			cfg.Rules[0].AnalyzeExpr = `{"metadata":{"notes":[finding.context]}}`
 			// Local context extraction needs no retained copy. The optional context
 			// binding must reflect exactly the window the caller requested.
 			cfg.Rules[0].FilterExpr = fmt.Sprintf(`finding.line != "secret-alpha\n" || finding.context != %q || !(finding.fragment_raw[max(finding.match_start_idx - 20, 0):finding.match_start_idx] contains "tenant=acme")`, tc.want)

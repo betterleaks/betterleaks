@@ -38,9 +38,9 @@ var (
 // yielded after any final bytes; a callback error stops reading immediately.
 // The caller owns content and must interrupt any blocked Read itself.
 func Read(ctx context.Context, content io.Reader, yield func(string, int, int, error) error) error {
-	buffer := getBuffer()
-	defer putBuffer(buffer)
-	return read(ctx, content, buffer, yield)
+	buffer := bufferPool.Get().(*[]byte)
+	defer bufferPool.Put(buffer)
+	return read(ctx, content, *buffer, yield)
 }
 
 func read(ctx context.Context, content io.Reader, buffer []byte, yield func(string, int, int, error) error) error {
@@ -81,9 +81,9 @@ func read(ctx context.Context, content io.Reader, buffer []byte, yield func(stri
 		if errors.Is(boundaryErr, io.EOF) || errors.Is(readErr, io.EOF) {
 			return ctx.Err()
 		}
-		nextLine += strings.Count(raw, "\n")
-		if lastNewline := strings.LastIndexByte(raw, '\n'); lastNewline >= 0 {
-			nextColumnOffset = len(raw) - lastNewline - 1
+		if lines := strings.Count(raw, "\n"); lines > 0 {
+			nextLine += lines
+			nextColumnOffset = len(raw) - strings.LastIndexByte(raw, '\n') - 1
 		} else {
 			nextColumnOffset += len(raw)
 		}
@@ -94,15 +94,6 @@ func read(ctx context.Context, content io.Reader, buffer []byte, yield func(stri
 			return yield("", nextLine, 0, readErr)
 		}
 	}
-}
-
-func getBuffer() []byte {
-	return *bufferPool.Get().(*[]byte)
-}
-
-func putBuffer(buffer []byte) {
-	buffer = buffer[:BufferSize]
-	bufferPool.Put(&buffer)
 }
 
 func getReader(reader io.Reader) *bufio.Reader {

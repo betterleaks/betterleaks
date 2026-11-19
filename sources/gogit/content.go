@@ -46,7 +46,7 @@ func (w *worker) change(ctx context.Context, c *gitobj.Change, attrs map[string]
 		return err
 	}
 	if binary {
-		return w.archive(ctx, c.To, attrs, yield)
+		return w.archive(ctx, c.To.Name, dst, attrs, yield)
 	}
 	if c.From.Name == "" || kindChanged {
 		return emit(dst, 1)
@@ -140,20 +140,24 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	// Tokens must fit the edit engine's Unicode alphabet. This also bounds the
 	// bookkeeping allocated for a diff independently of its input byte limit.
 	// Larger changes are scanned whole, which can only add findings.
-	if strings.Count(src, "\n")+strings.Count(dst, "\n")+2 > maxDiffLines {
+	oldBreaks, newBreaks := strings.Count(src, "\n"), strings.Count(dst, "\n")
+	if oldBreaks+newBreaks+2 > maxDiffLines {
 		return add(dst, 1)
 	}
 	// Tokenize parent lines once; destination-only lines need neither IDs nor
 	// strings in the dictionary. Use valid Unicode tokens because the edit
 	// engine serializes rune sequences as strings.
-	lineCount := func(text string) int {
-		n := strings.Count(text, "\n")
+	lineCount := func(text string, n int) int {
 		if len(text) > 0 && text[len(text)-1] != '\n' {
 			n++
 		}
 		return n
 	}
-	oldCount, newCount := lineCount(src), lineCount(dst)
+	oldCount, newCount := lineCount(src, oldBreaks), lineCount(dst, newBreaks)
+	if oldCount == 1 && newCount == 1 {
+		// Identical lines were removed by the prefix/suffix trim.
+		return add(dst, 1)
+	}
 	if d.ids == nil {
 		d.ids = make(map[string]rune, min(oldCount, 65536))
 	}
@@ -459,22 +463,13 @@ func (w *worker) content(ctx context.Context, e gitobj.ChangeEntry) (string, boo
 	return obj.raw, strings.IndexByte(obj.raw[:min(len(obj.raw), binarySniffBytes)], 0) >= 0, nil
 }
 
-func (w *worker) archive(ctx context.Context, e gitobj.ChangeEntry, attrs map[string]string, yield sources.FragmentsFunc) error {
+func (w *worker) archive(ctx context.Context, path, raw string, attrs map[string]string, yield sources.FragmentsFunc) error {
 	if w.source.MaxArchiveDepth <= 0 {
 		return nil
 	}
-	file, err := w.store.read(e.TreeEntry.Hash)
-	if err != nil {
-		return err
-	}
-	r, err := file.Reader()
-	if err != nil {
-		return err
-	}
-	defer r.Close()
 	// Identify by name or content so archives with unfamiliar extensions
 	// (.jar, .apk, .gem, .crate) are scanned. Only the header is read.
-	format, stream, err := archives.Identify(ctx, e.Name, contextReader{ctx, r})
+	format, stream, err := archives.Identify(ctx, path, contextReader{ctx, strings.NewReader(raw)})
 	if errors.Is(err, archives.NoMatch) {
 		return nil
 	}
@@ -485,6 +480,6 @@ func (w *worker) archive(ctx context.Context, e gitobj.ChangeEntry, attrs map[st
 		return nil
 	}
 	// Match filesystem scans: damaged archives warn without failing history traversal.
-	source := filesystem.File{Logger: w.source.Logger, Content: stream, Path: e.Name, Attributes: attrs, Prefilter: w.source.Prefilter, MaxArchiveDepth: w.source.MaxArchiveDepth, StrictArchives: false, Symlink: "", DetectArchive: false}
+	source := filesystem.File{Logger: w.source.Logger, Content: stream, Path: path, Attributes: attrs, Prefilter: w.source.Prefilter, MaxArchiveDepth: w.source.MaxArchiveDepth, StrictArchives: false, Symlink: "", DetectArchive: false}
 	return source.Fragments(ctx, yield)
 }

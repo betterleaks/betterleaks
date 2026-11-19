@@ -878,7 +878,7 @@ let response = http.get(%q, {});
 			if limit == 1 {
 				require.Empty(t, result.Analysis.Capabilities)
 				require.Equal(t, report.SeverityUnknown, result.Analysis.Severity)
-				require.NotEmpty(t, result.Analysis.Reason)
+				require.Contains(t, result.Analysis.Metadata["analysis_error"], "analysis request limit")
 			} else {
 				require.Equal(t, report.SeverityMedium, result.Analysis.Severity)
 			}
@@ -1224,7 +1224,7 @@ func TestAnalyzeProviderDebugIncludesBothStages(t *testing.T) {
 id = "token"
 regex = '''unused'''
 validate = '''let r = http.get(%q + "/validate", {}); {"result":"valid"}'''
-analyze = '''let r = http.get(%q + "/permissions", {}); {"reason":"Permission lookup failed"}'''
+analyze = '''let r = http.get(%q + "/permissions", {}); {"metadata":{"notes":["Permission lookup failed"]}}'''
 `, server.URL, server.URL))
 	root, stdout := newTestCLI(t)
 	root.SetArgs([]string{"analyze", "--config", configPath, "--rule", "token", "--provider-debug", "--jsonl", "fixture-secret"})
