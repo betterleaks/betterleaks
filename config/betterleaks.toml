@@ -2566,9 +2566,23 @@ entropy(finding["secret"]) < 4.0
 [[rules]]
 id = "coveralls-personal-api-token"
 description = "Detected a Coveralls personal API token, which may expose repository coverage data."
-regex = '''(?i)(?:coveralls)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{37})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+regex = '''(?i)(?:coveralls)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9-]{36,37})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "medium"
 keywords = ["coveralls"]
+validate = '''
+let r = http.get("https://coveralls.io/api/repos", {
+  "Authorization": "token " + finding["secret"],
+  "Accept": "application/json"
+});
+let body = type(r.json) == "map" ? r.json : {};
+
+r.status == 200 && type(body?.repos) == "array" ? {
+  "result": "valid"
+} : r.status == 403 && body?.error == "Forbidden" ? {
+  "result": "invalid",
+  "reason": "Unauthorized"
+} : validate.unknown(r)
+'''
 filter = '''
 entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 '''
