@@ -2815,6 +2815,31 @@ entropy(finding["secret"]) < 4.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# daytona-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "daytona-api-key"
+description = "Detected a Daytona API key, which may allow access to Daytona workspace management and development environment orchestration."
+regex = '''\b(dtn_[a-f0-9]{64})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["dtn_"]
+validate = '''
+let r = http.get("https://app.daytona.io/api/api-keys/current", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+(r.status in [200]) ? {
+    "result": "valid",
+    "analysis": {
+      "user_id": string(r.json?.userId ?? ""),
+      "organization_id": string(r.json?.organizationId ?? ""),
+    }
+  } :
+(r.status in [401]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # deepgram-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
