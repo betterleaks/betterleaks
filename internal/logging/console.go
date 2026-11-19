@@ -220,7 +220,9 @@ func formatAny(value any) string {
 		return "null"
 	}
 	if err, ok := value.(error); ok {
-		return quoteValue(err.Error())
+		// errors.Join separates causes with newlines. Keep console records on
+		// one line without showing escaped newline characters between causes.
+		return quoteValue(strings.ReplaceAll(err.Error(), "\n", "; "))
 	}
 	if stringer, ok := value.(fmt.Stringer); ok {
 		return quoteValue(stringer.String())
