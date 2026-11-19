@@ -16,7 +16,7 @@ const (
 	routeSecret2 = "m8Rn3qMy0Wx5oS9tU2zV7aB4cD6eF1gI"
 )
 
-func TestKeywordDoesNotPairDistantGeneric(t *testing.T) {
+func TestKeywordWithoutRegexMatchStaysGeneric(t *testing.T) {
 	scanner := mustNew(t, &config.Config{Rules: []config.Rule{
 		routeProvider("adafruit-api-key", "adafruit", "Adafruit key"),
 		routeGenericAPI(),
@@ -54,14 +54,21 @@ func TestKeywordRoutesWhenProviderRegexMatchesHit(t *testing.T) {
 	require.ElementsMatch(t, []string{"generic-api-key", "adafruit-api-key"}, ruleIDs)
 }
 
-func TestKeywordWithoutRegexMatchStaysGeneric(t *testing.T) {
-	scanner := mustNew(t, &config.Config{Rules: []config.Rule{
-		routeProvider("adafruit-api-key", "adafruit", "Adafruit key"),
-		routeGenericAPI(),
-	}})
-	findings := scanner.ScanString("see adafruit docs\napi_key = \"" + routeSecret + "\"\n")
+func TestCheckoutKeywordDoesNotRelabelUnrelatedGeneric(t *testing.T) {
+	provider := routeProvider("checkout-secret-key", "checkout", "Checkout key")
+	provider.Regex = rulebuilder.Assignment([]string{"checkout"}, `sk_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`)
+	scanner := mustNew(t, &config.Config{Rules: []config.Rule{provider, config.Rule{
+		ID:          "generic-credential-uri",
+		Description: "generic uri",
+		Confidence:  "low",
+		Specificity: -100,
+		Regex:       `https?://[^:\s]+:([^@\s]+)@`,
+		Keywords:    []string{"http"},
+	}}})
+	findings := scanner.ScanString("git checkout main\nhttp://user:pass@othergemserver.test/\n")
 	require.Len(t, findings, 1)
-	require.Equal(t, "generic-api-key", findings[0].RuleID)
+	require.Equal(t, "generic-credential-uri", findings[0].RuleID)
+	require.Equal(t, "pass", findings[0].Match.Value)
 }
 
 func TestKeywordInsideGenericMatchDoesNotRoute(t *testing.T) {
@@ -108,7 +115,7 @@ func TestProviderFilterRejectsRoutedGeneric(t *testing.T) {
 	require.Equal(t, "generic-api-key", findings[0].RuleID)
 }
 
-func TestMultipleProvidersRouteOnlyRegexMatches(t *testing.T) {
+func TestOnlyRegexMatchingProviderPairsGeneric(t *testing.T) {
 	generic := routeGenericAPI()
 	generic.Regex = `(?i)(?:api_key|adafruit|stripe)[\s'"\x60]{0,3}[:=][\s'"\x60]{0,3}([a-zA-Z0-9_-]{16,})`
 	scanner := mustNew(t, &config.Config{Rules: []config.Rule{

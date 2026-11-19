@@ -182,10 +182,10 @@ func (s *Scanner) discardFinding(logger *slog.Logger, r *compiledRule, finding *
 	return false
 }
 
-// routeGenericFindings adds a provider finding when that rule's regex matches
-// the same secret as a generic hit and detection did not already report it.
-// The generic finding stays; validation drops it only after the provider is
-// confirmed live.
+// routeGenericFindings adds a provider finding only when that rule's keyword
+// appears in the fragment and its regex matches the same secret. Path, filter,
+// and required components still apply. The generic finding stays until
+// validation confirms the provider rule.
 func (s *Scanner) routeGenericFindings(logger *slog.Logger, ruleTimings *ruletiming.Collector, fragment sources.Fragment, currentRaw string, genericRule *compiledRule, encodedSegments []*codec.EncodedSegment, priorFindings *findingIndex, hits []genericHit, state *detectionState) ([]report.Finding, error) {
 	ruleOrder, err := s.routeRulesForFragment(fragment, state.routeAlerts)
 	if err != nil {
@@ -359,8 +359,8 @@ func routeSpansForRule(rule *compiledRule, ruleIndex int, alerts []routeAlert, r
 }
 
 // providerRegexClaimsHit reports whether the provider regex matches the same
-// source occurrence as the generic finding, using keyword search windows from
-// route alerts the same way detection does.
+// source occurrence as the generic finding. The provider keyword must also
+// appear in the fragment outside that generic match.
 func (s *Scanner) providerRegexClaimsHit(rule *compiledRule, raw string, ruleIndex int, alerts []routeAlert, hit genericHit) (bool, error) {
 	if !keywordOutsideMatch(alerts, ruleIndex, hit.start, hit.end) {
 		return false, nil
