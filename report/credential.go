@@ -81,7 +81,7 @@ func sanitizeCredentialAttributes(attributes map[string]string, secrets []string
 	}
 	out := make(map[string]string, len(attributes))
 	for key, value := range attributes {
-		if key == sources.AttrFSFirstFragment || key == sources.AttrPath {
+		if key == sources.AttrFSFirstFragment || key == sources.AttrScanPairedRules || key == sources.AttrPath {
 			continue
 		}
 		out[sanitizeCredentialString(key, secrets)] = sanitizeCredentialString(value, secrets)

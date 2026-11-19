@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -55,6 +54,9 @@ type ruleCandidates struct {
 	marked      []uint64
 	windows     []regexspan.Windows
 	usedWindows []int
+	// routeAlerts are provider keyword hits that may claim generic findings
+	// elsewhere in this fragment. Cleared with the rest of the candidate.
+	routeAlerts []routeAlert
 }
 
 func (c *ruleCandidates) mark(index int) {
@@ -81,12 +83,17 @@ func (c *ruleCandidates) addWindow(index int, raw string, start, end int, plan *
 	w.Add(raw, start, end, plan)
 }
 
+func (c *ruleCandidates) addRouteAlert(ruleIndex, start, end int) {
+	c.routeAlerts = append(c.routeAlerts, routeAlert{ruleIndex: ruleIndex, start: start, end: end})
+}
+
 func (c *ruleCandidates) reset() {
 	clear(c.marked)
 	for _, i := range c.usedWindows {
 		c.windows[i].Reset()
 	}
 	c.usedWindows = c.usedWindows[:0]
+	c.routeAlerts = c.routeAlerts[:0]
 }
 
 // Scanner is an immutable rule engine with thread-safe lazy regex compilation. A
@@ -105,6 +112,11 @@ type Scanner struct {
 	logger              *slog.Logger
 
 	keywordMatcher *ahocorasick.Matcher
+	// keywordPatterns is indexed by Aho-Corasick pattern ID.
+	keywordPatterns []string
+	// genericKeywords are credential words owned by generic-* rules. A hit on
+	// one of them selects those rules, but it does not claim other generics.
+	genericKeywords map[string]struct{}
 
 	tokenCounter     *tokenizer.Counter
 	tokenCounterOnce sync.Once
@@ -174,8 +186,14 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 
 	keywordToRuleIndexes := make(map[string][]int)
 	anchorToRuleIndexes := make(map[string][]int)
+	genericKeywords := make(map[string]struct{})
 	noKeywordIndexes := make([]int, 0)
 	for ruleIndex, rule := range rulesBySpecificity {
+		if isGenericRule(rule.rule.ID) {
+			for _, keyword := range rule.rule.Keywords {
+				genericKeywords[strings.ToLower(keyword)] = struct{}{}
+			}
+		}
 		if len(rule.rule.Keywords) == 0 {
 			noKeywordIndexes = append(noKeywordIndexes, ruleIndex)
 			continue
@@ -220,6 +238,8 @@ func New(cfg *config.Config, options ...Option) (*Scanner, error) {
 		workerSlots:        semaphore.NewWeighted(int64(settings.workers)),
 		logger:             logging.OrDiscard(settings.logger),
 		keywordMatcher:     ahocorasick.Compile(keywords, true),
+		keywordPatterns:    keywords,
+		genericKeywords:    genericKeywords,
 		exprRuntime:        exprRuntime,
 		rulesBySpecificity: rulesBySpecificity,
 		ruleIndexByID:      ruleIndexByID,
@@ -555,12 +575,22 @@ ScanLoop:
 			// Keywords select rules; proven assignment shapes can reject a hit.
 			// Keep every eligible location for merging conservative search windows.
 			s.keywordMatcher.Visit(currentRaw, func(patternID, start, end int) bool {
+				_, genericWord := s.genericKeywords[s.keywordPatterns[patternID]]
 				for _, ruleIndex := range s.keywordRuleIndexes[patternID] {
 					rule := &s.rulesBySpecificity[ruleIndex]
+					// A keyword that is not in assignment position cannot satisfy
+					// this rule's regex, but it can still claim a generic credential
+					// elsewhere in the fragment.
 					if rule.guard != nil && !rule.guard.possible(currentRaw, end) {
+						if s.claimsGenerics(ruleIndex, genericWord) {
+							candidates.addRouteAlert(ruleIndex, start, end)
+						}
 						continue
 					}
 					candidates.mark(ruleIndex)
+					if s.claimsGenerics(ruleIndex, genericWord) {
+						candidates.addRouteAlert(ruleIndex, start, end)
+					}
 					if rule.span != nil && rule.searchAnchors == nil {
 						candidates.addWindow(ruleIndex, currentRaw, start, end, rule.span)
 					}
@@ -575,6 +605,7 @@ ScanLoop:
 			for _, ruleIndex := range s.noKeywordIndexes {
 				candidates.mark(ruleIndex)
 			}
+			detection.routeAlerts = candidates.routeAlerts
 
 		RulesLoop:
 			for ruleIndex := range candidates.indexes {
@@ -696,6 +727,7 @@ type detectionState struct {
 	spans       []regexspan.Span
 	component   bool
 	lineOffsets []int
+	routeAlerts []routeAlert
 }
 
 func (s *Scanner) detectFragmentWithRuleTimed(ruleTimings *ruletiming.Collector,
@@ -784,8 +816,9 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 	priorFindings *findingIndex,
 	state *detectionState) ([]report.Finding, error) {
 	var (
-		findings []report.Finding
-		logger   = s.logger
+		findings    []report.Finding
+		genericHits []genericHit
+		logger      = s.logger
 	)
 
 	if r.rule.SkipReport && !state.component {
@@ -997,78 +1030,45 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			continue
 		}
 
-		entropy := shannonEntropy(finding.Match.Value)
-
-		hasGlobalFilter := s.globalFilter != nil
-		hasRuleFilter := r.filter != nil
 		// Context is opt-in. Filters can slice fragment_raw using match offsets
 		// without retaining an additional context window on every finding.
 		if !s.matchContext.IsZero() {
 			finding.Match.Context = contextwindow.Extract(fragment.Raw, matchIndex, s.matchContext)
 		}
-
-		// Build finding map once, only when at least one filter program is compiled.
-		var findingMap map[string]any
-		var filterAttributes map[string]string
-		if hasGlobalFilter || hasRuleFilter {
-			filterAttributes = exprAttributes(finding)
-			findingMap = make(map[string]any, 12)
-			for key, value := range exprFinding(finding) {
-				findingMap[key] = value
-			}
-			findingMap["captures"] = finding.Match.Captures
-			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
-			findingMap["fragment_raw"] = currentRaw
-			findingMap["match_start_idx"] = filterMatchStartIdx
-			findingMap["match_end_idx"] = filterMatchEndIdx
-			findingMap["match_line_start_idx"] = 0
-			findingMap["match_line_end_idx"] = len(currentRaw)
-			if newline := strings.LastIndexAny(currentRaw[:filterMatchStartIdx], "\r\n"); newline >= 0 {
-				findingMap["match_line_start_idx"] = newline + 1
-			}
-			if newline := strings.IndexAny(currentRaw[filterMatchEndIdx:], "\r\n"); newline >= 0 {
-				findingMap["match_line_end_idx"] = filterMatchEndIdx + newline
-			}
-			// For decoded segments, currentLine carries the decoded line text
-			// (via codec.CurrentLine). The old checkFindingAllowed used this for
-			// regexTarget="line". Preserve that behaviour in the Expr path.
-			if currentLine != "" {
-				findingMap["line"] = currentLine
-			}
-		}
-		// Global filter: Expr path (attributes + finding).
-		if prg := s.globalFilter; prg != nil {
-			skip, err := s.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
-			promoteConfidence(&finding, findingMap, filterAttributes)
-			if err != nil {
-				logger.Warn("global filter eval error", "error", err)
-			} else if skip {
-				logTrace(logger, "skipping finding: global filter", "rule_id", finding.RuleID)
-				continue
-			}
-		}
-
-		// Rule filter: Expr path (includes entropy and token-efficiency checks).
-		if prg := r.filter; prg != nil {
-			skip, err := s.exprRuntime.EvalFilter(prg, findingMap, filterAttributes)
-			promoteConfidence(&finding, findingMap, filterAttributes)
-			if err != nil {
-				logger.Warn("rule filter eval error", "error", err)
-			} else if skip {
-				logTrace(logger, "skipping finding: rule filter", "rule_id", finding.RuleID)
-				continue
-			}
+		if s.discardFinding(logger, r, &finding, currentRaw, currentLine, filterMatchStartIdx, filterMatchEndIdx) {
+			continue
 		}
 
 		findings = append(findings, finding)
+		if !state.component && len(state.routeAlerts) > 0 && isGenericRule(r.rule.ID) && finding.Match.Value != "" {
+			genericHits = append(genericHits, genericHit{
+				finding: finding,
+				start:   filterMatchStartIdx,
+				end:     filterMatchEndIdx,
+				line:    currentLine,
+			})
+		}
+	}
+
+	var routed []report.Finding
+	if len(genericHits) > 0 {
+		var err error
+		routed, err = s.routeGenericFindings(logger, ruleTimings, fragment, currentRaw, r, encodedSegments, priorFindings, genericHits, state)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Handle component rules (multi-part rules).
 	if state.component || len(r.components) == 0 {
-		return findings, nil
+		return append(findings, routed...), nil
 	}
 
-	return s.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state)
+	findings, err := s.processComponents(ruleTimings, fragment, currentRaw, r, encodedSegments, findings, state)
+	if err != nil {
+		return nil, err
+	}
+	return append(findings, routed...), nil
 }
 
 // Keep the unkeyed conversion separate: passing it through HMAC would make
@@ -1248,7 +1248,9 @@ func (s *Scanner) filterIndexed(findings []report.Finding, index *findingIndex) 
 	}
 
 	var retFindings []report.Finding
-	for _, f := range findings {
+	for i := range findings {
+		f := findings[i]
+		s.notePairedRules(&f, index)
 		include := true
 
 		// Skip findings already surfaced as the same rule's component of a
@@ -1272,33 +1274,21 @@ func (s *Scanner) isSuppressedByHigherSpecificityFinding(f report.Finding, index
 	if index == nil {
 		return false
 	}
-	endLine := max(f.Location.StartLine, f.Location.EndLine)
-	if len(index.byLine) > 0 {
-		for line := f.Location.StartLine; line <= endLine; line++ {
-			for _, i := range index.byLine[line] {
-				if s.isSuppressedByOwner(f, &index.findings[i]) {
-					return true
-				}
-			}
+	suppressed := false
+	s.visitOwners(f, index, func(owner *report.Finding) {
+		if !suppressed && s.isSuppressedByOwner(f, owner) {
+			suppressed = true
 		}
-	}
-	if len(index.byBlock) > 0 {
-		for block := f.Location.StartLine / findingLineBlockSize; block <= endLine/findingLineBlockSize; block++ {
-			for _, i := range index.byBlock[block] {
-				if s.isSuppressedByOwner(f, &index.findings[i]) {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	})
+	return suppressed
 }
 
 func (s *Scanner) isSuppressedByOwner(f report.Finding, owner *report.Finding) bool {
 	if f.RuleID == owner.RuleID || f.Attributes[sources.AttrGitSHA] != owner.Attributes[sources.AttrGitSHA] {
 		return false
 	}
-	if locationsOverlap(f.Location, owner.Location) &&
+	// The same secret stays a generic finding until provider validation confirms it.
+	if !s.isPairedProvider(&f, owner) && locationsOverlap(f.Location, owner.Location) &&
 		strings.Contains(owner.Match.Value, f.Match.Value) &&
 		s.ruleSpecificity(owner.RuleID) > s.ruleSpecificity(f.RuleID) {
 		logTrace(s.logger, "skipping finding because a more specific rule takes precedence",

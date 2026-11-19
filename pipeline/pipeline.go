@@ -96,6 +96,10 @@ func (p *Pipeline) AnalysisEnabled() bool {
 // failure cancels all work; Scan waits for every worker before returning. A nil
 // handler discards findings. Source and handler errors remain discoverable with
 // errors.Is. Sources may perform I/O independently of provider analysis.
+//
+// When validation is enabled, a generic finding that shares its secret with a
+// provider rule is held until that rule is checked. A valid provider result
+// drops the generic finding. Every other result reports both.
 func (p *Pipeline) Scan(ctx context.Context, source sources.Source, handler func(report.Finding) error) (ScanSummary, error) {
 	var summary ScanSummary
 	if p == nil || p.scanner == nil {
@@ -122,15 +126,34 @@ func (p *Pipeline) Scan(ctx context.Context, source sources.Source, handler func
 		// Preserve the direct scan path: no provider runtime, queue, or workers.
 		scanned, err = p.scanner.Scan(ctx, source, emit)
 	} else {
+		// A generic finding that shares a secret with a provider rule stays
+		// until that rule's validation result is known. A live credential
+		// replaces the generic; any other result keeps both.
+		coord := &pairCoordinator{}
+		forward := func(f report.Finding) error {
+			for _, ready := range coord.accept(f) {
+				if err := emit(ready); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		produce := func(ctx context.Context, yield func(report.Finding) error) error {
 			var scanErr error
 			scanned, scanErr = p.scanner.Scan(ctx, source, yield)
 			return scanErr
 		}
 		if p.validationOnly {
-			err = p.analyzer.ValidateStream(ctx, produce, emit)
+			err = p.analyzer.ValidateStream(ctx, produce, forward)
 		} else {
-			err = p.analyzer.AnalyzeStream(ctx, produce, emit)
+			err = p.analyzer.AnalyzeStream(ctx, produce, forward)
+		}
+		if err == nil {
+			for _, ready := range coord.flush() {
+				if err = emit(ready); err != nil {
+					break
+				}
+			}
 		}
 	}
 	summary.BytesInspected = scanned.BytesInspected

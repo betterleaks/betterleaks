@@ -62,14 +62,16 @@ func (f Finding) MarshalJSON() ([]byte, error) {
 func reportAttributes(attributes map[string]string) map[string]string {
 	_, internal := attributes[sources.AttrFSFirstFragment]
 	_, path := attributes[sources.AttrPath]
+	_, paired := attributes[sources.AttrScanPairedRules]
 	message := attributes[sources.AttrGitMessage]
 	lineEnd := strings.IndexAny(message, "\r\n")
-	if !internal && !path && lineEnd < 0 {
+	if !internal && !path && !paired && lineEnd < 0 {
 		return attributes
 	}
 
 	visible := maps.Clone(attributes)
 	delete(visible, sources.AttrFSFirstFragment)
+	delete(visible, sources.AttrScanPairedRules)
 	delete(visible, sources.AttrPath)
 	if lineEnd >= 0 {
 		visible[sources.AttrGitMessage] = message[:lineEnd]
