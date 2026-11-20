@@ -81,12 +81,13 @@ func runDirectory(runtime *commandRuntime, globals *GlobalFlags, options *Direct
 		validationEnabled = validationEnabled || runner.ValidationEnabled()
 
 		s := &filesystem.Files{
-			Logger:          runtime.Logger(),
-			Prefilter:       findings.FilePrefilterFunc(filters.shouldSkip),
-			FollowSymlinks:  options.FollowSymlinks,
-			MaxFileSize:     options.MaxTargetMegabytes * 1_000_000,
-			Path:            source,
-			MaxArchiveDepth: options.MaxArchiveDepth,
+			Logger:                runtime.Logger(),
+			Prefilter:             findings.FilePrefilterFunc(filters.shouldSkip),
+			FollowSymlinks:        options.FollowSymlinks,
+			MaxFileSize:           options.MaxTargetMegabytes * 1_000_000,
+			Path:                  source,
+			MaxArchiveDepth:       options.MaxArchiveDepth,
+			BuiltinArchiveFormats: true,
 		}
 
 		findings.startScan(runtime)

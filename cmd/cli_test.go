@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -943,4 +944,55 @@ func TestCorruptArchiveWarningKeepsScanComplete(t *testing.T) {
 	assert.Zero(t, exitCode)
 	require.Len(t, findings, 1)
 	assert.Contains(t, logs.String(), "could not read compressed file")
+}
+
+func TestFilesystemScansPackagedGem(t *testing.T) {
+	const token = "ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5" // betterleaks:allow
+	var data bytes.Buffer
+	gz := gzip.NewWriter(&data)
+	_, err := gz.Write(containerCLITar(t, map[string][]byte{"lib/example.rb": []byte(token)}))
+	require.NoError(t, err)
+	require.NoError(t, gz.Close())
+
+	path := filepath.Join(t.TempDir(), "example.gem")
+	require.NoError(t, os.WriteFile(path, containerCLITar(t, map[string][]byte{"data.tar.gz": data.Bytes()}), 0o600))
+	root, stdout := newTestCLI(t)
+	root.SetArgs([]string{"fs", path, "--isolate-rule=github-pat", "--no-banner", "--exit-code=0", "--output=-"})
+	require.NoError(t, root.Execute())
+	metadata, findings := decodeScanJSON(t, stdout.Bytes())
+	require.Equal(t, report.ScanStateComplete, metadata.State)
+	require.Len(t, findings, 1)
+	require.Equal(t, token, findings[0].Match.Value)
+	require.Equal(t, filepath.ToSlash(path)+"!data.tar.gz!lib/example.rb", findings[0].Location.Path)
+}
+
+func TestGitMisnamedArchiveKeepsScanComplete(t *testing.T) {
+	var data bytes.Buffer
+	zw := zip.NewWriter(&data)
+	entry, err := zw.Create("sample.txt")
+	require.NoError(t, err)
+	_, err = io.WriteString(entry, "TOKEN_INSIDE\n")
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	repo := t.TempDir()
+	gitCmdT(t, repo, "init", "-q")
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "bundle.gz"), data.Bytes(), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "damaged.gz"), []byte{0x1f, 0x8b, 0x08, 0x00}, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "binary.dat"), []byte("\x00TOKEN_BINARY"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "other.txt"), []byte("TOKEN_OUTSIDE\n"), 0o600))
+	gitCmdT(t, repo, "add", ".")
+	gitCmdT(t, repo, "-c", "user.name=Test", "-c", "user.email=test@example.org", "commit", "-qm", "fixtures")
+
+	root, stdout := newTestCLI(t)
+	configPath := writeTestConfig(t, "[[rules]]\nid='token'\nregex='TOKEN_[A-Z]+'\n")
+	root.SetArgs([]string{"git", repo, "--config", configPath, "--no-banner", "--exit-code=0", "--output=-"})
+	require.NoError(t, root.Execute())
+	metadata, findings := decodeScanJSON(t, stdout.Bytes())
+	require.Equal(t, report.ScanStateComplete, metadata.State)
+	var paths []string
+	for _, f := range findings {
+		paths = append(paths, f.Location.Path)
+	}
+	require.ElementsMatch(t, []string{"bundle.gz!sample.txt", "other.txt"}, paths)
 }
