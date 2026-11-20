@@ -12181,9 +12181,12 @@ entropy(finding["secret"]) < 3.5 || tokenRatio(finding["secret"]) >= 2.5
 [[rules]]
 id = "zhipu-api-key"
 description = "Detected a Zhipu AI API key, which may allow unauthorized access to BigModel GLM services and resources."
-regex = '''\b([a-f0-9]{32}\.[A-Za-z0-9]{16,17})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+regex = '''(?i)(?:zhipu|bigmodel)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-f0-9]{32}\.[A-Za-z0-9]{16,17})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
-keywords = ["zhipu"]
+keywords = [
+    "zhipu",
+    "bigmodel",
+]
 validate = '''
 let r = http.get("https://open.bigmodel.cn/api/paas/v4/models", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
 (r.status in [200]) ? {"result": "valid"} :
