@@ -2583,7 +2583,7 @@ regex = '''(?i:(?:coveralls)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:
 confidence = "medium"
 keywords = ["coveralls"]
 validate = '''
-let r = http.post("https://coveralls.io/api/v1/jobs", {"Content-Type": "multipart/form-data; boundary=betterleaks", "User-Agent": "Go-http-client/1.1"}, "--betterleaks\r\nContent-Disposition: form-data; name=\"json_file\"; filename=\"json_file.json\"\r\nContent-Type: application/json\r\n\r\n{\"repo_token\": \"" + finding["secret"] + "\", \"source_files\": \"invalid_type_string\"}\r\n--betterleaks--\r\n");
+let r = http.post("https://coveralls.io/api/v1/jobs", {"Content-Type": "multipart/form-data; boundary=betterleaks"}, "--betterleaks\r\nContent-Disposition: form-data; name=\"json_file\"; filename=\"json_file.json\"\r\nContent-Type: application/json\r\n\r\n{\"repo_token\": \"" + finding["secret"] + "\", \"source_files\": \"invalid_type_string\"}\r\n--betterleaks--\r\n");
 (r.status in [500] && r.body contains "Build processing error.") ? {"result": "valid"} :
 (r.status in [422] && r.body contains "Couldn't find a repository matching this job.") ? {"result": "invalid"} :
 validate.unknown(r)
@@ -2603,7 +2603,7 @@ path = '''(?i)(?:^|/)\.coveralls\.yml$'''
 confidence = "medium"
 keywords = ["repo_token"]
 validate = '''
-let r = http.post("https://coveralls.io/api/v1/jobs", {"Content-Type": "multipart/form-data; boundary=betterleaks", "User-Agent": "Go-http-client/1.1"}, "--betterleaks\r\nContent-Disposition: form-data; name=\"json_file\"; filename=\"json_file.json\"\r\nContent-Type: application/json\r\n\r\n{\"repo_token\": \"" + finding["secret"] + "\", \"source_files\": \"invalid_type_string\"}\r\n--betterleaks--\r\n");
+let r = http.post("https://coveralls.io/api/v1/jobs", {"Content-Type": "multipart/form-data; boundary=betterleaks"}, "--betterleaks\r\nContent-Disposition: form-data; name=\"json_file\"; filename=\"json_file.json\"\r\nContent-Type: application/json\r\n\r\n{\"repo_token\": \"" + finding["secret"] + "\", \"source_files\": \"invalid_type_string\"}\r\n--betterleaks--\r\n");
 (r.status in [500] && r.body contains "Build processing error.") ? {"result": "valid"} :
 (r.status in [422] && r.body contains "Couldn't find a repository matching this job.") ? {"result": "invalid"} :
 validate.unknown(r)
