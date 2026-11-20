@@ -36,6 +36,9 @@ type Files struct {
 	MaxFileSize     int
 	Path            string
 	MaxArchiveDepth int
+	// BuiltinArchiveFormats enables faster probing for the formats bundled with
+	// Betterleaks. Leave it false when using additional archives.RegisterFormat matchers.
+	BuiltinArchiveFormats bool
 }
 
 // walkFiles calls yield concurrently from directory walkers; yield must be safe
@@ -159,11 +162,15 @@ func (s *Files) Fragments(ctx context.Context, yield sources.FragmentsFunc) erro
 	paths := make(chan filePath, workers)
 	for range workers {
 		g.Go(func() error {
+			var probe *diskArchiveProbe
 			for name := range paths {
 				if err := groupCtx.Err(); err != nil {
 					return err
 				}
-				if err := s.readFile(groupCtx, name, yield); err != nil {
+				if probe == nil && s.BuiltinArchiveFormats && s.MaxArchiveDepth > 0 {
+					probe = new(diskArchiveProbe)
+				}
+				if err := s.readFile(groupCtx, name, probe, yield); err != nil {
 					return err
 				}
 			}
@@ -185,7 +192,7 @@ func (s *Files) Fragments(ctx context.Context, yield sources.FragmentsFunc) erro
 	return errors.Join(producerErr, workerErr, ctx.Err())
 }
 
-func (s *Files) readFile(ctx context.Context, name filePath, yield sources.FragmentsFunc) error {
+func (s *Files) readFile(ctx context.Context, name filePath, probe *diskArchiveProbe, yield sources.FragmentsFunc) error {
 	f, err := os.Open(name.path)
 	if err != nil {
 		if os.IsPermission(err) {
@@ -206,5 +213,5 @@ func (s *Files) readFile(ctx context.Context, name filePath, yield sources.Fragm
 		prefiltered:     true,
 	}
 
-	return file.Fragments(ctx, yield)
+	return file.fragments(ctx, yield, false, probe)
 }

@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/alecthomas/kong v1.16.1
+	github.com/andybalholm/brotli v1.2.7
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/dlclark/regexp2 v1.11.5
 	github.com/docker/docker-credential-helpers v0.9.3
@@ -32,7 +33,6 @@ require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/STARRY-S/zip v0.2.3 // indirect
-	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/sevenzip v1.6.2 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect

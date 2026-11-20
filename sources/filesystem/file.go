@@ -61,8 +61,18 @@ type File struct {
 	decompressed bool
 }
 
-// Fragments yields fragments for the this source
-func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) (err error) {
+// Fragments yields fragments for this source.
+func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) error {
+	return s.fragments(ctx, yield, false, nil)
+}
+
+// ArchiveFragments expands this file only if it is an archive. Git uses it
+// for binary blobs, which have no text patch to scan.
+func (s *File) ArchiveFragments(ctx context.Context, yield sources.FragmentsFunc) error {
+	return s.fragments(ctx, yield, true, nil)
+}
+
+func (s *File) fragments(ctx context.Context, yield sources.FragmentsFunc, archiveOnly bool, probe *diskArchiveProbe) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -101,7 +111,7 @@ func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) (err 
 
 	// Enabled archive scanning identifies containers independently of their names.
 	if s.DetectArchive || s.MaxArchiveDepth > 0 {
-		format, stream, err = archives.Identify(ctx, "", stream)
+		format, stream, err = identifyContent(ctx, stream, probe)
 		// Preserve named malformed-archive recovery in permissive mode. Strict
 		// callers must still receive the original identification error. Plain
 		// package-manager state files can have gzip suffixes, so a .gz name
@@ -144,6 +154,14 @@ func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) (err 
 			}
 			return nil
 		}
+		if probe != nil {
+			// Preserve random access for ZIP and 7z, including name-only matches.
+			f := s.Content.(*os.File)
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				return err
+			}
+			stream = f
+		}
 		if extractor, ok := format.(archives.Extractor); ok {
 			s.extractorFragments(ctx, extractor, stream, yield)
 			return nil
@@ -158,6 +176,9 @@ func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) (err 
 		}
 	}
 
+	if archiveOnly {
+		return nil
+	}
 	isArchiveContent := s.archiveDepth > 0
 	return s.fileFragments(ctx, stream, isArchiveContent, yield)
 }

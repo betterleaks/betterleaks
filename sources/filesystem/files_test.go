@@ -26,6 +26,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func BenchmarkFilesSmallText(b *testing.B) {
+	dir := b.TempDir()
+	for i := range 256 {
+		content := fmt.Sprintf("package sample\nconst index = %d\n", i) + strings.Repeat("// ordinary source code\n", 32)
+		require.NoError(b, os.WriteFile(filepath.Join(dir, fmt.Sprintf("file%d.go", i)), []byte(content), 0o600))
+	}
+	for _, depth := range []int{0, 8} {
+		b.Run(fmt.Sprintf("depth=%d", depth), func(b *testing.B) {
+			source := Files{Path: dir, MaxArchiveDepth: depth, BuiltinArchiveFormats: true}
+			for b.Loop() {
+				require.NoError(b, source.Fragments(b.Context(), func(_ sources.Fragment, err error) error { return err }))
+			}
+		})
+	}
+}
+
 func TestFilesDoesNotRepeatPrefilterForAcceptedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file.txt")
 	require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("content\n\n", 100_000)), 0o600))
@@ -57,16 +73,17 @@ func TestFilesFragmentsOwnContents(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(contents[path]), 0o600))
 	}
 	// One reader forces buffer reuse before retained fragments are inspected.
-	source := &Files{Path: root}
-	var fragments []sources.Fragment
-	require.NoError(t, source.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {
-		fragments = append(fragments, fragment)
-		return err
-	}))
-	require.Len(t, fragments, len(contents))
-	for _, fragment := range fragments {
-		require.Equal(t, contents[filepath.FromSlash(fragment.Attr(sources.AttrPath))], fragment.Raw)
-		require.Equal(t, 1, fragment.StartLine)
+	for _, source := range []Files{{Path: root}, {Path: root, MaxArchiveDepth: 8, BuiltinArchiveFormats: true}} {
+		var fragments []sources.Fragment
+		require.NoError(t, source.Fragments(t.Context(), func(fragment sources.Fragment, err error) error {
+			fragments = append(fragments, fragment)
+			return err
+		}))
+		require.Len(t, fragments, len(contents))
+		for _, fragment := range fragments {
+			require.Equal(t, contents[filepath.FromSlash(fragment.Attr(sources.AttrPath))], fragment.Raw)
+			require.Equal(t, 1, fragment.StartLine)
+		}
 	}
 }
 

@@ -1,6 +1,8 @@
 package s3
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -245,9 +247,17 @@ func TestS3_skipReason(t *testing.T) {
 // behaves like a minimal S3-compatible endpoint with two list pages and two
 // scannable objects.
 func TestS3_listsAndScans_endToEnd(t *testing.T) {
+	var bundle bytes.Buffer
+	zw := zip.NewWriter(&bundle)
+	member, err := zw.Create("member.txt")
+	require.NoError(t, err)
+	_, err = member.Write([]byte("archived content"))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
 	objects := map[string]string{
-		"a.txt": "alpha-content",
-		"b.txt": "AKIAIOSFODNN7EXAMPLE bravo-content", // contains an AWS-key-shaped string
+		"a.txt":  "alpha-content",
+		"b.txt":  "AKIAIOSFODNN7EXAMPLE bravo-content", // contains an AWS-key-shaped string
+		"bundle": bundle.String(),
 	}
 
 	page1 := s3ListBucketResult{
@@ -258,9 +268,10 @@ func TestS3_listsAndScans_endToEnd(t *testing.T) {
 		},
 	}
 	page2 := s3ListBucketResult{
-		Name: "mybucket", KeyCount: 1, MaxKeys: 1, IsTruncated: false,
+		Name: "mybucket", KeyCount: 2, MaxKeys: 2, IsTruncated: false,
 		Contents: []s3Object{
 			{Key: "b.txt", Size: int64(len(objects["b.txt"])), ETag: `"etag-b"`, LastModified: "2024-01-02T00:00:00Z", StorageClass: "STANDARD"},
+			{Key: "bundle", Size: int64(bundle.Len()), StorageClass: "STANDARD"},
 		},
 	}
 
@@ -292,10 +303,11 @@ func TestS3_listsAndScans_endToEnd(t *testing.T) {
 
 	u, _ := url.Parse(srv.URL)
 	s := &Source{
-		URL:       fmt.Sprintf("%s/mybucket/", srv.URL),
-		Region:    "us-east-1",
-		AccessKey: "AKIAIOSFODNN7EXAMPLE",
-		SecretKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+		URL:             fmt.Sprintf("%s/mybucket/", srv.URL),
+		MaxArchiveDepth: 1,
+		Region:          "us-east-1",
+		AccessKey:       "AKIAIOSFODNN7EXAMPLE",
+		SecretKey:       "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
 	}
 	require.NoError(t, s.resolveConfig())
 	assert.Equal(t, "mybucket", s.parsed.Bucket)
@@ -305,17 +317,21 @@ func TestS3_listsAndScans_endToEnd(t *testing.T) {
 	var mu sync.Mutex
 	var keys []string
 	attrsByKey := map[string]map[string]string{}
-	err := s.Fragments(context.Background(), func(f sources.Fragment, err error) error {
+	err = s.Fragments(context.Background(), func(f sources.Fragment, err error) error {
 		require.NoError(t, err)
 		mu.Lock()
 		defer mu.Unlock()
 		key := f.Attr(AttrKey)
+		if key == "bundle" {
+			assert.Equal(t, "bundle!member.txt", f.Attr(sources.AttrPath))
+			assert.Equal(t, "archived content", f.Raw)
+		}
 		keys = append(keys, key)
 		attrsByKey[key] = f.Attributes
 		return nil
 	})
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"a.txt", "b.txt"}, keys)
+	assert.ElementsMatch(t, []string{"a.txt", "b.txt", "bundle"}, keys)
 
 	for _, k := range []string{"a.txt", "b.txt"} {
 		a := attrsByKey[k]
