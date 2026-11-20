@@ -479,6 +479,8 @@ func TestScannerHashes(t *testing.T) {
 					assert.Equal(t, wantHashes["part"], decoded.ComponentSets[0].Components[0].RuleHash)
 					assert.Equal(t, finding.ComponentSets[0].Components[0].Match.Fingerprint, decoded.ComponentSets[0].Components[0].Match.Fingerprint)
 					assert.Equal(t, "REDACTED", decoded.Match.Value)
+					assert.Equal(t, json.Number("2.52"), decoded.Match.Entropy)
+					assert.Equal(t, json.Number("2.73"), decoded.ComponentSets[0].Components[0].Match.Entropy)
 					parsed, err := fingerprint.Parse(decoded.ComponentSets[0].Components[0].Match.Fingerprint)
 					require.NoError(t, err)
 					// An entry copied from a redacted component suppresses its parent.
@@ -489,6 +491,7 @@ func TestScannerHashes(t *testing.T) {
 					assert.Empty(t, mustNew(t, originalCfg, append(options, WithIgnoredFingerprints(parsed))...).ScanString("PRIMARY COMPONENT"))
 				} else {
 					assert.NotContains(t, string(data), `"fingerprint"`)
+					assert.NotContains(t, string(data), `"entropy"`)
 				}
 				var pretty bytes.Buffer
 				require.NoError(t, report.WritePretty(&pretty, finding, report.PrettyOptions{NoColor: true}))
@@ -735,11 +738,13 @@ func stripFindingMetadata(findings []report.Finding) []report.Finding {
 		findings[i].Attributes = nil
 		findings[i].RuleHash = ""
 		findings[i].Match.Fingerprint = ""
+		findings[i].Match.Entropy = ""
 		findings[i].Location.Path = ""
 		for si := range findings[i].ComponentSets {
 			for ci := range findings[i].ComponentSets[si].Components {
 				findings[i].ComponentSets[si].Components[ci].Location.Path = ""
 				findings[i].ComponentSets[si].Components[ci].Match.Fingerprint = ""
+				findings[i].ComponentSets[si].Components[ci].Match.Entropy = ""
 			}
 		}
 	}
@@ -3814,7 +3819,7 @@ func TestFindingMatchAndLocationHandoff(t *testing.T) {
 	summary, err := scanner.Scan(t.Context(), &sources.Reader{Content: strings.NewReader("token=alpha"), Attributes: attrs}, func(f report.Finding) error { finding = f; return nil })
 	require.NoError(t, err)
 	require.Equal(t, 1, summary.Findings)
-	require.Equal(t, report.Match{Full: "token=alpha", Value: "alpha", Fingerprint: fingerprint.Format(fingerprint.Sum([]byte("alpha"))), Captures: map[string]string{"token": "alpha"}, Line: "token=alpha"}, finding.Match)
+	require.Equal(t, report.Match{Full: "token=alpha", Value: "alpha", Entropy: "1.92", Fingerprint: fingerprint.Format(fingerprint.Sum([]byte("alpha"))), Captures: map[string]string{"token": "alpha"}, Line: "token=alpha"}, finding.Match)
 	require.Equal(t, "archive.zip!service.env", finding.Location.Path)
 	require.Equal(t, 1, finding.Location.StartLine)
 	require.Equal(t, "high", finding.Confidence)

@@ -345,6 +345,7 @@ The Go fields and serialized names have changed together:
 | :--- | :--- | :--- |
 | `RuleID` | `RuleID` | `rule_id` |
 | `Secret` | `Match.Value` | `match.value` |
+| `Entropy` | `Match.Entropy` | `match.entropy` (bits per byte, three significant digits) |
 | `Match` | `Match.Full` | `match.full` |
 | `CaptureGroups` | `Match.Captures` | `match.captures` |
 | `MatchContext` | `Match.Context` | `match.context` |
@@ -359,7 +360,7 @@ format. `scan.WithFingerprintKey(key)` selects HMAC-SHA-256 with the
 `hmac-sha256:` prefix instead, and copies the non-empty key. The fingerprint
 is included on non-empty primary and component matches, including
 non-secret components such as account IDs, and preserved through redaction and
-analysis. `Entropy` and `Fragment` fields are gone. `tags` remains
+analysis. The `Fragment` field is gone. `tags` remains
 available for rule labels and is omitted when empty. Decoding uses `encodings`
 and `decode_depth`, not generated `decoded:*` tags. Source coordinates point to
 the encoded input; `match.value` contains the extracted secret. JSON encoding

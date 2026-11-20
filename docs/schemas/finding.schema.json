@@ -334,6 +334,10 @@
           "type": "string",
           "description": "Extracted value. May be a non-secret component, empty for path-only findings, or redacted."
         },
+        "entropy": {
+          "type": "number",
+          "description": "Shannon entropy in bits per byte of the non-empty extracted value before redaction, rounded to three significant digits."
+        },
         "fingerprint": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$",
