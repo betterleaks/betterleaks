@@ -12188,7 +12188,7 @@ keywords = [
     "bigmodel",
 ]
 validate = '''
-let r = http.get("https://open.bigmodel.cn/api/paas/v4/models", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+let r = http.get("https://open.bigmodel.cn/api/paas/v4/models", {"Authorization": "Bearer " + finding["secret"]});
 (r.status in [200]) ? {"result": "valid"} :
 (r.status in [401]) ? {"result": "invalid"} :
 validate.unknown(r)

@@ -11,7 +11,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Detected a Zhipu AI API key, which may allow unauthorized access to BigModel GLM services and resources.",
 	Regex:       rulebuilder.Assignment([]string{"zhipu", "bigmodel"}, `(?i)[a-f0-9]{32}\.[A-Za-z0-9]{16,17}`),
 	Keywords:    []string{"zhipu", "bigmodel"},
-	ValidateExpr: `let r = http.get("https://open.bigmodel.cn/api/paas/v4/models", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+	ValidateExpr: `let r = http.get("https://open.bigmodel.cn/api/paas/v4/models", {"Authorization": "Bearer " + finding["secret"]});
 (r.status in [200]) ? {"result": "valid"} :
 (r.status in [401]) ? {"result": "invalid"} :
 validate.unknown(r)`,
