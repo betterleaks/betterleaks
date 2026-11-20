@@ -229,7 +229,8 @@ func toStringSlice(v any) []string {
 	}
 }
 
-func shannonEntropy(s string) float64 {
+// ShannonEntropy returns the Shannon entropy of the bytes in s.
+func ShannonEntropy(s string) float64 {
 	if len(s) == 0 {
 		return 0
 	}

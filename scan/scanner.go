@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -997,8 +998,6 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			continue
 		}
 
-		entropy := shannonEntropy(finding.Match.Value)
-
 		hasGlobalFilter := s.globalFilter != nil
 		hasRuleFilter := r.filter != nil
 		// Context is opt-in. Filters can slice fragment_raw using match offsets
@@ -1017,7 +1016,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 				findingMap[key] = value
 			}
 			findingMap["captures"] = finding.Match.Captures
-			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
+			findingMap["entropy"] = strconv.FormatFloat(shannonEntropy(finding.Match.Value), 'g', -1, 64)
 			findingMap["fragment_raw"] = currentRaw
 			findingMap["match_start_idx"] = filterMatchStartIdx
 			findingMap["match_end_idx"] = filterMatchEndIdx
@@ -1060,6 +1059,9 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 		}
 
+		if finding.Match.Value != "" {
+			finding.Match.Entropy = json.Number(fmt.Sprintf("%#.3g", exprruntime.ShannonEntropy(finding.Match.Value)))
+		}
 		findings = append(findings, finding)
 	}
 
