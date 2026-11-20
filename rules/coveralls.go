@@ -41,7 +41,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Confidence:  "medium",
 	Description: "Detected a Coveralls repository token, which may allow uploading coverage reports or viewing private repository coverage data.",
 	Regex:       `\b` + rulebuilder.Assignment([]string{"repo_token"}, `[A-Za-z0-9]{33}`),
-	Path:        `(?i)(?:^|/)\.coveralls\.yml$`,
+	Path:        `(?i)(?:^|/|!)\.coveralls\.yml$`,
 	Keywords:    []string{"repo_token"},
 	ValidateExpr: `let r = http.post("https://coveralls.io/api/v1/jobs", {"Content-Type": "multipart/form-data; boundary=betterleaks"}, "--betterleaks\r\nContent-Disposition: form-data; name=\"json_file\"; filename=\"json_file.json\"\r\nContent-Type: application/json\r\n\r\n{\"repo_token\": \"" + finding["secret"] + "\", \"source_files\": \"invalid_type_string\"}\r\n--betterleaks--\r\n");
 (r.status in [500] && r.body contains "Build processing error.") ? {"result": "valid"} :
