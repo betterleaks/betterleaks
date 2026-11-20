@@ -36,3 +36,48 @@ var _ = rulebuilder.Add(config.Rule{
 		rulebuilder.Match("true positive 4", "coveralls_TOKEN=a1b2c3d4e5f6g7h8i9j0k1l2m3n4p5q6r7s8", "a1b2c3d4e5f6g7h8i9j0k1l2m3n4p5q6r7s8"),
 	},
 })
+
+var _ = rulebuilder.Add(config.Rule{
+	ID:          "coveralls-repo-token",
+	Confidence:  "medium",
+	Description: "Detected a Coveralls repository token, which may allow uploading coverage reports or viewing private repository coverage data.",
+	Regex:       rulebuilder.Assignment([]string{"coveralls"}, `[A-Za-z0-9]{33}`),
+	Keywords:    []string{"coveralls"},
+	ValidateExpr: `let r = http.post("https://coveralls.io/api/v1/jobs", {"Content-Type": "multipart/form-data; boundary=betterleaks"}, "--betterleaks\r\nContent-Disposition: form-data; name=\"json_file\"; filename=\"json_file.json\"\r\nContent-Type: application/json\r\n\r\n{\"repo_token\": \"" + finding["secret"] + "\", \"source_files\": \"invalid_type_string\"}\r\n--betterleaks--\r\n");
+(r.status in [500] && r.body contains "Build processing error.") ? {"result": "valid"} :
+(r.status in [422] && r.body contains "Couldn't find a repository matching this job.") ? {"result": "invalid"} :
+validate.unknown(r)`,
+	FilterExpr: `entropy(finding["secret"]) <= 3.5`,
+	Tests: []config.RuleTest{
+		rulebuilder.Match("shape 1", `coveralls = "f70xzAUCYPFLXC6oqAtjsFQFqNFciWcVy"`, `f70xzAUCYPFLXC6oqAtjsFQFqNFciWcVy`),
+		rulebuilder.NoMatch("near miss 1", `coveralls = "141jQMttDmyt5Vvq4Hlu5jBDMvvHRNT4"`),
+	},
+})
+
+var _ = rulebuilder.Add(config.Rule{
+	ID:          "coveralls-repo-token-coveralls-yml",
+	Confidence:  "medium",
+	Description: "Detected a Coveralls repository token, which may allow uploading coverage reports or viewing private repository coverage data.",
+	Regex:       `\b` + rulebuilder.Assignment([]string{"repo_token"}, `[A-Za-z0-9]{33}`),
+	Path:        `(?i)(?:^|/|!)\.coveralls\.yml$`,
+	Keywords:    []string{"repo_token"},
+	ValidateExpr: `let r = http.post("https://coveralls.io/api/v1/jobs", {"Content-Type": "multipart/form-data; boundary=betterleaks"}, "--betterleaks\r\nContent-Disposition: form-data; name=\"json_file\"; filename=\"json_file.json\"\r\nContent-Type: application/json\r\n\r\n{\"repo_token\": \"" + finding["secret"] + "\", \"source_files\": \"invalid_type_string\"}\r\n--betterleaks--\r\n");
+(r.status in [500] && r.body contains "Build processing error.") ? {"result": "valid"} :
+(r.status in [422] && r.body contains "Couldn't find a repository matching this job.") ? {"result": "invalid"} :
+validate.unknown(r)`,
+	FilterExpr: `entropy(finding["secret"]) <= 3.5`,
+	Tests: []config.RuleTest{
+		{
+			Name:       "shape 1 in .coveralls.yml",
+			Input:      `repo_token = "f70xzAUCYPFLXC6oqAtjsFQFqNFciWcVy"`,
+			Attributes: map[string]string{"path": ".coveralls.yml"},
+			Expect:     []config.ExpectedFinding{{Secret: "f70xzAUCYPFLXC6oqAtjsFQFqNFciWcVy"}},
+		},
+		{
+			Name:       "shape 1 in package.json",
+			Input:      `repo_token = "f70xzAUCYPFLXC6oqAtjsFQFqNFciWcVy"`,
+			Attributes: map[string]string{"path": "package.json"},
+			Expect:     []config.ExpectedFinding{},
+		},
+	},
+})
