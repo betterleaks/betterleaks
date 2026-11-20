@@ -5,6 +5,15 @@ import (
 	"github.com/betterleaks/betterleaks/v2/internal/rulebuilder"
 )
 
+const daytonaAnalyzeExpr = `let input = validation.analysis;
+{
+  "identity": {
+    "id": input["user_id"] ?? "",
+    "account": {"id": input["organization_id"] ?? ""}
+  },
+  "capabilities": []
+}`
+
 var _ = rulebuilder.Add(config.Rule{
 	ID:          "daytona-api-key",
 	Confidence:  "high",
@@ -21,6 +30,7 @@ var _ = rulebuilder.Add(config.Rule{
   } :
 (r.status in [401]) ? {"result": "invalid"} :
 validate.unknown(r)`,
+	AnalyzeExpr: daytonaAnalyzeExpr,
 	FilterExpr: `entropy(finding["secret"]) <= 3.5`,
 	Tests: []config.RuleTest{
 		rulebuilder.Match("shape 1", `token = "dtn_e64cce737ed89b1396767201aaf4d58d11bf7e0622982b57fa8697a3002a111e"`, `dtn_e64cce737ed89b1396767201aaf4d58d11bf7e0622982b57fa8697a3002a111e`),

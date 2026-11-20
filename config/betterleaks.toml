@@ -2835,6 +2835,16 @@ let r = http.get("https://app.daytona.io/api/api-keys/current", {"Authorization"
 (r.status in [401]) ? {"result": "invalid"} :
 validate.unknown(r)
 '''
+analyze = '''
+let input = validation.analysis;
+{
+  "identity": {
+    "id": input["user_id"] ?? "",
+    "account": {"id": input["organization_id"] ?? ""}
+  },
+  "capabilities": []
+}
+'''
 filter = '''
 entropy(finding["secret"]) <= 3.5
 '''
