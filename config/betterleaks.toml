@@ -2824,7 +2824,7 @@ regex = '''\b(dtn_[a-f0-9]{64})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
 confidence = "high"
 keywords = ["dtn_"]
 validate = '''
-let r = http.get("https://app.daytona.io/api/api-keys/current", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+let r = http.get("https://app.daytona.io/api/api-keys/current", {"Authorization": "Bearer " + finding["secret"]});
 (r.status in [200]) ? {
     "result": "valid",
     "analysis": {

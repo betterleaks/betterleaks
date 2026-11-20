@@ -11,7 +11,7 @@ var _ = rulebuilder.Add(config.Rule{
 	Description: "Detected a Daytona API key, which may allow access to Daytona workspace management and development environment orchestration.",
 	Regex:       rulebuilder.Token(`dtn_[a-f0-9]{64}`),
 	Keywords:    []string{"dtn_"},
-	ValidateExpr: `let r = http.get("https://app.daytona.io/api/api-keys/current", {"Authorization": "Bearer " + finding["secret"], "User-Agent": "Go-http-client/1.1"});
+	ValidateExpr: `let r = http.get("https://app.daytona.io/api/api-keys/current", {"Authorization": "Bearer " + finding["secret"]});
 (r.status in [200]) ? {
     "result": "valid",
     "analysis": {
