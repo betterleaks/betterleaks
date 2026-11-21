@@ -4288,7 +4288,8 @@ matchesAny(finding["secret"], [`^[a-zA-Z_.-]+$`, `^(?:ecdh|ecdsa)-sha2-nistp\d+$
   `^public-token-live-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
   `^pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}$`,
   `^8c6803164dbc395fb7131c9d54843627$`,
-  `^6fe4476ee5a1832882e326b506d14126$`
+  `^6fe4476ee5a1832882e326b506d14126$`,
+  `^ck_pub_[a-zA-Z0-9]{32}$`
 ])
 || (matchesAny(finding["secret"], [`^pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && containsAny(providerMatchContext, ["stripe", "woo", "wcm"]))
 || (matchesAny(finding["secret"], [`^rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?$`]) && containsAny(providerMatchContext, ["stripe"]))
