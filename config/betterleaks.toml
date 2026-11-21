@@ -5562,6 +5562,44 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# google-client-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "google-client-secret"
+description = "Detected a Google OAuth client secret, which may allow unauthorized API requests and token acquisition when paired with an OAuth client ID."
+regex = '''\b(GOCSPX-[A-Za-z0-9_-]{28})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["gocspx-"]
+validate = '''
+(components["google-oauth-client-id"]?.secret ?? "") == "" ? {"result": "needs_validation", "reason": "validation needs the google-oauth-client-id value set beside the key"} : (
+let r = http.post("https://oauth2.googleapis.com/token", {"Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Go-http-client/1.1"}, "client_id=" + strings.urlQueryEscape((components["google-oauth-client-id"]?.secret ?? "")) + "&client_secret=" + strings.urlQueryEscape(finding["secret"]) + "&grant_type=refresh_token&refresh_token=probe_check_dummy_token");
+(r.status in [400] && (r.json?.error == "invalid_grant")) ? {"result": "valid"} :
+(r.status in [401] && (r.json?.error == "invalid_client")) ? {"result": "invalid"} :
+validate.unknown(r)
+)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+components = [
+    { id = "google-oauth-client-id", optional = true, within = "10L" },
+]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# google-oauth-client-id
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "google-oauth-client-id"
+description = "Google OAuth Client ID"
+regex = '''\b([0-9]{12,}-[a-z0-9]{32}\.apps\.googleusercontent\.com)(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = [".apps.googleusercontent.com"]
+skipReport = true
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # grafana-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
