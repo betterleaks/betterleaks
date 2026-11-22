@@ -152,6 +152,10 @@ let _ = setConfidence(level);
 		rulebuilder.Match("true positive 10", ` utils.GetEnvOrDefault("api_token", "dafa7817-e246-48f3-91a7-e87653d587b8")`, "dafa7817-e246-48f3-91a7-e87653d587b8"),
 		rulebuilder.Match("random key containing a word", `api_key = "Xk2q9TfZrB7wLhookpN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLhookpN4cVy8sJ3mQe6RdG1aUoHn"),
 		rulebuilder.Match("random key containing a word 2", `api_key = "p8RvN3qLdataZx7KcW2mYt9BfJ4hGs6EuA1oTnVi"`, "p8RvN3qLdataZx7KcW2mYt9BfJ4hGs6EuA1oTnVi"),
+		// The path-name filter must only see the credential name, never the value:
+		// a high-entropy key that happens to contain "key_path" is still a key.
+		rulebuilder.Match("secret containing a path-like substring", `api_key = "V7kQ2mZx9TfL4pRc8key_pathNwY6bHd3JgS5aEu"`, "V7kQ2mZx9TfL4pRc8key_pathNwY6bHd3JgS5aEu"),
+
 		rulebuilder.Match("random key containing auth", `api_key = "Xk2q9TfZrB7wLauthpN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLauthpN4cVy8sJ3mQe6RdG1aUoHn"),
 		rulebuilder.Match("random key containing type", `api_key = "Xk2q9TfZrB7wLtypepN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLtypepN4cVy8sJ3mQe6RdG1aUoHn"),
 		rulebuilder.Match("random key containing zero", `api_key = "Xk2q9TfZrB7wLzeropN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLzeropN4cVy8sJ3mQe6RdG1aUoHn"),
