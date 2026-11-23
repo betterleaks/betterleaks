@@ -1,0 +1,90 @@
+name: npm CLI
+
+on:
+  pull_request:
+    paths:
+      - 'bindings/node/**'
+      - '.github/workflows/npm-cli.yml'
+      - '.github/workflows/release.yml'
+      - '.goreleaser.yml'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      binaries:
+        description: Artifact ID of the six GoReleaser binaries and their metadata
+        required: true
+        type: string
+    outputs:
+      tarballs:
+        description: Artifact ID of the tested npm packages
+        value: ${{ jobs.pack.outputs.tarballs }}
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    outputs:
+      tarballs: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
+        if: inputs.binaries == ''
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89
+        if: inputs.binaries == ''
+        with:
+          version: '~> v2'
+          args: build --snapshot --clean
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: inputs.binaries != ''
+        with:
+          artifact-ids: ${{ inputs.binaries }}
+          path: dist
+          merge-multiple: true
+      - run: npm --prefix bindings/node run pack:cli
+      - name: Verify snapshot tarballs against the local build
+        if: inputs.binaries == ''
+        run: python3 bindings/node/scripts/verify-pack.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: upload
+        with:
+          name: npm-candidate-${{ github.run_attempt }}
+          path: |
+            dist/npm/*/*.tgz
+            dist/metadata.json
+          if-no-files-found: error
+          compression-level: 0
+
+  install:
+    needs: pack
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-15, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.pack.outputs.tarballs }}
+          path: dist
+          merge-multiple: true
+      - name: Download original release binaries for comparison
+        if: inputs.binaries != '' && runner.os == 'Linux'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ inputs.binaries }}
+          path: dist
+          merge-multiple: true
+      - name: Verify release tarballs before running the CLI
+        if: inputs.binaries != '' && runner.os == 'Linux'
+        run: python3 bindings/node/scripts/verify-pack.py --tag "$GITHUB_REF_NAME"
+      - run: npm --prefix bindings/node run test:pack
