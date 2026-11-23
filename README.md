@@ -1,28 +1,32 @@
 # Betterleaks
 
-<img src="docs/betterleaks-logo.png" alt="Betterleaks logo" width="64" height="64" />
+<img src="docs/assets/betterleaks-logo.png" alt="Betterleaks logo" width="64" height="64" />
 
 Betterleaks is a configurable, fast, and thorough secrets scanner. It is maintained by the folks who made Gitleaks, including the original author.
 Check out this series of blog posts to learn how the detection engine works: 1. [Regex is all you need](https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need), 2. [Rare Not Random](https://lookingatcomputer.substack.com/p/rare-not-random), 3. [Express YourCELf](https://lookingatcomputer.substack.com/p/express-yourcelf-filtering-and-validating), 4. [Better generic secrets detection](https://www.aikido.dev/blog/better-generic-secrets-detection-non-secrets).
 
 Development is supported by
-<a href="https://www.aikido.dev"><img src="docs/aikido_log.svg" alt="Aikido Security" width="80" /></a>
+<a href="https://www.aikido.dev"><img src="docs/assets/aikido_log.svg" alt="Aikido Security" width="80" /></a>
 
 ### Notable Features
 
 | Feature | Description |
 | :--- | :--- |
-| **Simple Prioritization** | Rank by confidence, validation status, and analyzed severity scores to make triage as simple as 123. |
+| **Fast scans** | **30x faster than Gitleaks.** |
 | **Secrets Validation** | Validate if a detected secret is active by making asynchronous HTTP requests directly from within the rule definition using Expr. |
 | **Secrets Analysis** | Enrich valid credentials with provider-neutral identity, account, capability, and severity information. |
 | **Secrets Revocation** | Optionally revoke secrets. |
 | **Expr-based filtering** | Write contextual rule filters that evaluate fragment (data chunks) attributes (like git author, commit message, and file path) and finding data to reduce false positives. |
 | **BPE filtering** | Filter out natural language false positives by using BPE tokenization to measure how "rare" or non-human a string is. |
-| **Fast scans** | Achieve fast performance through sane default parallelization settings, ahocorasick keyword filters, and re2. |
 | **New Sources** | Support for sources like GitHub, GitLab, Hugging Face, S3, and more. It's easy to add new sources too!   |
 | **Container Images** | Scan all platforms, historical layers, configuration, and embedded attestations, with digest provenance and deleted/overwritten path reporting. See the [container guide](docs/scanning.md#container). |
 | **Portability** | Runs on any modern OS/Arch. The small binary can be integrated in any system. |
 
+### Benchmarks
+
+![File Scan Speed by release on two directories. Betterleaks main reached 1,152 MB/s on the full benchmark directory and 1,450 MB/s on the GitLab checkout.](docs/assets/fs-throughput-2026-11-18.svg)
+
+Betterleaks is fast. GB/s speeds achieved.
 
 ### Installation
 
