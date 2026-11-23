@@ -25,14 +25,36 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/prefilter"
 	"github.com/betterleaks/betterleaks/v2/version"
+	"golang.org/x/term"
 )
 
-var banner = fmt.Sprintf(`
- + ○
-   ▾
- betterleaks %s
+const (
+	bannerIndent = "  "
+	plainLogo    = bannerIndent + "+ ○\n" + bannerIndent + "  ▾"
+)
 
-`, version.Version)
+func isTerminalWriter(w io.Writer) bool {
+	file, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
+}
+
+func printBanner(w io.Writer, noColor bool) {
+	logo := plainLogo
+	if !noColor && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb" && isTerminalWriter(w) {
+		// Eight columns by four rows approximate a square in a typical terminal font.
+		const tile = "\x1b[1;38;2;255;255;255;48;2;15;89;132m"
+		const reset = "\x1b[0m"
+		rows := []string{
+			"        ",
+			"  +  ○  ",
+			"     ▾  ",
+			"        ",
+		}
+		const rowStart = bannerIndent + tile
+		logo = rowStart + strings.Join(rows, reset+"\n"+rowStart) + reset
+	}
+	_, _ = fmt.Fprintf(w, "\n%s\n\n%sbetterleaks %s\n\n", logo, bannerIndent, version.Version)
+}
 
 const configDescription = `config file path
 order of precedence:
@@ -179,8 +201,8 @@ func flagWasSet(ctx *kong.Context, name string) bool {
 var bannerPrinted bool
 
 func initConfig(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags) *config.Config {
-	if !flags.NoBanner && !flags.Silent && !bannerPrinted {
-		_, _ = fmt.Fprint(runtime.stderr, banner)
+	if !flags.NoBanner && !bannerPrinted {
+		printBanner(runtime.stderr, globals.NoColor)
 		bannerPrinted = true
 	}
 	runtime.Logger().Debug("using regex engine", "version", runtime.regexEngine().Version())

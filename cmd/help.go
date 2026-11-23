@@ -7,6 +7,10 @@ func printCLIHelp(options kong.HelpOptions, ctx *kong.Context) error {
 		return kong.DefaultHelpPrinter(options, ctx)
 	}
 
+	if !options.Summary && isTerminalWriter(ctx.Stdout) && !helpFlagEnabled(ctx, "no-banner") {
+		printBanner(ctx.Stdout, helpFlagEnabled(ctx, "no-color"))
+	}
+
 	// Show the default scan's flags in top-level help without making them global
 	// parser flags. Copy the help view so command-local flag scopes stay intact.
 	node := *ctx.Model.Node
@@ -19,4 +23,14 @@ func printCLIHelp(options kong.HelpOptions, ctx *kong.Context) error {
 	helpCtx := *ctx
 	helpCtx.Kong = &parser
 	return kong.DefaultHelpPrinter(options, &helpCtx)
+}
+
+// Kong prints help before it applies the parsed flags to the CLI struct.
+func helpFlagEnabled(ctx *kong.Context, name string) bool {
+	for _, step := range ctx.Path {
+		if step.Flag != nil && step.Flag.Name == name {
+			return ctx.FlagValue(step.Flag) == true
+		}
+	}
+	return false
 }

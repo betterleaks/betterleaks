@@ -23,7 +23,7 @@ type ScanFlags struct {
 
 	Output       string     `group:"output" name:"output" short:"o" placeholder:"PATH" help:"Write findings to PATH (.json or .jsonl; use '-' for stdout)."`
 	JSONL        bool       `group:"output" name:"jsonl" help:"Print findings as JSONL."`
-	Silent       bool       `group:"output" short:"s" help:"Suppress findings and banner."`
+	Silent       bool       `group:"output" short:"s" help:"Suppress terminal findings."`
 	NoBanner     bool       `group:"output" name:"no-banner" help:"Suppress banner."`
 	Confidence   string     `group:"output" help:"Minimum confidence to include (low, medium, high)."`
 	Redact       redactFlag `group:"output" placeholder:"PERCENT" help:"Redact secrets in findings, including report files. With no value, redact 100%; otherwise specify 0..100."`
