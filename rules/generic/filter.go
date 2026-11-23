@@ -120,6 +120,7 @@ var testAndPublicAPIFilters = []testAndPublicAPIFilter{
 	{regex: `pdl_sdbx_apikey_[a-z\d]{26}_[a-zA-Z\d]{22}_[a-zA-Z\d]{3}`}, // Paddle Sandbox API Key
 	{regex: `8c6803164dbc395fb7131c9d54843627`},                         // Flickr API key in Dojo Toolkit (deactivated)
 	{regex: `6fe4476ee5a1832882e326b506d14126`},                         // public apiKey, was in the stopword list
+	{regex: `ck_pub_[a-zA-Z0-9]{32}`},                                   // CopilotKit Public API Key
 	// Regex + Keyword
 	{`pk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe", "woo", "wcm"}}, // Stripe and WooCommerce Sandbox Publishable Key
 	{`rk_test_[A-Za-z0-9]{24}(?:[A-Za-z0-9]{10})?(?:[A-Za-z0-9]{65})?`, []string{"stripe"}},               // Stripe Sandbox Restricted Key
