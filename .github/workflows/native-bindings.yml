@@ -1,0 +1,129 @@
+name: Native bindings
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/native-bindings.yml'
+      - 'bindings/**'
+      - 'examples/rust/**'
+      - 'examples/python/native_smoke.py'
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'config/betterleaks.toml'
+  pull_request:
+    paths:
+      - '.github/workflows/native-bindings.yml'
+      - 'bindings/**'
+      - 'examples/rust/**'
+      - 'examples/python/native_smoke.py'
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'config/betterleaks.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bindings:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+            cc: clang
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            cc: clang
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+            cc: gcc
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            cc: gcc
+    env:
+      TARGET: ${{ matrix.target }}
+      CC: ${{ matrix.cc }}
+      MACOSX_DEPLOYMENT_TARGET: '12.0'
+    steps:
+      # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # v6.3.0
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
+        with:
+          go-version: '1.26.x'
+
+      - name: Set up Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add "$TARGET"
+          linker_env="CARGO_TARGET_$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')_LINKER"
+          echo "$linker_env=$CC" >> "$GITHUB_ENV"
+
+      - name: Test native builder
+        run: go test ./bindings/cmd/build-native
+
+      - name: Test Go bridge with race detector
+        run: go test -race -tags betterleaks_ffi ./bindings/c
+
+      - name: Build static and shared libraries
+        shell: bash
+        run: |
+          go run ./bindings/cmd/build-native -target "$TARGET"
+          echo "BETTERLEAKS_LIB_DIR=$GITHUB_WORKSPACE/dist/native/$TARGET/lib" >> "$GITHUB_ENV"
+
+      - name: Test C ABI
+        shell: bash
+        run: |
+          libraries=(-lpthread -ldl -lm)
+          case "$TARGET" in
+            *-apple-darwin) libraries=(-framework CoreFoundation -framework Security -lresolv) ;;
+            *-linux-gnu) libraries+=(-lresolv) ;;
+          esac
+          "$CC" -I "dist/native/$TARGET/include" bindings/c/tests/boundary.c \
+            "$BETTERLEAKS_LIB_DIR/libbetterleaks.a" "${libraries[@]}" -o "$RUNNER_TEMP/betterleaks-boundary"
+          "$RUNNER_TEMP/betterleaks-boundary"
+
+      - name: Test shared library from Python
+        run: python3 examples/python/native_smoke.py
+
+      - name: Test Rust bindings
+        run: cargo test --locked --manifest-path bindings/rust/Cargo.toml --workspace --target ${{ matrix.target }}
+
+      - name: Build consumer with Go unavailable
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/no-go"
+          printf '#!/bin/sh\necho "Go must not be invoked by a Rust consumer" >&2\nexit 99\n' > "$RUNNER_TEMP/no-go/go"
+          chmod +x "$RUNNER_TEMP/no-go/go"
+          PATH="$RUNNER_TEMP/no-go:$PATH" cargo run --locked --release \
+            --manifest-path examples/rust/Cargo.toml --target "$TARGET"
+
+      - name: Package tested native artifact
+        shell: bash
+        run: |
+          archive_name="betterleaks-native-0.1.0-$TARGET.tar.gz"
+          tar -czf "dist/$archive_name" -C dist/native "$TARGET"
+          cd dist
+          shasum -a 256 "$archive_name" > "$archive_name.sha256"
+
+      # v7.0.2; artifacts are uploaded only after C and Rust tests have passed.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: betterleaks-native-${{ matrix.target }}
+          path: |
+            dist/betterleaks-native-*.tar.gz
+            dist/betterleaks-native-*.tar.gz.sha256
+          if-no-files-found: error

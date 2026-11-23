@@ -196,6 +196,10 @@ See the [examples directory](examples/) for runnable SDK examples covering custo
 See the [`scan` package documentation](https://pkg.go.dev/github.com/betterleaks/betterleaks/v2/scan)
 for complete default-config and custom-config examples.
 
+Experimental [C and Rust bindings](bindings/README.md) target macOS and glibc Linux on
+x86-64 and ARM64 through static and shared libraries. Rust consumers
+use a safe wrapper and do not need Go installed when using a matching archive.
+
 ### Configuration
 
 Betterleaks' strength comes from its expressive configuration. Filtering,
