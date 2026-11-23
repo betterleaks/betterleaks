@@ -2,6 +2,7 @@ name: Native bindings
 
 on:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/native-bindings.yml'
       - 'bindings/**'
@@ -56,6 +57,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+          persist-credentials: false
       # v6.3.0
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
         with:

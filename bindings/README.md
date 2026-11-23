@@ -78,6 +78,9 @@ scans text and a local file, decodes the result, and releases native allocations
 `bl_scanner_scan_file` accepts a length-delimited filesystem path and scans one
 regular file through the Go filesystem source. It applies the configured input
 limit and prefilters and returns an error for archive inputs that need expansion.
+The process opens the supplied path with its own filesystem permissions. For a
+service that accepts uploaded content, pass the bytes to `bl_scanner_scan`. Use
+`bl_scanner_scan_file` for paths the caller is authorized to read.
 
 ## Use from Rust
 
