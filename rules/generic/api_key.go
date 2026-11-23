@@ -90,8 +90,13 @@ let nameContext = containsAny(credentialMatch, ["<"])
   : credentialMatch;
 
 // Path-name exclusions must only see the credential name. A secret value can
-// itself contain "key_path=", so drop the captured secret from this context.
-let pathNameContext = replace(nameContext, finding["secret"], "", 1);
+// itself contain "key_path=", so drop the captured secret at its last
+// occurrence, where the value sits, rather than the first one, which may
+// share text with the field name.
+let secretPos = lastIndexOf(nameContext, finding["secret"]);
+let pathNameContext = secretPos < 0
+  ? nameContext
+  : nameContext[:secretPos] + nameContext[secretPos + len(finding["secret"]):];
 
 matchesAny(pathNameContext, [
   ` + "`(?i)(?:credentials?|creds|key|secret|token)[_.-]?path(?:[ \\t'\"]{0,20}(?:=|:))`" + `
@@ -217,6 +222,12 @@ let _ = setConfidence(level);
 		// Path-valued names: a slash-leading base64 candidate that survives the
 		// entropy floor is a filesystem path, not a secret.
 		rulebuilder.NoMatch("path-valued name", `api_key_path="/aB3dE5fG7hI9"`),
+		// Same value under an ordinary name is detectable; only the path-valued
+		// field name suppresses it.
+		rulebuilder.Match("shared prefix control", `tokenA1b2C3field = "tokenA1b2C3key"`, "tokenA1b2C3key"),
+		// A path-valued name may repeat its prefix in the value; removing the
+		// first occurrence would erase the path suffix from the field name.
+		rulebuilder.NoMatch("path-valued name sharing its prefix with the value", `tokenA1b2C3key_path = "tokenA1b2C3key"`),
 		rulebuilder.NoMatch("false positive 35", "\tdoc.Security.KeySize = PdfEncryptionKeySize.Key128Bit;"),
 		rulebuilder.NoMatch("false positive 36", "o.keySelector=n,o.haKey=!1,"),
 		rulebuilder.NoMatch("false positive 37", `                                "key_name": "prod5zyxlmy-cmk",`),

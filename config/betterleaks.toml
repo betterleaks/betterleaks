@@ -4014,8 +4014,13 @@ let nameContext = containsAny(credentialMatch, ["<"])
   : credentialMatch;
 
 // Path-name exclusions must only see the credential name. A secret value can
-// itself contain "key_path=", so drop the captured secret from this context.
-let pathNameContext = replace(nameContext, finding["secret"], "", 1);
+// itself contain "key_path=", so drop the captured secret at its last
+// occurrence, where the value sits, rather than the first one, which may
+// share text with the field name.
+let secretPos = lastIndexOf(nameContext, finding["secret"]);
+let pathNameContext = secretPos < 0
+  ? nameContext
+  : nameContext[:secretPos] + nameContext[secretPos + len(finding["secret"]):];
 
 matchesAny(pathNameContext, [
   `(?i)(?:credentials?|creds|key|secret|token)[_.-]?path(?:[ \t'"]{0,20}(?:=|:))`
