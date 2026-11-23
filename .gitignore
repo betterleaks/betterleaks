@@ -24,3 +24,7 @@ testdata/expected/report/*.got.*
 *.out
 
 dist/
+
+# Rust binding and standalone consumer build outputs
+/bindings/rust/target/
+/examples/rust/target/

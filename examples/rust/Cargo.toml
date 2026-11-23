@@ -1,0 +1,11 @@
+[package]
+name = "betterleaks-rust-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Intentionally a separate consumer, outside the bindings' workspace.
+[workspace]
+
+[dependencies]
+betterleaks = { path = "../../bindings/rust" }

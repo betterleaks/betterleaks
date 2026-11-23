@@ -1,0 +1,48 @@
+[
+  {
+    "target": "aarch64-apple-darwin",
+    "goos": "darwin",
+    "goarch": "arm64",
+    "libraries": [
+      "framework=CoreFoundation",
+      "framework=Security",
+      "dylib=resolv"
+    ],
+    "minimum_macos_version": "12.0"
+  },
+  {
+    "target": "x86_64-apple-darwin",
+    "goos": "darwin",
+    "goarch": "amd64",
+    "libraries": [
+      "framework=CoreFoundation",
+      "framework=Security",
+      "dylib=resolv"
+    ],
+    "minimum_macos_version": "12.0"
+  },
+  {
+    "target": "aarch64-unknown-linux-gnu",
+    "goos": "linux",
+    "goarch": "arm64",
+    "libc": "gnu",
+    "libraries": [
+      "pthread",
+      "dl",
+      "m",
+      "resolv"
+    ]
+  },
+  {
+    "target": "x86_64-unknown-linux-gnu",
+    "goos": "linux",
+    "goarch": "amd64",
+    "libc": "gnu",
+    "libraries": [
+      "pthread",
+      "dl",
+      "m",
+      "resolv"
+    ]
+  }
+]
