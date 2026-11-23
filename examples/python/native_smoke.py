@@ -1,6 +1,7 @@
 """Smoke-test the Betterleaks C ABI using only Python's standard library."""
 
 import ctypes as c
+import hashlib
 import json
 import os
 import tempfile
@@ -14,7 +15,14 @@ class Buffer(c.Structure):
 def main():
     lib_dir = Path(os.environ["BETTERLEAKS_LIB_DIR"])
     manifest = json.loads((lib_dir / "betterleaks-native.json").read_text())
-    lib = c.CDLL(str((lib_dir / manifest["shared_library"]).resolve()))
+    library = (lib_dir / manifest["shared_library"]).resolve()
+    digest = hashlib.sha256()
+    with library.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    if digest.hexdigest() != manifest["shared_sha256"]:
+        raise ValueError("shared library checksum differs from the build manifest")
+    lib = c.CDLL(str(library))
     handle = c.c_uint64()
     out = c.POINTER(Buffer)
     lib.bl_abi_version.argtypes = []

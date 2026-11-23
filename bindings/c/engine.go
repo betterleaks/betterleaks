@@ -34,6 +34,7 @@ const (
 	maxAttributeBytes = 1 << 20
 	maxInputBytes     = 64 << 20
 	maxResultBytes    = 64 << 20
+	maxWorkers        = 1024 // The scanner sizes per-call result queues from this value.
 	defaultInputBytes = 8 << 20
 	defaultFindings   = 10_000
 )
@@ -135,8 +136,11 @@ func newScanner(data []byte) (*nativeScanner, error) {
 	if options.MaxFindings < 1 || options.MaxFindings > 100_000 {
 		return nil, failure(statusInvalid, "max_findings must be between 1 and 100000")
 	}
-	if options.Workers < 0 || options.MaxDecodeDepth < 0 {
-		return nil, failure(statusInvalid, "workers and max_decode_depth must be non-negative")
+	if options.Workers < 0 || options.Workers > maxWorkers {
+		return nil, failure(statusInvalid, "workers must be between 0 and 1024")
+	}
+	if options.MaxDecodeDepth < 0 {
+		return nil, failure(statusInvalid, "max_decode_depth must be non-negative")
 	}
 	var cfg *config.Config
 	var err error

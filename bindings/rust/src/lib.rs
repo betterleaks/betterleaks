@@ -129,7 +129,7 @@ impl ScannerBuilder {
         self
     }
 
-    /// Limit detection workers across all calls on this scanner.
+    /// Limit detection workers across all calls on this scanner (up to 1024).
     /// Zero selects the Go SDK default, four times GOMAXPROCS at construction.
     pub fn workers(mut self, workers: u32) -> Self {
         self.workers = workers;

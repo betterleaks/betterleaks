@@ -136,7 +136,7 @@ libraries from the same target catalog used by the native builder.
 | --- | --- | --- |
 | `config_toml` | Embedded rules | Custom configuration text |
 | `config_path` | Empty | Load TOML from this path, or use as the origin label for inline TOML |
-| `workers` | `0` | Shared detection worker limit; zero uses the Go SDK default |
+| `workers` | `0` | Set 1–1024 workers shared across calls. Zero uses the Go SDK default. |
 | `max_decode_depth` | `0` | Recursive decoding passes |
 | `max_input_bytes` | `8388608` | Per-call byte limit, from 1 through 67108864 |
 | `max_findings` | `10000` | Per-call finding limit, from 1 through 100000 |
