@@ -57,3 +57,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Pack npm CLI and test a clean offline install
+        run: |
+          npm --prefix bindings/node run pack:cli
+          npm --prefix bindings/node run test:pack
+
+      - name: Save npm tarballs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: npm-cli-${{ github.ref_name }}
+          path: dist/npm/*/*.tgz
+          if-no-files-found: error
+          compression-level: 0
