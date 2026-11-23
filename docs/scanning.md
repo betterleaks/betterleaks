@@ -363,8 +363,8 @@ report is finalized with the findings emitted before cancellation, including
 the closing delimiters required for valid JSON. Abrupt termination may prevent
 finalization; JSONL findings already written remain independently readable.
 
-`-s` / `--silent` suppresses terminal findings. Explicit reports are still written.
-Use `--no-banner` to hide the banner, or `-s --no-banner` to hide both.
+`-s` / `--silent` hides terminal findings and the banner. The scan summary and
+explicit reports are still written. Use `--no-banner` to hide just the banner.
 
 ---
 

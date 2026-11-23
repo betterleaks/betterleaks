@@ -191,7 +191,7 @@ func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {
 	require.Equal(t, 1, collector.Count())
 }
 
-func TestSilentScanShowsBanner(t *testing.T) {
+func TestSilentScanHidesFindingsAndBanner(t *testing.T) {
 	previousBanner := bannerPrinted
 	bannerPrinted = false
 	t.Cleanup(func() { bannerPrinted = previousBanner })
@@ -204,7 +204,7 @@ func TestSilentScanShowsBanner(t *testing.T) {
 	root.SetArgs([]string{"stdin", "-s", "--config", configPath, "--no-color"})
 	require.NoError(t, root.Execute())
 	assert.Empty(t, stdout.String())
-	assert.Contains(t, stderr.String(), plainLogo)
+	assert.NotContains(t, stderr.String(), plainLogo)
 	assert.Contains(t, stderr.String(), "leaks found: 1")
 }
 

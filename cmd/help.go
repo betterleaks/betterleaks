@@ -7,7 +7,7 @@ func printCLIHelp(options kong.HelpOptions, ctx *kong.Context) error {
 		return kong.DefaultHelpPrinter(options, ctx)
 	}
 
-	if !options.Summary && isTerminalWriter(ctx.Stdout) && !helpFlagEnabled(ctx, "no-banner") {
+	if !options.Summary && isTerminalWriter(ctx.Stdout) && !helpFlagEnabled(ctx, "no-banner") && !helpFlagEnabled(ctx, "silent") {
 		printBanner(ctx.Stdout, helpFlagEnabled(ctx, "no-color"))
 	}
 

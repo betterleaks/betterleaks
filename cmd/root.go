@@ -201,7 +201,7 @@ func flagWasSet(ctx *kong.Context, name string) bool {
 var bannerPrinted bool
 
 func initConfig(runtime *commandRuntime, globals *GlobalFlags, flags *ScanFlags) *config.Config {
-	if !flags.NoBanner && !bannerPrinted {
+	if !flags.NoBanner && !flags.Silent && !bannerPrinted {
 		printBanner(runtime.stderr, globals.NoColor)
 		bannerPrinted = true
 	}
