@@ -89,7 +89,14 @@ let nameContext = containsAny(credentialMatch, ["<"])
     }), "<")
   : credentialMatch;
 
-matchesAny(nameContext, [
+// Path-name exclusions must only see the credential name. A secret value can
+// itself contain "key_path=", so drop the captured secret from this context.
+let pathNameContext = replace(nameContext, finding["secret"], "", 1);
+
+matchesAny(pathNameContext, [
+  ` + "`(?i)(?:credentials?|creds|key|secret|token)[_.-]?path(?:[ \\t'\"]{0,20}(?:=|:))`" + `
+])
+|| matchesAny(nameContext, [
   // Permit an indented operator on the next line, but do not bridge blank lines.
   ` + "`^[\\w.'\" \\t-]*\\r?\\n[ \\t'\"]*\\r?\\n`" + `,
   // Credential containers can hold public identifiers or public key material.
@@ -155,6 +162,9 @@ let _ = setConfidence(level);
 		// The path-name filter must only see the credential name, never the value:
 		// a high-entropy key that happens to contain "key_path" is still a key.
 		rulebuilder.Match("secret containing a path-like substring", `api_key = "V7kQ2mZx9TfL4pRc8key_pathNwY6bHd3JgS5aEu"`, "V7kQ2mZx9TfL4pRc8key_pathNwY6bHd3JgS5aEu"),
+		// The context still contains the secret; path-looking text after the
+		// assignment operator belongs to the value, not the credential name.
+		rulebuilder.Match("secret containing a path assignment", `api_key = "V7kQ2mZx9TfL4pRc8key_path=NwY6bHd3JgS5aEu"`, "V7kQ2mZx9TfL4pRc8key_path=NwY6bHd3JgS5aEu"),
 
 		rulebuilder.Match("random key containing auth", `api_key = "Xk2q9TfZrB7wLauthpN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLauthpN4cVy8sJ3mQe6RdG1aUoHn"),
 		rulebuilder.Match("random key containing type", `api_key = "Xk2q9TfZrB7wLtypepN4cVy8sJ3mQe6RdG1aUoHn"`, "Xk2q9TfZrB7wLtypepN4cVy8sJ3mQe6RdG1aUoHn"),
