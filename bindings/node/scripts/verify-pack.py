@@ -1,4 +1,4 @@
-"""Check packed npm manifests and payloads against the checkout and GoReleaser binaries."""
+"""Check npm tarballs against the checkout, GoReleaser binaries and native addon builds."""
 
 import argparse
 import json
@@ -67,19 +67,26 @@ def main():
                 raise ValueError(f"Expected one GoReleaser binary for {goos}/{goarch}")
             manifest = {
                 **common, "name": name, "os": [os], "cpu": [cpu],
-                "description": f"Betterleaks CLI for {os}/{cpu}", "publishConfig": {"access": "public"},
+                "description": f"Betterleaks {'CLI' if os == 'win32' else 'CLI and Node.js addon'} for {os}/{cpu}",
+                "publishConfig": {"access": "public"},
             }
             member = f"package/bin/{binary}"
-            verify_tarball(directory / filename, manifest, {**license_file, member: sources[0]}, member)
+            files = {**license_file, member: sources[0]}
+            if os != "win32":
+                files["package/betterleaks.node"] = dist / "node-addons" / f"betterleaks-{os}-{cpu}.node"
+            verify_tarball(directory / filename, manifest, files, member)
 
     if {file.name for file in directory.iterdir()} != filenames:
         raise ValueError(f"Unexpected files in {directory}")
     script = "bin/betterleaks.cjs"
     manifest = {
         **common, "name": "betterleaks", "description": template["description"],
+        "main": "index.js", "types": "index.d.ts",
         "bin": {"betterleaks": script}, "optionalDependencies": dependencies,
     }
     files = {**license_file, "package/README.md": node / "README.md", f"package/{script}": node / script}
+    for filename in ("index.js", "index.d.ts"):
+        files[f"package/{filename}"] = node / filename
     verify_tarball(directory / launcher, manifest, files, f"package/{script}")
     print(f"Verified the manifests and contents of all seven npm tarballs for {version}")
 

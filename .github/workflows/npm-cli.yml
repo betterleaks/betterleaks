@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'bindings/node/**'
+      - 'bindings/c/**'
+      - 'bindings/cmd/build-native/**'
+      - 'bindings/rust/sys/targets.json'
       - '.github/workflows/npm-cli.yml'
       - '.github/workflows/release.yml'
       - '.goreleaser.yml'
@@ -23,7 +26,50 @@ permissions:
   contents: read
 
 jobs:
+  addons:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { key: darwin_arm64, runner: macos-15 }
+          - { key: darwin_x64, runner: macos-15-intel }
+          - { key: linux_arm64, runner: ubuntu-22.04-arm }
+          - { key: linux_x64, runner: ubuntu-22.04 }
+    outputs:
+      darwin_arm64: ${{ steps.artifact.outputs.darwin_arm64 }}
+      darwin_x64: ${{ steps.artifact.outputs.darwin_x64 }}
+      linux_arm64: ${{ steps.artifact.outputs.linux_arm64 }}
+      linux_x64: ${{ steps.artifact.outputs.linux_x64 }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
+        with:
+          go-version: '1.26.x'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3'
+          package-manager-cache: false
+      - run: npm --prefix bindings/node run build:addon
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: upload
+        with:
+          name: npm-addon-${{ matrix.key }}-${{ github.run_attempt }}
+          path: dist/node-addons/*.node
+          if-no-files-found: error
+          compression-level: 0
+      - id: artifact
+        env:
+          TARGET: ${{ matrix.key }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: echo "$TARGET=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
+
   pack:
+    needs: addons
     runs-on: ubuntu-latest
     outputs:
       tarballs: ${{ steps.upload.outputs.artifact-id }}
@@ -47,6 +93,12 @@ jobs:
           artifact-ids: ${{ inputs.binaries }}
           path: dist
           merge-multiple: true
+      - name: Download the four native addons
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.addons.outputs.darwin_arm64 }},${{ needs.addons.outputs.darwin_x64 }},${{ needs.addons.outputs.linux_arm64 }},${{ needs.addons.outputs.linux_x64 }}
+          path: dist/node-addons
+          merge-multiple: true
       - run: npm --prefix bindings/node run pack:cli
       - name: Verify snapshot tarballs against the local build
         if: inputs.binaries == ''
@@ -62,11 +114,11 @@ jobs:
           compression-level: 0
 
   install:
-    needs: pack
+    needs: [addons, pack]
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, macos-15, windows-latest]
+        runner: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-15-intel, windows-latest]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -78,13 +130,20 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Download original release binaries for comparison
-        if: inputs.binaries != '' && runner.os == 'Linux'
+        if: inputs.binaries != '' && matrix.runner == 'ubuntu-22.04'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ inputs.binaries }}
           path: dist
           merge-multiple: true
-      - name: Verify release tarballs before running the CLI
-        if: inputs.binaries != '' && runner.os == 'Linux'
+      - name: Download original addons for comparison
+        if: inputs.binaries != '' && matrix.runner == 'ubuntu-22.04'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.addons.outputs.darwin_arm64 }},${{ needs.addons.outputs.darwin_x64 }},${{ needs.addons.outputs.linux_arm64 }},${{ needs.addons.outputs.linux_x64 }}
+          path: dist/node-addons
+          merge-multiple: true
+      - name: Verify release tarballs
+        if: inputs.binaries != '' && matrix.runner == 'ubuntu-22.04'
         run: python3 bindings/node/scripts/verify-pack.py --tag "$GITHUB_REF_NAME"
       - run: npm --prefix bindings/node run test:pack
