@@ -1,11 +1,12 @@
 # Native bindings (experimental)
 
-Betterleaks can be embedded through a C ABI and a safe Rust wrapper on macOS and
-glibc Linux, on both x86-64 and ARM64. Windows bindings are deferred. The native archive
+Betterleaks can be embedded through a C ABI, a safe Rust wrapper, or the
+[Node.js API](node/README.md) on macOS and glibc Linux, on both x86-64 and ARM64.
+Windows bindings are deferred. The native archive
 contains the Go engine, embedded rules, and Go runtime. Consumers need a platform
 linker but do not need Go or the Betterleaks CLI.
 
-These bindings are not published to crates.io and native downloads are not yet
+The Rust crates are not published to crates.io and standalone C library downloads are not yet
 part of the public release pipeline. The Native bindings CI workflow builds and
 tests the following targets and uploads artifacts only after the tests pass.
 You can also build locally and give the entire output directory to a consumer.
@@ -60,9 +61,8 @@ because the builder itself must execute on the host. Cross compilation does not
 test execution; CI uses native hardware for each architecture. The shell wrapper
 `bash bindings/build-native.sh` remains available and accepts the same arguments.
 
-The build uses the Go standard regex engine, matching the Go SDK default. It does
-not include the optional RE2 backend used by the CLI. Detection options also use
-SDK defaults; recursive decoding is disabled unless requested.
+The native bindings use the CLI's default RE2 backend for detection rules and
+source prefilters. Recursive decoding is disabled unless requested.
 
 ## Use from Python
 
@@ -210,3 +210,32 @@ Go race detector is run on all four target platforms.
 
 The Go bridge is opt-in through `betterleaks_ffi` and `cgo` build constraints;
 ordinary CLI builds keep their existing package graph and `CGO_ENABLED=0` support.
+
+## Node.js and npm releases
+
+The [npm package README](node/README.md) covers the Node.js API and CLI. To build
+the addon for the host, use an official Node.js distribution with its C headers,
+Go 1.26.x, and a C compiler. Run `npm --prefix bindings/node run build:addon`
+from the repository root.
+
+The [npm workflow](../.github/workflows/npm-cli.yml) builds an addon on each
+supported macOS and Linux target. To rehearse packaging locally, run
+`goreleaser build --snapshot --clean` first, then collect the four addons from
+the same checkout under `dist/node-addons/`. Run the following from the root.
+
+```sh
+npm --prefix bindings/node run pack:cli
+python3 bindings/node/scripts/verify-pack.py
+npm --prefix bindings/node run test:pack
+```
+
+The packer writes seven tarballs in `dist/npm/<version>/`. CI checks their exact
+members and manifests against source, compares the executables and addons to
+the original builds, and tests offline installation before signing.
+
+After a successful v2 RC release, **Publish npm RC** runs on `main`. It uses
+GitHub OIDC and verifies the signing identity and all seven hashes. It publishes
+the platform packages first and the root package last under `next`. To retry
+while the signed artifact is available, run the workflow on `main` with the
+original **Release** run ID. It skips identical published versions and stops
+on conflicting contents or an attempt to move `next` backwards.

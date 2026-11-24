@@ -46,9 +46,12 @@ try {
       await mkdir(join(directory, "bin"), { recursive: true });
       await copyFile(resolve(root, matches[0].path), target);
       await chmod(target, 0o755);
+      if (os !== "win32") {
+        await copyFile(join(dist, "node-addons", `betterleaks-${os}-${cpu}.node`), join(directory, "betterleaks.node"));
+      }
       await pack(directory, {
         name, version, os: [os], cpu: [cpu], license: template.license,
-        description: `Betterleaks CLI for ${os}/${cpu}`, repository: template.repository,
+        description: `Betterleaks ${os === "win32" ? "CLI" : "CLI and Node.js addon"} for ${os}/${cpu}`, repository: template.repository,
         publishConfig: { access: "public" },
       });
       optionalDependencies[name] = version;
@@ -59,7 +62,9 @@ try {
   const directory = join(staging, "launcher");
   await mkdir(join(directory, "bin"), { recursive: true });
   await copyFile(join(source, entry.bin.betterleaks), join(directory, entry.bin.betterleaks));
-  await copyFile(join(source, "README.md"), join(directory, "README.md"));
+  for (const file of ["README.md", entry.main, entry.types]) {
+    await copyFile(join(source, file), join(directory, file));
+  }
   await pack(directory, { ...entry, version, optionalDependencies });
   await mkdir(output, { recursive: true });
   for (const filename of tarballs) await rename(join(staging, filename), join(output, filename));

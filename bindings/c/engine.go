@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -155,11 +156,12 @@ func newScanner(data []byte) (*nativeScanner, error) {
 	if err != nil {
 		return nil, &apiError{statusConfig, err}
 	}
-	skip, err := prefilter.Compile(cfg.PrefilterExpr, prefilter.Options{})
+	engine := re2.RE2{}
+	skip, err := prefilter.Compile(cfg.PrefilterExpr, prefilter.Options{RegexEngine: engine})
 	if err != nil {
 		return nil, &apiError{statusConfig, err}
 	}
-	scanner, err := scan.New(cfg, scan.WithPrecompile(), scan.WithWorkers(options.Workers),
+	scanner, err := scan.New(cfg, scan.WithRegexEngine(engine), scan.WithPrecompile(), scan.WithWorkers(options.Workers),
 		scan.WithMaxDecodeDepth(options.MaxDecodeDepth))
 	if err != nil {
 		return nil, &apiError{statusConfig, err}

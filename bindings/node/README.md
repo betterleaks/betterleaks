@@ -1,38 +1,48 @@
-# Betterleaks for npm
+# Betterleaks
 
-This package installs the Betterleaks CLI. The launcher forwards arguments,
-standard input, output and the CLI exit status. npm selects a binary using the
-OS and CPU declared by six exact-version optional dependencies.
+Find leaked credentials in text, files, and Git history. The `betterleaks` npm package includes the Betterleaks CLI and an in-process scanner for Node.js.
 
-## Prepare a release
-
-To rehearse from the repository root, run
+## Install the v2 release candidate
 
 ```sh
-goreleaser build --snapshot --clean
-npm --prefix bindings/node run pack:cli
-python3 bindings/node/scripts/verify-pack.py
-npm --prefix bindings/node run test:pack
+npm install betterleaks@next
 ```
 
-The packer reads `dist/artifacts.json` and the engine version in
-`dist/metadata.json`. It writes seven tarballs under `dist/npm/<version>/`.
-CI checks the exact files and manifest of each package, compares the six
-executables with the GoReleaser outputs, and tests offline installation.
+npm installs the prebuilt binary for your platform through an exact-version optional dependency. Keep optional dependencies enabled. Installation works with `--ignore-scripts` and requires no compiler or Go installation.
 
-## Verify and publish a release candidate
+## Scan from Node.js
 
-**Publish npm RC** runs on `main` after a successful **Release** for a
-`v2.X.Y-rc.N` tag. It downloads the signed artifact from that run, checks the
-Cosign identity against the tag and commit, and verifies all seven file hashes.
-It publishes the platform packages first and the launcher last, all under
-`next`. Stable releases and `latest` are managed separately.
+```js
+import { scanFile, scanText } from "betterleaks";
 
-The workflow authenticates to npm with GitHub OIDC. To retry while the signed
-artifact is available, run **Publish npm RC** on `main` with the original
-**Release** run ID. It skips versions with matching bytes and stops if a
-published version has different contents or publishing would move `next` backwards.
+const text = await scanText("hello world");
+console.log(text.summary.findings); // 0
 
-Install the candidate with
-`npm install --save-dev betterleaks@next` or run it with `npx betterleaks@next`. The platform packages
-contain the binaries, so installation also works with `--ignore-scripts`.
+const report = await scanFile("settings.env");
+for (const finding of report.findings) {
+  console.log(finding.rule_id, finding.location.path, finding.location.start_line);
+}
+```
+
+CommonJS supports `const { scanText, scanFile } = require("betterleaks")`. TypeScript declarations are included.
+
+Try the [runnable Node.js example](https://github.com/betterleaks/betterleaks/blob/main/examples/node/scan.mjs) in a project with `betterleaks` installed. Run `node scan.mjs` to scan a synthetic token or `node scan.mjs settings.env` to scan a file.
+
+Both functions return a promise and run the scan off the JavaScript thread using the built-in rules. A scan with no matches resolves with an empty `findings` array. File reads, invalid input, and scan limits can reject the promise. The default limits are 8 MiB of input and 10,000 findings per scan. Findings can contain raw credentials in `match.value` and `match.full`. Log rule IDs and locations when reporting detections.
+
+`scanFile(path)` accepts one local regular file and applies filesystem rules. Use the CLI to scan directories, archives, or Git history.
+
+## Run the CLI
+
+```sh
+npx betterleaks --version
+npx betterleaks git .
+```
+
+| Platform (x64 and arm64) | CLI | Node.js API |
+| --- | --- | --- |
+| macOS | Yes | macOS 12+ |
+| Linux | Yes | glibc 2.35+ |
+| Windows | Yes | — |
+
+See the [Betterleaks project](https://github.com/betterleaks/betterleaks) for rule configuration, scan sources, and CLI usage.

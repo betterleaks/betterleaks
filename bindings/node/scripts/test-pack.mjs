@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +34,11 @@ try {
     "GITHUB_TOKEN=ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5\n"); // betterleaks:allow
   assert.equal(scan.status, 17, scan.stderr);
   assert.ok(JSON.parse(scan.stdout).findings.some((finding) => finding.rule_id === "github-pat"));
-  console.log(`Verified offline install and scan on ${process.platform}/${process.arch}`);
+  await copyFile(new URL("./test-api.mjs", import.meta.url), join(consumer, "test-api.mjs"));
+  const api = spawnSync(process.execPath, ["test-api.mjs"], { cwd: consumer, encoding: "utf8" });
+  if (api.error) throw api.error;
+  assert.equal(api.status, 0, api.stderr || api.signal);
+  console.log(`Verified offline install, CLI and Node.js API on ${process.platform}/${process.arch}`);
 } finally {
   await rm(consumer, { recursive: true, force: true });
 }

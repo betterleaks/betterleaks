@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/betterleaks/betterleaks/v2/config"
+	"github.com/betterleaks/betterleaks/v2/regexp/re2"
 	"github.com/betterleaks/betterleaks/v2/report"
 	"github.com/betterleaks/betterleaks/v2/scan"
 	"github.com/betterleaks/betterleaks/v2/sources"
@@ -60,7 +61,7 @@ func TestMatchesGoSDK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scanner, err := scan.New(cfg)
+	scanner, err := scan.New(cfg, scan.WithRegexEngine(re2.RE2{}))
 	if err != nil {
 		t.Fatal(err)
 	}
