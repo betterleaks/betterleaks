@@ -11028,10 +11028,7 @@ keywords = ["tvly-"]
 validate = '''
 let r = http.get("https://api.tavily.com/usage", {"Authorization": "Bearer " + finding["secret"]});
 (r.status in [200]) ? {
-    "result": "valid",
-    "analysis": {
-      "plan": string(r.json?.account?.current_plan ?? ""),
-    }
+    "result": "valid"
   } :
 (r.status in [401]) ? {"result": "invalid"} :
 validate.unknown(r)
