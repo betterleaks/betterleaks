@@ -4,7 +4,12 @@ import { writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { once } from "node:events";
 import { isMainThread, Worker } from "node:worker_threads";
-import { scanText, scanFile } from "betterleaks";
+
+const packageName = process.argv[2];
+const { scanText, scanFile } = await import(packageName);
+const require = createRequire(import.meta.url);
+assert.equal(scanText, require(packageName).scanText);
+assert.equal(scanFile, require(packageName).scanFile);
 
 if (process.platform === "win32") {
   await assert.rejects(scanText("hello"), /bindings support macOS and glibc Linux/);
@@ -12,15 +17,14 @@ if (process.platform === "win32") {
   assert.equal((await scanText("hello")).summary.findings, 0);
 } else {
   // Load the Go runtime first in a short-lived Worker, then reuse it in the main thread.
-  const worker = new Worker(new URL(import.meta.url));
+  const worker = new Worker(new URL(import.meta.url), { argv: [packageName] });
   assert.deepEqual(await once(worker, "exit"), [0]);
   const token = "GITHUB_TOKEN=ghp_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5"; // betterleaks:allow
   const path = "settings.env";
   await writeFile(path, token);
-  const require = createRequire(import.meta.url);
   const input = "ñ\0text\n" + token;
   const [empty, text, file] = await Promise.all([
-    require("betterleaks").scanText(""), scanText(input), scanFile(path),
+    require(packageName).scanText(""), scanText(input), scanFile(path),
   ]);
   assert.deepEqual(empty.findings, []);
   assert.equal(text.schema_version, 1);
@@ -31,7 +35,7 @@ if (process.platform === "win32") {
   assert.equal(match.location.start_line, 1);
   assert.equal(file.summary.findings, file.findings.length);
   assert.ok(file.config_hash);
-  const { version } = require("betterleaks/package.json");
+  const { version } = require(`${packageName}/package.json`);
   if (!version.includes("-SNAPSHOT-")) assert.equal(file.engine_version, `v${version}`);
   await assert.rejects(scanText(null), TypeError);
   await assert.rejects(scanText("é".repeat((4 << 20) + 1)), /exceeds/);

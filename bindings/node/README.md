@@ -10,6 +10,8 @@ npm install betterleaks@next
 
 npm installs the prebuilt binary for your platform through an exact-version optional dependency. Keep optional dependencies enabled. Installation works with `--ignore-scripts` and requires no compiler or Go installation.
 
+For a Node application that only needs `scanFile` and `scanText`, install `@betterleaks/sdk@next` and import them from `"@betterleaks/sdk"`. This installs the scanner without the CLI executable. See the [SDK quickstart](https://www.npmjs.com/package/@betterleaks/sdk).
+
 ## Scan from Node.js
 
 ```js

@@ -18,7 +18,8 @@ if (project !== template.name || !/^2\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(versi
 
 const staging = await mkdtemp(join(dist, ".npm-"));
 const output = join(dist, "npm", version);
-const optionalDependencies = {};
+const cliPlatforms = {};
+const sdkPlatforms = {};
 const tarballs = [];
 async function pack(directory, manifest) {
   await copyFile(join(root, "LICENSE"), join(directory, "LICENSE"));
@@ -39,25 +40,45 @@ try {
       if (matches.length !== 1 || basename(matches[0].path) !== binary) {
         throw new Error(`Expected one ${binary} for ${goos}/${goarch}`);
       }
-      const platform = `cli-${os}-${cpu}`;
-      const name = `@betterleaks/${platform}`;
-      const directory = join(staging, platform);
+      const platform = `${os}-${cpu}`;
+      const cliName = `@betterleaks/cli-${platform}`;
+      const directory = join(staging, `cli-${platform}`);
       const target = join(directory, "bin", binary);
       await mkdir(join(directory, "bin"), { recursive: true });
       await copyFile(resolve(root, matches[0].path), target);
       await chmod(target, 0o755);
-      if (os !== "win32") {
-        await copyFile(join(dist, "node-addons", `betterleaks-${os}-${cpu}.node`), join(directory, "betterleaks.node"));
-      }
-      await pack(directory, {
-        name, version, os: [os], cpu: [cpu], license: template.license,
-        description: `Betterleaks ${os === "win32" ? "CLI" : "CLI and Node.js addon"} for ${os}/${cpu}`, repository: template.repository,
+      const platformManifest = {
+        version, os: [os], cpu: [cpu], license: template.license, repository: template.repository,
         publishConfig: { access: "public" },
+      };
+      await pack(directory, {
+        ...platformManifest, name: cliName, description: `Betterleaks CLI for ${os}/${cpu}`,
       });
-      optionalDependencies[name] = version;
+      cliPlatforms[cliName] = version;
+      if (os !== "win32") {
+        const sdkName = `@betterleaks/sdk-${platform}`;
+        const addon = join(staging, `sdk-${platform}`);
+        await mkdir(addon);
+        await copyFile(join(dist, "node-addons", `betterleaks-${platform}.node`), join(addon, "betterleaks.node"));
+        await pack(addon, {
+          ...platformManifest, name: sdkName, description: `Betterleaks Node.js addon for ${os}/${cpu}`,
+        });
+        sdkPlatforms[sdkName] = version;
+      }
     }
   }
-  // The repository manifest is private. Only this generated package is distributable.
+  const sdk = join(staging, "sdk");
+  await mkdir(sdk);
+  for (const file of ["README.md", "index.js", "index.d.ts"]) {
+    await copyFile(join(source, "sdk", file), join(sdk, file));
+  }
+  await pack(sdk, {
+    name: "@betterleaks/sdk", version, description: "Scan text and files for leaked secrets from Node.js",
+    license: template.license, repository: { ...template.repository, directory: "bindings/node/sdk" },
+    main: "index.js", types: "index.d.ts", optionalDependencies: sdkPlatforms,
+    publishConfig: { access: "public" },
+  });
+  // The repository manifest also contains private build scripts.
   const { private: _private, scripts: _scripts, ...entry } = template;
   const directory = join(staging, "launcher");
   await mkdir(join(directory, "bin"), { recursive: true });
@@ -65,7 +86,9 @@ try {
   for (const file of ["README.md", entry.main, entry.types]) {
     await copyFile(join(source, file), join(directory, file));
   }
-  await pack(directory, { ...entry, version, optionalDependencies });
+  await pack(directory, {
+    ...entry, version, dependencies: { "@betterleaks/sdk": version }, optionalDependencies: cliPlatforms,
+  });
   await mkdir(output, { recursive: true });
   for (const filename of tarballs) await rename(join(staging, filename), join(output, filename));
   console.log(`Packed ${tarballs.length} packages in ${output}`);
