@@ -82,6 +82,29 @@ func TestFileBrotliCompression(t *testing.T) {
 	}
 }
 
+// Brotli has no signature, so content detection only trusts it with a .br
+// name. Other files that happen to decode as brotli are scanned as-is.
+func TestFileBrotliContentNeedsExtension(t *testing.T) {
+	var compressed bytes.Buffer
+	w, err := (archives.Brotli{}).OpenWriter(&compressed)
+	require.NoError(t, err)
+	_, err = io.WriteString(w, "ARCHIVE_TEST_SECRET\n")
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	format, _, err := archives.Identify(t.Context(), "", bytes.NewReader(compressed.Bytes()))
+	require.NoError(t, err)
+	require.IsType(t, archives.Brotli{}, format)
+
+	s := File{Path: "Mawson", Content: bytes.NewReader(compressed.Bytes()), MaxArchiveDepth: 8, DetectArchive: true, StrictArchives: true}
+	var fragments []string
+	require.NoError(t, s.Fragments(t.Context(), func(f sources.Fragment, err error) error {
+		require.NoError(t, err)
+		fragments = append(fragments, f.Raw)
+		return nil
+	}))
+	require.Equal(t, []string{compressed.String()}, fragments)
+}
+
 // panicReader panics on the first Read, emulating a decompressor that blows up
 // on malformed content after OpenReader already succeeded.
 type panicReader struct {

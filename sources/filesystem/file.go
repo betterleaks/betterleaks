@@ -112,6 +112,12 @@ func (s *File) fragments(ctx context.Context, yield sources.FragmentsFunc, archi
 	// Enabled archive scanning identifies containers independently of their names.
 	if s.DetectArchive || s.MaxArchiveDepth > 0 {
 		format, stream, err = identifyContent(ctx, stream, probe)
+		// Brotli has no magic bytes, so short binary files can decode as
+		// brotli by chance (betterleaks#522). Trust a brotli content match
+		// only when the name agrees.
+		if _, ok := format.(archives.Brotli); ok && err == nil && !strings.EqualFold(filepath.Ext(archiveName), ".br") {
+			format, err = nil, archives.NoMatch
+		}
 		// Preserve named malformed-archive recovery in permissive mode. Strict
 		// callers must still receive the original identification error. Plain
 		// package-manager state files can have gzip suffixes, so a .gz name
