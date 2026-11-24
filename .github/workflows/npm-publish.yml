@@ -76,7 +76,7 @@ jobs:
             --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$TAG" \
             --certificate-github-workflow-sha "$SHA" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
-      - name: Verify tarball hashes and submit the seven packages under next
+      - name: Verify tarball hashes and submit packages under next
         env:
           TAG: ${{ steps.release.outputs.tag }}
           MODE: ${{ inputs.bootstrap && 'bootstrap' || 'oidc' }}

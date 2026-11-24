@@ -102,14 +102,16 @@ jobs:
           artifact-ids: ${{ needs.npm.outputs.tarballs }}
           path: candidate
           merge-multiple: true
-      - name: Sign the checksums of the seven tested packages
+      - name: Sign the checksums of the tested npm packages
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
           [[ "$version" =~ ^2\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
           src="candidate/npm/$version"
           mkdir signed
-          cp -- "$src/betterleaks-$version.tgz" "$src"/betterleaks-cli-{darwin,linux,win32}-{arm64,x64}-"$version".tgz signed/
+          cp -- "$src/betterleaks-$version.tgz" "$src/betterleaks-sdk-$version.tgz" \
+            "$src"/betterleaks-cli-{darwin,linux,win32}-{arm64,x64}-"$version".tgz \
+            "$src"/betterleaks-sdk-{darwin,linux}-{arm64,x64}-"$version".tgz signed/
           cd signed
           sha256sum -- *.tgz > SHA256SUMS
           cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS

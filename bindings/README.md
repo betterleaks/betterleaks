@@ -229,13 +229,15 @@ python3 bindings/node/scripts/verify-pack.py
 npm --prefix bindings/node run test:pack
 ```
 
-The packer writes seven tarballs in `dist/npm/<version>/`. CI checks their exact
+The packer writes twelve tarballs in `dist/npm/<version>/`: the combined
+`betterleaks` package, the standalone [Node.js SDK](node/sdk/README.md), six
+CLI binaries, and four native addons. CI checks their exact
 members and manifests against source, compares the executables and addons to
 the original builds, and tests offline installation before signing.
 
 After a successful v2 RC release, **Publish npm RC** runs on `main`. It uses
-GitHub OIDC and verifies the signing identity and all seven hashes. It publishes
-the platform packages first and the root package last under `next`. To retry
+GitHub OIDC and verifies the signing identity and all tarball hashes. It publishes
+the platform packages first, then `@betterleaks/sdk`, then `betterleaks` under `next`. To retry
 while the signed artifact is available, run the workflow on `main` with the
 original **Release** run ID. It skips identical published versions and stops
 on conflicting contents or an attempt to move `next` backwards.

@@ -15,8 +15,17 @@ if (bootstrap && !process.env.NODE_AUTH_TOKEN) throw new Error("Configure the np
 
 const registry = "https://registry.npmjs.org";
 const hash = (algorithm, data, encoding) => createHash(algorithm).update(data).digest(encoding);
+const signed = (await readFile(join(directory, "SHA256SUMS"), "utf8")).trimEnd().split("\n");
 const names = ["darwin", "linux", "win32"].flatMap(os => ["arm64", "x64"].map(cpu => `@betterleaks/cli-${os}-${cpu}`));
-names.push("betterleaks"); // The launcher depends on all six platform packages.
+// Older signed releases have the addon inside the CLI platform packages.
+// Keep those artifacts retryable, with the same exact inventory checks.
+if (signed.some(line => line.endsWith(`  betterleaks-sdk-${version}.tgz`))) {
+  for (const os of ["darwin", "linux"]) {
+    for (const cpu of ["arm64", "x64"]) names.push(`@betterleaks/sdk-${os}-${cpu}`);
+  }
+  names.push("@betterleaks/sdk");
+}
+names.push("betterleaks");
 const packages = names.map(name => {
   const filename = `${name.replace("@", "").replace("/", "-")}-${version}.tgz`;
   return { name, filename, path: resolve(directory, filename) };
@@ -33,7 +42,6 @@ for (const pkg of packages) {
   checksums.push(`${hash("sha256", bytes, "hex")}  ${pkg.filename}`);
   pkg.integrity = `sha512-${hash("sha512", bytes, "base64")}`;
 }
-const signed = (await readFile(join(directory, "SHA256SUMS"), "utf8")).trimEnd().split("\n");
 if (signed.sort().join("\n") !== checksums.sort().join("\n")) throw new Error("Signed tarball checksums differ");
 
 function npm(args, capture = false) {

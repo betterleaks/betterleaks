@@ -52,29 +52,37 @@ def main():
     license_file = {"package/LICENSE": root / "LICENSE"}
     directory = dist / "npm" / version
     launcher = f"betterleaks-{version}.tgz"
-    filenames = {launcher}
-    dependencies = {}
+    sdk = f"betterleaks-sdk-{version}.tgz"
+    filenames = {launcher, sdk}
+    cli_platforms = {}
+    sdk_platforms = {}
     for goos, os in (("darwin", "darwin"), ("linux", "linux"), ("windows", "win32")):
         binary = "betterleaks.exe" if os == "win32" else "betterleaks"
         for goarch, cpu in (("amd64", "x64"), ("arm64", "arm64")):
             name = f"@betterleaks/cli-{os}-{cpu}"
             filename = f"betterleaks-cli-{os}-{cpu}-{version}.tgz"
             filenames.add(filename)
-            dependencies[name] = version
+            cli_platforms[name] = version
             # Look up the original by its GoReleaser target, independently of the packer's manifest.
             sources = list(dist.glob(f"betterleaks_{goos}_{goarch}*/{binary}"))
             if len(sources) != 1 or not sources[0].is_file():
                 raise ValueError(f"Expected one GoReleaser binary for {goos}/{goarch}")
             manifest = {
                 **common, "name": name, "os": [os], "cpu": [cpu],
-                "description": f"Betterleaks {'CLI' if os == 'win32' else 'CLI and Node.js addon'} for {os}/{cpu}",
+                "description": f"Betterleaks CLI for {os}/{cpu}",
                 "publishConfig": {"access": "public"},
             }
             member = f"package/bin/{binary}"
             files = {**license_file, member: sources[0]}
-            if os != "win32":
-                files["package/betterleaks.node"] = dist / "node-addons" / f"betterleaks-{os}-{cpu}.node"
             verify_tarball(directory / filename, manifest, files, member)
+            if os != "win32":
+                name = f"@betterleaks/sdk-{os}-{cpu}"
+                filename = f"betterleaks-sdk-{os}-{cpu}-{version}.tgz"
+                filenames.add(filename)
+                sdk_platforms[name] = version
+                addon_manifest = {**manifest, "name": name, "description": f"Betterleaks Node.js addon for {os}/{cpu}"}
+                addon = dist / "node-addons" / f"betterleaks-{os}-{cpu}.node"
+                verify_tarball(directory / filename, addon_manifest, {**license_file, "package/betterleaks.node": addon}, None)
 
     if {file.name for file in directory.iterdir()} != filenames:
         raise ValueError(f"Unexpected files in {directory}")
@@ -82,13 +90,22 @@ def main():
     manifest = {
         **common, "name": "betterleaks", "description": template["description"],
         "main": "index.js", "types": "index.d.ts",
-        "bin": {"betterleaks": script}, "optionalDependencies": dependencies,
+        "bin": {"betterleaks": script}, "optionalDependencies": cli_platforms,
+        "dependencies": {"@betterleaks/sdk": version},
     }
     files = {**license_file, "package/README.md": node / "README.md", f"package/{script}": node / script}
     for filename in ("index.js", "index.d.ts"):
         files[f"package/{filename}"] = node / filename
     verify_tarball(directory / launcher, manifest, files, f"package/{script}")
-    print(f"Verified the manifests and contents of all seven npm tarballs for {version}")
+    sdk_manifest = {
+        **common, "name": "@betterleaks/sdk", "description": "Scan text and files for leaked secrets from Node.js",
+        "repository": {**common["repository"], "directory": "bindings/node/sdk"},
+        "main": "index.js", "types": "index.d.ts", "optionalDependencies": sdk_platforms,
+        "publishConfig": {"access": "public"},
+    }
+    sdk_files = {f"package/{name}": node / "sdk" / name for name in ("README.md", "index.js", "index.d.ts")}
+    verify_tarball(directory / sdk, sdk_manifest, {**license_file, **sdk_files}, None)
+    print(f"Verified the manifests and contents of all {len(filenames)} npm tarballs for {version}")
 
 
 if __name__ == "__main__":
