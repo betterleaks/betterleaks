@@ -576,8 +576,9 @@ entries are removed in order. Empty notes are omitted. The runtime owns
 `metadata.analysis_error`; analysis expressions cannot supply that key directly.
 All public evidence and diagnostics are sanitized for credential values.
 
-Analysis expressions can use the same pure `filter` matching helpers as
-validation expressions. They also receive an `analysis` namespace:
+Analysis expressions can use the same pure matching helpers, such as
+`matchesAny` and `findMatch`, as validation expressions. They also receive an
+`analysis` namespace:
 
 | Value or function | Description |
 | :--- | :--- |

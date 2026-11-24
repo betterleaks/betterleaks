@@ -123,6 +123,14 @@ betterleaks s3 https://commoncrawl.s3.us-east-1.amazonaws.com/crawl-data/CC-MAIN
 # Enumerate and scan every bucket in a Cloudflare R2 account
 betterleaks s3 'https://<account-id>.r2.cloudflarestorage.com/*'
 
+# Scan a registry image: every platform, historical layer, and image metadata
+betterleaks container ghcr.io/owner/app:latest
+# Scan one platform of a public image without saved registry credentials
+betterleaks container ubuntu:24.04 --platform linux/amd64 --anonymous
+# Scan an image from the local Docker daemon, or a `docker save` archive
+betterleaks container --daemon docker myapp:latest
+betterleaks container --archive image.tar
+
 # Scan stdin
 cat some_file.txt | betterleaks stdin
 
@@ -196,9 +204,9 @@ See the [examples directory](examples/) for runnable SDK examples covering custo
 See the [`scan` package documentation](https://pkg.go.dev/github.com/betterleaks/betterleaks/v2/scan)
 for complete default-config and custom-config examples.
 
-Experimental [C and Rust bindings](bindings/README.md) target macOS and glibc Linux on
-x86-64 and ARM64 through static and shared libraries. Rust consumers
-use a safe wrapper and do not need Go installed when using a matching archive.
+Experimental [C, Rust, and Node.js bindings](bindings/README.md) target macOS and
+glibc Linux on x86-64 and ARM64. Rust consumers use a safe wrapper and do not need
+Go installed when using a matching prebuilt archive.
 
 ### Configuration
 
