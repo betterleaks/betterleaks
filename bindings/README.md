@@ -61,9 +61,8 @@ because the builder itself must execute on the host. Cross compilation does not
 test execution; CI uses native hardware for each architecture. The shell wrapper
 `bash bindings/build-native.sh` remains available and accepts the same arguments.
 
-The build uses the Go standard regex engine, matching the Go SDK default. It does
-not include the optional RE2 backend used by the CLI. Detection options also use
-SDK defaults; recursive decoding is disabled unless requested.
+The native bindings use the CLI's default RE2 backend for detection rules and
+source prefilters. Recursive decoding is disabled unless requested.
 
 ## Use from Python
 

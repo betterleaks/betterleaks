@@ -88,8 +88,8 @@ fn check_status(status: i32, error: &NativeBuffer) -> Result<(), Error> {
     })
 }
 
-/// Construction options. Defaults use embedded rules, the Go standard regex
-/// engine, no recursive decoding, 8 MiB per input, and at most 10,000 findings.
+/// Construction options. Defaults use embedded rules, RE2, no recursive
+/// decoding, 8 MiB per input, and at most 10,000 findings.
 #[derive(Serialize)]
 pub struct ScannerBuilder {
     #[serde(skip_serializing_if = "Option::is_none")]

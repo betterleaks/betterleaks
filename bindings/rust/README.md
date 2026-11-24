@@ -54,7 +54,7 @@ native result buffers releases their native resources automatically.
 
 Builder options include custom TOML, a configuration file path, workers, decoding depth,
 maximum input bytes, and maximum findings. Defaults are the embedded rules,
-standard Go regex engine, no decoding, 8 MiB inputs, and 10,000 findings. Both
+RE2 engine, no decoding, 8 MiB inputs, and 10,000 findings. Both
 source prefilters and finding filters are honored. Configuration errors fail at
 construction. Scan errors and exceeded limits return `Err`, without partial
 findings. Match values can contain secrets; they are omitted from `Match`'s
