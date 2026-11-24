@@ -38,10 +38,10 @@ The output is `dist/native/<target>/`:
 
 ```text
 include/betterleaks.h          Public C API and ownership contract
-include/cgo-generated.h       Generated declarations, useful for ABI inspection
-lib/libbetterleaks.a          Static native library
-lib/libbetterleaks_ffi.dylib      Shared native library (.so on Linux)
-lib/betterleaks-native.json   Versions, target, shared library name and library hashes
+include/cgo-generated.h        Generated declarations, useful for ABI inspection
+lib/libbetterleaks.a           Static native library
+lib/libbetterleaks_ffi.dylib   Shared native library (.so on Linux)
+lib/betterleaks-native.json    Versions, target, shared library name and library hashes
 LICENSE
 ```
 

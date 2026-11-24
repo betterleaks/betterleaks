@@ -950,6 +950,8 @@ Platform types and constants come from
 
 | CLI option | `gogit.Source` field | SDK behavior |
 |---|---|---|
+| `--commit-list-file` | `Commits` | Full commit IDs; `nil` uses `Revision`, and an empty slice selects no commits. |
+| `--author`, `--committer` | `Author`, `Committer` | Go regular expressions over `Name <email>`. |
 | `--max-commits` | `MaxCount` | `0` is unlimited. |
 | `--since`, `--until` | `Since`, `Until` | Inclusive `*time.Time` bounds; callers parse dates and choose any end-of-day adjustment. |
 | `--git-max-blob-mib` | `MaxBlobBytes` | Bytes, not MiB; `0` selects 64 MiB. |
@@ -2106,7 +2108,15 @@ curl -sL https://example.com/blob.txt.gz | gunzip | betterleaks stdin
 
 # JSON report to stdout
 some-command | betterleaks stdin --output -
+
+# name the piped content so path prefilters, filters, and report locations apply
+kubectl get secret app -o yaml | betterleaks stdin --set-attr path=k8s/app-secret.yaml
 ```
+
+`--set-attr key=value` attaches a source attribute to piped content and can be
+repeated. A `path` attribute becomes the finding's `location.path` and is checked
+by `prefilter` and `filter` expressions like a file path; other keys appear under
+`attributes`. Values are literal, so commas are not separators.
 
 ---
 
@@ -2117,7 +2127,7 @@ some-command | betterleaks stdin --output -
 betterleaks filesystem . --config .betterleaks.toml
 
 # only run selected rules
-betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-key
+betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-token
 
 # disable selected rules
 betterleaks git . --disable-rule generic-api-key

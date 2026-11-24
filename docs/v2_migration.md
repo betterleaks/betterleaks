@@ -19,19 +19,20 @@ The most important changes are:
 
 ## Trying the release candidate
 
-Once `v2.0.0-rc.1` is published, install that exact version:
+Release candidates are tagged `v2.0.0-rc.N`; the
+[releases page](https://github.com/betterleaks/betterleaks/releases) lists the
+newest one along with release archives. Until v2.0.0 is released, Go's `@latest`
+selects the newest candidate. Container images use the exact candidate tag:
 
 ```sh
-go install github.com/betterleaks/betterleaks/v2@v2.0.0-rc.1
+go install github.com/betterleaks/betterleaks/v2@latest
 betterleaks version
 
-# Or use the candidate container
-docker pull ghcr.io/betterleaks/betterleaks:v2.0.0-rc.1
+# Or use a candidate container; substitute the newest rc tag
+docker pull ghcr.io/betterleaks/betterleaks:v2.0.0-rc.13
 ```
 
-Release archives are also available on the
-[releases page](https://github.com/betterleaks/betterleaks/releases).
-The candidate does not update the Docker `latest` or `v2` tags, the Homebrew
+Candidates do not update the Docker `latest` or `v2` tags, the Homebrew
 cask, or GitHub's latest release. Stable v2 releases update these channels;
 v1 maintenance releases continue to use Docker `:v1` and the
 `betterleaks/tap/betterleaks@1` cask (command: `betterleaks-v1`).
@@ -207,8 +208,9 @@ Remove compatibility fields rather than leaving them alongside their replacement
 | `betterleaksMinVersion` | `minVersion`, now a minimum **Betterleaks** version. |
 
 Do not carry over a Gitleaks `minVersion = "8.x.y"`: it now means Betterleaks
-8.x.y. For a config requiring this candidate, use `minVersion = "2.0.0-rc.1"`.
-`2.0.0` requires the final release and excludes its release candidates.
+8.x.y. To require any v2 build, including release candidates, use
+`minVersion = "2.0.0-rc.1"`. `2.0.0` requires the final release and excludes its
+release candidates.
 
 A filter returning `true` **discards** the input. Combine skip conditions with
 `||`, preserving any existing filter. For example, replace this v1 rule:
@@ -387,7 +389,7 @@ are built with the latest stable Go release. For source builds, use a current
 patched Go release to receive security fixes. The Git source uses stable go-git v5:
 
 ```sh
-go get github.com/betterleaks/betterleaks/v2@v2.0.0-rc.1
+go get github.com/betterleaks/betterleaks/v2@latest
 ```
 
 The Git source's public options are unchanged by the v5 port. If an integration
@@ -545,8 +547,9 @@ without enrichment. For already extracted credentials, use
 `Analyzer.ValidateCredential` or `Analyzer.AnalyzeCredential` with `credential.Input`.
 
 Configure detection workers with `scan.WithWorkers`, and provider workers and
-request limits with `analyze` options. Sources use internal concurrency limits;
-their `Workers` fields have been removed. See [parallel jobs](scanning.md#parallel-jobs).
+request limits with `analyze` options. Sources choose their own concurrency
+limits; only `gogit.Source` keeps a `Workers` field, for tuning Git history reads.
+See [parallel jobs](scanning.md#parallel-jobs).
 Scanners and analyzers are silent by default; inject `*slog.Logger` through their
 `WithLogger` options. Reporting and redaction belong to your application; use
 `Finding.RedactedCopy` when exporting findings that should hide credentials.

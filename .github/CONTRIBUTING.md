@@ -129,35 +129,36 @@ from them.
    sets, named captures, or paths, write a `config.RuleTest` literal; see
    [rule tests](../docs/config.md#check-a-config-and-its-rule-tests).
 
-2. If you want to include filters like entropy checking, attribute filtering, or Token Efficiency filtering, set the rule's `FilterExpr` field. For more information, check out the [config doc](/docs/config.md)
-Example simple `filter`:
-```
-filter = '''
-    entropy(finding["secret"]) <= 3.5 ||
-    failsTokenEfficiency(finding["secret"])
-'''
-```
+2. If you want to include filters like entropy checking, attribute filtering, or
+   token efficiency filtering, set the rule's `FilterExpr` field. A filter that
+   returns `true` discards the match. See [filtering](../docs/config.md#filtering).
 
-3. Betterleaks supports secrets validation, or liveliness checking, so we expect new rules to have validation logic. Expr powers the validation engine. Set the rule's `ValidateExpr` field. For more information, check out the [config doc](/docs/config.md)
-Example `validate`:
-```toml
-validate = '''
-let r = http.get("https://api.github.com/app", {
-    "Accept": "application/vnd.github+json",
-    "Authorization": "Bearer " + finding["secret"]
-  });
-r.status == 200 && (r.json?.slug ?? "") != "" ? {
-    "result": "valid",
-    "slug": r.json?.slug ?? "",
-    "name": r.json?.name ?? "",
-    "html_url": r.json?.html_url ?? "",
-    "external_url": r.json?.external_url ?? ""
-  } : r.status in [401, 403] ? {
-    "result": "invalid",
-    "reason": "Unauthorized"
-  } : validate.unknown(r)
-'''
-```
+   ```golang
+   FilterExpr: `entropy(finding["secret"]) <= 3.5 || failsTokenEfficiency(finding["secret"])`,
+   ```
+
+3. Betterleaks supports secrets validation, or liveness checking, so we expect
+   new rules to have validation logic. Expr powers the validation engine. Set the
+   rule's `ValidateExpr` field. The result object is closed: return `result`, an
+   optional `reason`, and put public evidence under `metadata`. See
+   [validation and credential analysis](../docs/config.md#validation-and-credential-analysis).
+
+   ```golang
+   ValidateExpr: `let r = http.get("https://api.github.com/app", {
+       "Accept": "application/vnd.github+json",
+       "Authorization": "Bearer " + finding["secret"]
+     });
+   r.status == 200 && (r.json?.slug ?? "") != "" ? {
+       "result": "valid",
+       "metadata": {
+         "slug": r.json?.slug ?? "",
+         "name": r.json?.name ?? ""
+       }
+     } : r.status in [401, 403] ? {
+       "result": "invalid",
+       "reason": "Unauthorized"
+     } : validate.unknown(r)`,
+   ```
 
    Multipart rules set `Components` on `config.Rule`. Validation expressions
    read the primary rule's named groups from `finding["captures"]`, component
