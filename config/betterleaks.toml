@@ -11017,6 +11017,30 @@ entropy(finding["secret"]) < 3.5
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# tavily-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "tavily-api-key"
+description = "Detected a Tavily API key, which may allow access to Tavily AI search APIs and account usage details."
+regex = '''\b((?:tvly-[A-Za-z0-9]{32}|tvly-[A-Za-z0-9]{6}-[A-Za-z0-9]{42}))(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["tvly-"]
+validate = '''
+let r = http.get("https://api.tavily.com/usage", {"Authorization": "Bearer " + finding["secret"]});
+(r.status in [200]) ? {
+    "result": "valid",
+    "analysis": {
+      "plan": string(r.json?.account?.current_plan ?? ""),
+    }
+  } :
+(r.status in [401]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # telegram-bot-api-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
