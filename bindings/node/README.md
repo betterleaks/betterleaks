@@ -10,7 +10,7 @@ npm install betterleaks@next
 
 npm installs the prebuilt binary for your platform through an exact-version optional dependency. Keep optional dependencies enabled. Installation works with `--ignore-scripts` and requires no compiler or Go installation.
 
-For a Node application that only needs `scanFile` and `scanText`, install `@betterleaks/sdk@next` and import them from `"@betterleaks/sdk"`. This installs the scanner without the CLI executable. See the [SDK quickstart](https://www.npmjs.com/package/@betterleaks/sdk).
+For a Node application that only needs the scanning API, install `@betterleaks/sdk@next` and import it from `"@betterleaks/sdk"`. This installs the scanner without the CLI executable. See the [SDK quickstart](https://www.npmjs.com/package/@betterleaks/sdk).
 
 ## Scan from Node.js
 
@@ -27,6 +27,8 @@ for (const finding of report.findings) {
 ```
 
 CommonJS supports `const { scanText, scanFile } = require("betterleaks")`. TypeScript declarations are included.
+
+For custom rules, import `createScanner` from `"betterleaks"` and call `await createScanner({ configPath: "./betterleaks.toml" })` or `await createScanner({ configToml: toml })`. The returned scanner supports `scanText` and `scanFile` and compiles its rules once. Call `scanner.close()` when finished.
 
 Try the [runnable Node.js example](https://github.com/betterleaks/betterleaks/blob/main/examples/node/scan.mjs) in a project with `betterleaks` installed. Run `node scan.mjs` to scan a synthetic token or `node scan.mjs settings.env` to scan a file.
 

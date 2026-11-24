@@ -47,3 +47,20 @@ export function scanText(text: string): Promise<ScanResult>;
 
 /** Scan one local regular file with filesystem rules and path metadata. */
 export function scanFile(path: string): Promise<ScanResult>;
+
+export interface ScannerOptions {
+  /** Read TOML from this path. With configToml, use it as the inline config's source name. */
+  configPath?: string;
+  /** Supply TOML directly. It can extend the built-in rules. */
+  configToml?: string;
+}
+
+export interface Scanner {
+  scanText(text: string): Promise<ScanResult>;
+  scanFile(path: string): Promise<ScanResult>;
+  /** Stop accepting scans. Already submitted scans finish normally. Safe to call repeatedly. */
+  close(): void;
+}
+
+/** Load and compile rules once for this scanner. Omit options to use the built-in rules. */
+export function createScanner(options?: ScannerOptions): Promise<Scanner>;
