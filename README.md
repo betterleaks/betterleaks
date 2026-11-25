@@ -337,3 +337,4 @@ Projects and organizations that run Betterleaks. Open a pull request to add your
 - [Veridox](https://veridox.ai)
 - [Webflow](https://github.com/webflow/ctxcop)
 - [GAMSPy](https://github.com/GAMS-dev/gamspy)
+- [Siemens](https://github.com/siemens)
