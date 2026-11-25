@@ -209,3 +209,45 @@ func FuzzSearchAnchorEligibility(f *testing.F) {
 		require.Equal(t, want, got)
 	})
 }
+
+func TestLiteralWindowsPreserveEligibility(t *testing.T) {
+	for _, engine := range []regexp.Engine{regexp.Stdlib{}, re2.RE2{}} {
+		t.Run(engine.Version(), func(t *testing.T) {
+			t.Parallel()
+			// The keyword is context: a match need not contain it, so only the
+			// regex's own literal can locate windows.
+			cfg := &config.Config{Rules: []config.Rule{{ID: "context", Regex: `\b(re_[a-z0-9]{8})\b`, Keywords: []string{"resend"}}}}
+			narrowed := mustNew(t, cfg, WithRegexEngine(engine), WithMaxDecodeDepth(2))
+			original := mustNew(t, cfg, WithRegexEngine(engine), WithMaxDecodeDepth(2))
+			for i := range original.rulesBySpecificity {
+				original.rulesBySpecificity[i].span = nil
+				original.rulesBySpecificity[i].searchAnchors = nil
+			}
+			clear(original.anchorRuleIndexes)
+			require.Equal(t, []string{"re_"}, narrowed.rulesBySpecificity[0].searchAnchors)
+			filler := strings.Repeat("ordinary text\n", 200)
+			for _, tc := range []struct {
+				raw   string
+				count int
+			}{
+				{"re_abcd1234", 0},
+				{"resend\n" + filler + "re_abcd1234", 1},
+				{"re_abcd1234\n" + filler + "RESEND", 1},
+				{"resend re_abcd1234 " + filler + "re_efgh5678", 2},
+				{"resend RE_abcd1234 re_ABCD1234", 0},
+				{"resend pre_abcd1234", 0},
+			} {
+				for depth := 0; depth <= 2; depth++ {
+					raw := tc.raw
+					for range depth {
+						raw = base64.StdEncoding.EncodeToString([]byte(raw))
+					}
+					fragment := sources.Fragment{Raw: raw, StartLine: 31}
+					want := original.detectFragment(t.Context(), fragment)
+					require.Len(t, want, tc.count, "input %q depth %d", tc.raw, depth)
+					require.Equal(t, want, narrowed.detectFragment(t.Context(), fragment), "input %q depth %d", tc.raw, depth)
+				}
+			}
+		})
+	}
+}

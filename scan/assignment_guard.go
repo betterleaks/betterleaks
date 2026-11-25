@@ -60,7 +60,7 @@ func inferAssignmentGuard(re *syntax.Regexp, keywords []string) *assignmentGuard
 	return g
 }
 
-func (g *assignmentGuard) possible(raw string, end int) bool {
+func (g *assignmentGuard) possible(raw string, _, end int) bool {
 	i := end
 	for count := 0; count < g.identifierMax && i < len(raw); count++ {
 		b := raw[i]

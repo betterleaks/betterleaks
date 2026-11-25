@@ -5,6 +5,7 @@ package regexspan
 
 import (
 	"regexp/syntax"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -30,7 +31,7 @@ func Compile(re *syntax.Regexp, keywords []string) *Plan {
 			return nil
 		}
 		for _, r := range keyword {
-			if r >= utf8.RuneSelf {
+			if r >= utf8.RuneSelf || r == rune(wildcard[0]) || r == rune(newlineWildcard[0]) {
 				return nil
 			}
 		}
@@ -64,7 +65,7 @@ func analyze(re *syntax.Regexp, keywords []string) *Plan {
 					tail := literal[index+len(keyword):]
 					combined.Before = max(combined.Before, index*utf8.UTFMax)
 					combined.After = max(combined.After, len(tail)*utf8.UTFMax)
-					combined.Newlines = max(combined.Newlines, strings.Count(tail, "\n"))
+					combined.Newlines = max(combined.Newlines, strings.Count(tail, "\n")+strings.Count(tail, newlineWildcard))
 					found = true
 					break
 				}
@@ -125,6 +126,23 @@ func analyze(re *syntax.Regexp, keywords []string) *Plan {
 	return nil
 }
 
+// Wide classes and dots expand to one placeholder byte that no keyword may
+// contain. A keyword found beside a placeholder is in every expansion, and
+// widths count each placeholder as a full rune.
+const (
+	wildcard        = "\x00"
+	newlineWildcard = "\x01" // may also match a newline
+)
+
+func wildcardFor(ranges []rune) string {
+	for i := 0; i < len(ranges); i += 2 {
+		if ranges[i] <= '\n' && '\n' <= ranges[i+1] {
+			return newlineWildcard
+		}
+	}
+	return wildcard
+}
+
 // syntax.Parse factors alternatives such as access|auth into a(?:ccess|uth).
 // Expand only small, entirely literal subtrees to recover those anchors.
 func literalAlternatives(re *syntax.Regexp) ([]string, bool) {
@@ -136,6 +154,10 @@ func literalAlternatives(re *syntax.Regexp) ([]string, bool) {
 			}
 		}
 		return []string{string(re.Rune)}, true
+	case syntax.OpAnyCharNotNL:
+		return []string{wildcard}, true
+	case syntax.OpAnyChar:
+		return []string{newlineWildcard}, true
 	case syntax.OpEmptyMatch, syntax.OpBeginLine, syntax.OpEndLine,
 		syntax.OpBeginText, syntax.OpEndText, syntax.OpWordBoundary, syntax.OpNoWordBoundary:
 		return []string{""}, true
@@ -148,7 +170,7 @@ func literalAlternatives(re *syntax.Regexp) ([]string, bool) {
 		var values []string
 		for i := 0; i < len(re.Rune); i += 2 {
 			if re.Rune[i+1] >= utf8.RuneSelf || int(re.Rune[i+1]-re.Rune[i])+len(values) >= 16 {
-				return nil, false
+				return []string{wildcardFor(re.Rune)}, true
 			}
 			for r := re.Rune[i]; r <= re.Rune[i+1]; r++ {
 				values = append(values, string(r))
@@ -189,6 +211,78 @@ func literalAlternatives(re *syntax.Regexp) ([]string, bool) {
 		return values, true
 	}
 	return nil, false
+}
+
+// minAnchorLength keeps anchors selective. The keyword matcher also skips
+// binary input only while every pattern has at least three bytes.
+const minAnchorLength = 3
+
+// Anchors proposes lowercase ASCII literals, one of which every match of re
+// contains. Compile still has to prove that they bound a match. It returns
+// nil when no such set of at most 16 literals of three or more bytes exists.
+func Anchors(re *syntax.Regexp) []string {
+	anchors, _ := requiredLiterals(re)
+	return anchors
+}
+
+func requiredLiterals(re *syntax.Regexp) ([]string, bool) {
+	switch re.Op {
+	case syntax.OpLiteral:
+		literal := make([]byte, 0, len(re.Rune))
+		for _, r := range re.Rune {
+			if r >= utf8.RuneSelf {
+				return nil, false
+			}
+			if r >= 'A' && r <= 'Z' {
+				r += 'a' - 'A'
+			}
+			literal = append(literal, byte(r))
+		}
+		return []string{string(literal)}, len(literal) >= minAnchorLength
+	case syntax.OpCapture, syntax.OpPlus:
+		return requiredLiterals(re.Sub[0])
+	case syntax.OpRepeat:
+		if re.Min > 0 {
+			return requiredLiterals(re.Sub[0])
+		}
+	case syntax.OpConcat:
+		// Any required element will do. Prefer the longest shortest literal.
+		var best []string
+		for _, sub := range re.Sub {
+			if anchors, ok := requiredLiterals(sub); ok && selective(anchors, best) {
+				best = anchors
+			}
+		}
+		return best, best != nil
+	case syntax.OpAlternate:
+		var anchors []string
+		for _, sub := range re.Sub {
+			next, ok := requiredLiterals(sub)
+			if !ok {
+				return nil, false
+			}
+			for _, anchor := range next {
+				if !slices.Contains(anchors, anchor) {
+					anchors = append(anchors, anchor)
+				}
+			}
+		}
+		return anchors, len(anchors) <= 16
+	}
+	return nil, false
+}
+
+func selective(anchors, than []string) bool {
+	if than == nil {
+		return true
+	}
+	shortest := func(values []string) int {
+		return len(slices.MinFunc(values, func(a, b string) int { return len(a) - len(b) }))
+	}
+	if a, b := shortest(anchors), shortest(than); a != b {
+		return a > b
+	}
+	return len(anchors) < len(than)
 }
 
 type width struct{ bytes, lines int }

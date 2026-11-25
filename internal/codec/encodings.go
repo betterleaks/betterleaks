@@ -189,6 +189,13 @@ func findEncodingMatches(data string) []encodingMatch {
 			}
 			i = j + 1
 		}
+		// Neither '%' nor '\' is a Base64 byte, so any run that starts within
+		// the last minBase64Run bytes before one is too short to decode.
+		// Shorter inputs never search for markers; there marker is only n.
+		if n >= minBase64Run && marker-i < minBase64Run &&
+			(marker == n || data[marker] == '%' || data[marker] == '\\') {
+			i = marker
+		}
 		if i == n {
 			break
 		}

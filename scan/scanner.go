@@ -558,7 +558,7 @@ ScanLoop:
 			s.keywordMatcher.Visit(currentRaw, func(patternID, start, end int) bool {
 				for _, ruleIndex := range s.keywordRuleIndexes[patternID] {
 					rule := &s.rulesBySpecificity[ruleIndex]
-					if rule.guard != nil && !rule.guard.possible(currentRaw, end) {
+					if rule.guard != nil && !rule.guard.possible(currentRaw, start, end) {
 						continue
 					}
 					candidates.mark(ruleIndex)
@@ -733,10 +733,17 @@ func snapshotRules(cfg *config.Config, engine blregexp.Engine) ([]compiledRule, 
 			if err != nil {
 				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.ID, err)
 			}
-			compiled.guard = inferAssignmentGuard(parsed, rule.Keywords)
+			if guard := inferAssignmentGuard(parsed, rule.Keywords); guard != nil {
+				compiled.guard = guard
+			} else if guard := inferContextGuard(parsed, rule.Keywords); guard != nil {
+				compiled.guard = guard
+			}
 			compiled.span = regexspan.Compile(parsed, rule.Keywords)
 			if compiled.span == nil {
 				compiled.span, compiled.searchAnchors = compilePrefixWindows(parsed, rule.Keywords)
+			}
+			if compiled.span == nil {
+				compiled.span, compiled.searchAnchors = compileLiteralWindows(parsed, rule.Keywords)
 			}
 			compiled.regex, err = blregexp.CompileWithEngine(rule.Regex, engine)
 			if err != nil {
