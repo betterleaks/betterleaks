@@ -72,6 +72,9 @@ identity and permissions. Analysis implies validation. Set `BETTERLEAKS_VALIDATE
 betterleaks /path/to/target
 # Equivalent explicit command
 betterleaks filesystem /path/to/target
+
+# Scan a local OCI image layout, including all layers and image configuration
+betterleaks oci /path/to/image.oci
 # Short command alias
 betterleaks fs /path/to/target
 # Flags may also precede the command
