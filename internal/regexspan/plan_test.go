@@ -39,6 +39,72 @@ func TestDefaultRuleWindows(t *testing.T) {
 	t.Logf("derived windows for %d/%d default rules", planned, len(cfg.Rules))
 }
 
+// Rules whose keywords cannot bound a match may still be windowed by a
+// literal that every match contains. Generated matches must survive.
+func TestDefaultRuleAnchorWindows(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := 0
+	for _, rule := range cfg.Rules {
+		if rule.Regex == "" || compilePattern(rule.Regex, rule.Keywords) != nil {
+			continue
+		}
+		anchors := Anchors(mustParse(t, rule.Regex))
+		if anchors == nil || compilePattern(rule.Regex, anchors) == nil {
+			continue
+		}
+		planned++
+		t.Run(rule.ID, func(t *testing.T) {
+			generator, err := reggen.NewGenerator(rule.Regex)
+			if err != nil {
+				t.Fatal(err)
+			}
+			generator.SetSeed(1)
+			for range 10 {
+				value := generator.Generate(8)
+				text := strings.Repeat("unrelated filler\n", 100) + value + "\n" + strings.Repeat("other filler\n", 100) + value + "\n"
+				checkWindows(t, rule.Regex, text, anchors)
+			}
+		})
+	}
+	if planned == 0 {
+		t.Fatal("no default rule gained anchor windows")
+	}
+	t.Logf("derived anchor windows for %d default rules", planned)
+}
+
+func TestAnchors(t *testing.T) {
+	for _, tc := range []struct {
+		pattern string
+		want    []string
+	}{
+		{`\b(re_[a-z]{8}_[a-z]{24})\b`, []string{"re_"}},
+		{`(?:^|[^A-Za-z0-9+/])([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\b`, []string{"==:"}},
+		{`(?i)(?:alibaba|secret|key)=([a-z0-9]{30})`, []string{"alibaba", "secret", "key"}},
+		// The parser factors shared prefixes; any required literal is sound.
+		{`(?i)(?:alibaba|aliyun)=([a-z0-9]{30})`, []string{"ali"}},
+		{`(?i)Account[_.-]?Name=([a-z]+)`, []string{"account"}},
+		{`(?:prefix)?token=x+`, []string{"token="}},
+		{`SK[0-9a-f]{32}`, nil},               // too short to be selective
+		{`(?:abcd|ef)[0-9]+`, nil},            // one branch has no anchor
+		{`(?:abcd)*[0-9]+`, nil},              // optional literals are not required
+		{`(?:abcd){2,}xyz`, []string{"abcd"}}, // a repeated literal is required
+		// Rejected sets must not leak through.
+		{`ab`, nil},
+		{`(?:ab)+`, nil},
+		{`abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs`, nil}, // over 16 anchors
+	} {
+		t.Run(tc.pattern, func(t *testing.T) {
+			got := Anchors(mustParse(t, tc.pattern))
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func checkWindows(t testing.TB, pattern, text string, keywords []string) {
 	t.Helper()
 	plan := compilePattern(pattern, keywords)
@@ -89,6 +155,13 @@ func TestWindows(t *testing.T) {
 		{`(?i)(?:[_.-]pw|password)=[a-z]+`, []string{"_pw", "-pw", ".pw", "password"}, "_pw=abcd\n.password=efgh"},
 		{`[a-z]{0,20}token[a-z]{0,20}`, []string{"token", "longtoken"}, strings.Repeat("longtoken", 500)},
 		{`(?i)key\s{0,3}=[a-z]+`, []string{"key"}, strings.Repeat("key=value ", 3000)},
+		// A wide class next to a keyword no longer blocks a plan.
+		{`\b((?:Q3T[A-Z0-9]|QKIA|QSIA)[A-Z2-7]{16})\b`, []string{"q3t", "qkia", "qsia"}, "x Q3TXABCDEFGHIJKLMNOP QKIAABCDEFGHIJKLMNOP\n"},
+		{`key.[a-z]+=[0-9]+`, []string{"key"}, "key_abc=123\nkeyXdef=4"},
+		// A wildcard that can match a newline must count toward Newlines.
+		{`key[\s\S][a-z]*`, []string{"key"}, strings.Repeat("filler\n", 50) + "key\nabcdef\n" + strings.Repeat("z", 100)},
+		{`key[^x]{0,2}[a-z]*`, []string{"key"}, "key\n\nabcdef\nkey\nxyz"},
+		{`(?:key[\s\S]|akey[\s\S])[a-z]*`, []string{"key"}, strings.Repeat("filler\n", 50) + "key\nabcdef\n" + strings.Repeat("z", 100)},
 	} {
 		t.Run(tc.pattern, func(t *testing.T) {
 			if compilePattern(tc.pattern, tc.keys) == nil {
@@ -178,4 +251,13 @@ func compilePattern(pattern string, keywords []string) *Plan {
 		return nil
 	}
 	return Compile(re, keywords)
+}
+
+func mustParse(t testing.TB, pattern string) *syntax.Regexp {
+	t.Helper()
+	re, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return re
 }

@@ -15,7 +15,7 @@ import (
 // Regex backends are initialized lazily, unless precompilation is requested.
 type compiledRule struct {
 	hash          string
-	guard         *assignmentGuard
+	guard         keywordGuard
 	span          *regexspan.Plan
 	searchAnchors []string
 	rule          config.Rule
@@ -52,4 +52,22 @@ func compilePrefixWindows(re *syntax.Regexp, keywords []string) (*regexspan.Plan
 		return nil, nil
 	}
 	return plan, prefixes
+}
+
+// Context keywords need not occur in a match (e.g. "resend" for re_...), so
+// they cannot bound it. A literal that every match contains can. Keywords
+// still decide eligibility; without them nothing would register the anchors.
+func compileLiteralWindows(re *syntax.Regexp, keywords []string) (*regexspan.Plan, []string) {
+	if len(keywords) == 0 {
+		return nil, nil
+	}
+	anchors := regexspan.Anchors(re)
+	if anchors == nil {
+		return nil, nil
+	}
+	plan := regexspan.Compile(re, anchors)
+	if plan == nil {
+		return nil, nil
+	}
+	return plan, anchors
 }
