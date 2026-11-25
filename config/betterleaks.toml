@@ -7214,6 +7214,48 @@ entropy(finding["secret"]) < 4 || len(payload) % 4 == 1 ||
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# maptiler-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "maptiler-api-key"
+description = "Detected a MapTiler API key, which may allow access to MapTiler Cloud mapping and tile APIs."
+regex = '''(?i:(?:maptiler|map_tiler|map\-tiler)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{20})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "medium"
+keywords = [
+    "maptiler",
+    "map_tiler",
+    "map-tiler",
+]
+validate = '''
+let r = http.get("https://api.maptiler.com/weather/latest.json?" + "key=" + strings.urlQueryEscape(finding["secret"]), {});
+(r.status in [200]) ? {"result": "valid"} :
+(r.status in [403]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
+# maptiler-api-key-url
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "maptiler-api-key-url"
+description = "Detected a MapTiler API key, which may allow access to MapTiler Cloud mapping and tile APIs."
+regex = '''(?i:\b(?:[a-z0-9-]+\.)*maptiler\.com)(?::[0-9]{1,5})?(?:/[^\s'\"\x60<>?#]{0,300})?\?(?:[^\s'\"\x60<>#]{0,300}&)?(?i:key)=([A-Za-z0-9]{20})(?:[&#'\"\x60\s\\)]|$)'''
+confidence = "medium"
+keywords = ["maptiler.com"]
+validate = '''
+let r = http.get("https://api.maptiler.com/weather/latest.json?" + "key=" + strings.urlQueryEscape(finding["secret"]), {});
+(r.status in [200]) ? {"result": "valid"} :
+(r.status in [403]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # mattermost-access-token
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
