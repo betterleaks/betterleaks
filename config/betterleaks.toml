@@ -10352,6 +10352,31 @@ confidence = "high"
 keywords = ["hooks.slack.com"]
 
 # ──────────────────────────────────────────────────────────────────────────────
+# smartbear-bitbar-api-key
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "smartbear-bitbar-api-key"
+description = "Detected a SmartBear Bitbar API key, which may allow access to cloud testing infrastructure and device testing APIs."
+regex = '''(?i:(?:bitbar)(?:[ \t\w.-]{0,20})[\s'"]{0,3})(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9]{32})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "medium"
+keywords = ["bitbar"]
+validate = '''
+let r = http.get("https://cloud.bitbar.com/api/v2/me", {"Authorization": "Basic " + base64.encode(bytes(finding["secret"] + ":"))});
+(r.status in [200]) ? {
+    "result": "valid",
+    "analysis": {
+      "account_id": string(r.json?.accountId ?? ""),
+      "user_id": string(r.json?.id ?? ""),
+    }
+  } :
+(r.status in [401]) ? {"result": "invalid"} :
+validate.unknown(r)
+'''
+filter = '''
+entropy(finding["secret"]) <= 3.5
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # snowflake-account-host.1
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
