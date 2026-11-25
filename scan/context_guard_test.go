@@ -31,12 +31,10 @@ func TestContextGuardInference(t *testing.T) {
 		{`\btoken=([a-z]{10})`, true},
 		// A keyword-free alternative can match anywhere.
 		{`(?:token=|key=)([a-z]{10})`, false},
-		// A literal holding one keyword splits around it.
+		// A literal holding a keyword splits around it, at the earliest one.
 		{`mytoken=([a-z]{10})`, true},
-		// With two keywords, windows may be measured from the other one.
-		{`tokensecret=([a-z]{10})`, false},
-		// A literal before the keyword element could hold a keyword itself.
-		{`secretx(?:token)=([a-z]{10})`, false},
+		{`tokensecret=([a-z]{10})`, true},
+		{`secretx(?:token)=([a-z]{10})`, true},
 		// Nothing constrains the hit.
 		{`token`, false},
 	} {
@@ -54,16 +52,18 @@ func TestContextGuardGenericAPIKey(t *testing.T) {
 	guard := compileContextGuard(t, rule.Regex, rule.Keywords)
 	require.NotNil(t, guard)
 	matcher := ahocorasick.Compile(rule.Keywords, true)
+	// The guard checks the value's shape, not its entropy.
+	value := strings.Repeat("x1", 16)
 	for _, tc := range []struct {
 		raw    string
 		accept bool
 	}{
 		{"def access_level_for(user)", false},
 		{"user.token_count + 1", false},
-		{"api_key = 'Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB'", true},
-		{`"credential": {"value": "Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB"}`, true},
-		{"<cfg:API_KEYS>\n<site>Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB</site>", true},
-		{"secret\n\t= Zf3D0LXCM3EIMbgJpUNnkRtOfOueHznB", true},
+		{"api_key = '" + value + "'", true},
+		{`"credential": {"value": "` + value + `"}`, true},
+		{"<cfg:API_KEYS>\n<site>" + value + "</site>", true},
+		{"secret\n\t= " + value, true},
 	} {
 		require.Equal(t, tc.accept, guardAccepts(guard, matcher, tc.raw), tc.raw)
 	}
@@ -110,4 +110,31 @@ func TestContextGuardsPreserveGeneratedMatches(t *testing.T) {
 	}
 	require.NotZero(t, guarded)
 	t.Logf("context guards for %d default rules", guarded)
+}
+
+// Search windows may be measured from a different keyword than the one the
+// guard checks: the whole regex below expands to literals, and the window
+// plan uses "secret" while the guard examines "token". Rejecting a hit must
+// not remove the window that covers the match.
+func TestContextGuardKeepsWindowsOfRejectedHits(t *testing.T) {
+	cfg := &config.Config{Rules: []config.Rule{{
+		ID: "mismatch", Regex: `token[._]production_secret=([a-z])`, Keywords: []string{"secret", "token"},
+	}}}
+	narrowed := mustNew(t, cfg)
+	_, ok := narrowed.rulesBySpecificity[0].guard.(*contextGuard)
+	require.True(t, ok)
+	original := mustNew(t, cfg)
+	original.rulesBySpecificity[0].guard = nil
+	original.rulesBySpecificity[0].span = nil
+	original.rulesBySpecificity[0].searchAnchors = nil
+	clear(original.anchorRuleIndexes)
+	for _, raw := range []string{
+		"token.production_secret=a",
+		strings.Repeat("filler\n", 100) + "token_production_secret=b\n" + strings.Repeat("x", 100),
+	} {
+		fragment := sources.Fragment{Raw: raw, StartLine: 1}
+		want := original.detectFragment(t.Context(), fragment)
+		require.Len(t, want, 1, raw)
+		require.Equal(t, want, narrowed.detectFragment(t.Context(), fragment), raw)
+	}
 }

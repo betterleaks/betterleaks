@@ -553,15 +553,16 @@ ScanLoop:
 			break ScanLoop
 		default:
 			candidates := s.candidatePool.Get().(*ruleCandidates)
-			// Keywords select rules; proven assignment shapes can reject a hit.
+			// Keywords select rules; guards reject hits no match could use.
 			// Keep every eligible location for merging conservative search windows.
 			s.keywordMatcher.Visit(currentRaw, func(patternID, start, end int) bool {
 				for _, ruleIndex := range s.keywordRuleIndexes[patternID] {
 					rule := &s.rulesBySpecificity[ruleIndex]
-					if rule.guard != nil && !rule.guard.possible(currentRaw, start, end) {
+					if rule.guard == nil || rule.guard.possible(currentRaw, start, end) {
+						candidates.mark(ruleIndex)
+					} else if rule.guard.narrowsWindows() {
 						continue
 					}
-					candidates.mark(ruleIndex)
 					if rule.span != nil && rule.searchAnchors == nil {
 						candidates.addWindow(ruleIndex, currentRaw, start, end, rule.span)
 					}

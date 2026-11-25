@@ -60,6 +60,10 @@ func inferAssignmentGuard(re *syntax.Regexp, keywords []string) *assignmentGuard
 	return g
 }
 
+// The keyword literals lead the regex and the next element repeats, which the
+// window planner never expands, so window plans are measured from this hit.
+func (g *assignmentGuard) narrowsWindows() bool { return true }
+
 func (g *assignmentGuard) possible(raw string, _, end int) bool {
 	i := end
 	for count := 0; count < g.identifierMax && i < len(raw); count++ {

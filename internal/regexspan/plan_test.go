@@ -91,6 +91,10 @@ func TestAnchors(t *testing.T) {
 		{`(?:abcd|ef)[0-9]+`, nil},            // one branch has no anchor
 		{`(?:abcd)*[0-9]+`, nil},              // optional literals are not required
 		{`(?:abcd){2,}xyz`, []string{"abcd"}}, // a repeated literal is required
+		// Rejected sets must not leak through.
+		{`ab`, nil},
+		{`(?:ab)+`, nil},
+		{`abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs`, nil}, // over 16 anchors
 	} {
 		t.Run(tc.pattern, func(t *testing.T) {
 			got := Anchors(mustParse(t, tc.pattern))
@@ -152,7 +156,7 @@ func TestWindows(t *testing.T) {
 		{`[a-z]{0,20}token[a-z]{0,20}`, []string{"token", "longtoken"}, strings.Repeat("longtoken", 500)},
 		{`(?i)key\s{0,3}=[a-z]+`, []string{"key"}, strings.Repeat("key=value ", 3000)},
 		// A wide class next to a keyword no longer blocks a plan.
-		{`\b((?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z2-7]{16})\b`, []string{"a3t", "akia", "asia"}, "x A3TXABCDEFGHIJKLMNOP AKIAABCDEFGHIJKLMNOP\n"},
+		{`\b((?:Q3T[A-Z0-9]|QKIA|QSIA)[A-Z2-7]{16})\b`, []string{"q3t", "qkia", "qsia"}, "x Q3TXABCDEFGHIJKLMNOP QKIAABCDEFGHIJKLMNOP\n"},
 		{`key.[a-z]+=[0-9]+`, []string{"key"}, "key_abc=123\nkeyXdef=4"},
 		// A wildcard that can match a newline must count toward Newlines.
 		{`key[\s\S][a-z]*`, []string{"key"}, strings.Repeat("filler\n", 50) + "key\nabcdef\n" + strings.Repeat("z", 100)},

@@ -10,20 +10,18 @@ import (
 )
 
 // keywordGuard is a necessary condition for a keyword hit to be part of a
-// match. A rejected hit neither admits its rule nor creates a search window,
-// so a guard must accept every hit that a regex match can begin from.
+// match, so it must accept a hit at the keyword every match contains. A
+// rejected hit does not admit its rule. It also loses its search window when
+// narrowsWindows reports that plans are measured from the checked keyword.
 type keywordGuard interface {
 	possible(raw string, start, end int) bool
+	narrowsWindows() bool
 }
 
 // contextGuard runs a rule's own syntax on both sides of a keyword. Each
 // top-level alternative of the regex contains a keyword element. The text
 // before a hit must be able to end the syntax preceding that element, and
 // the text after it must be able to continue the match.
-//
-// Search windows are measured from the first keyword in each alternative.
-// Inference therefore requires the syntax before the keyword element to be
-// unable to contain a keyword, so that both analyses use the same element.
 type contextGuard struct {
 	branches []contextBranch
 }
@@ -31,6 +29,10 @@ type contextGuard struct {
 type contextBranch struct {
 	before, after *lazyGuardDFA // nil leaves that side unconstrained
 }
+
+// A match can hold other keywords, and a window plan may be measured from any
+// of them. Rejected hits therefore keep their windows.
+func (g *contextGuard) narrowsWindows() bool { return false }
 
 func (g *contextGuard) possible(raw string, start, end int) bool {
 	for _, branch := range g.branches {
@@ -46,27 +48,25 @@ func inferContextGuard(re *syntax.Regexp, keywords []string) *contextGuard {
 		return nil
 	}
 	words := make(map[string]bool, len(keywords))
-	shortest := len(keywords[0])
 	for _, keyword := range keywords {
 		words[strings.ToLower(keyword)] = true
-		shortest = min(shortest, len(keyword))
 	}
 	re = stripCaptures(re)
 	// Prefer per-alternative contexts; fall back to the whole expression.
 	if re.Op == syntax.OpConcat && len(re.Sub) > 0 {
 		if first := stripCaptures(re.Sub[0]); first.Op == syntax.OpAlternate {
-			if g := contextBranches(first.Sub, re.Sub[1:], words, shortest); g != nil {
+			if g := contextBranches(first.Sub, re.Sub[1:], words); g != nil {
 				return g
 			}
 		}
 	}
 	if re.Op == syntax.OpAlternate {
-		return contextBranches(re.Sub, nil, words, shortest)
+		return contextBranches(re.Sub, nil, words)
 	}
-	return contextBranches([]*syntax.Regexp{re}, nil, words, shortest)
+	return contextBranches([]*syntax.Regexp{re}, nil, words)
 }
 
-func contextBranches(alternatives, rest []*syntax.Regexp, words map[string]bool, shortest int) *contextGuard {
+func contextBranches(alternatives, rest []*syntax.Regexp, words map[string]bool) *contextGuard {
 	g := &contextGuard{}
 	constrained := false
 	for _, alternative := range alternatives {
@@ -74,7 +74,7 @@ func contextBranches(alternatives, rest []*syntax.Regexp, words map[string]bool,
 		if alternative = stripCaptures(alternative); alternative.Op == syntax.OpConcat {
 			elements = alternative.Sub
 		}
-		before, after, ok := splitAtKeyword(elements, words, shortest)
+		before, after, ok := splitAtKeyword(elements, words)
 		if !ok {
 			return nil
 		}
@@ -105,18 +105,14 @@ func contextBranches(alternatives, rest []*syntax.Regexp, words map[string]bool,
 
 // splitAtKeyword returns the syntax on each side of the first keyword
 // element. A literal may merge a keyword with adjacent text, as in "secret>";
-// it is split only when it contains no other keyword, since search windows
-// are measured from the first keyword found in it.
-func splitAtKeyword(elements []*syntax.Regexp, words map[string]bool, shortest int) (before, after []*syntax.Regexp, ok bool) {
+// it is split around its earliest keyword.
+func splitAtKeyword(elements []*syntax.Regexp, words map[string]bool) (before, after []*syntax.Regexp, ok bool) {
 	for i, e := range elements {
 		if isKeywordElement(e, words) {
 			return elements[:i], elements[i+1:], true
 		}
 		if pre, post, found := splitKeywordLiteral(e, words); found {
 			return append(slices.Clone(elements[:i]), pre...), append(post, elements[i+1:]...), true
-		}
-		if !keywordFree(e, shortest) {
-			return nil, nil, false
 		}
 	}
 	return nil, nil, false
@@ -137,16 +133,9 @@ func splitKeywordLiteral(re *syntax.Regexp, words map[string]bool) (pre, post []
 	text := string(folded)
 	at, length := -1, 0
 	for word := range words {
-		for offset := 0; ; {
-			i := strings.Index(text[offset:], word)
-			if i < 0 {
-				break
-			}
-			if at >= 0 {
-				return nil, nil, false
-			}
-			at, length = offset+i, len(word)
-			offset += i + 1
+		i := strings.Index(text, word)
+		if i >= 0 && (at < 0 || i < at || i == at && len(word) > length) {
+			at, length = i, len(word)
 		}
 	}
 	if at < 0 {
@@ -245,34 +234,6 @@ func isKeywordElement(re *syntax.Regexp, words map[string]bool) bool {
 		}
 	}
 	return true
-}
-
-// keywordFree reports syntax whose matches cannot contain a keyword literal.
-func keywordFree(re *syntax.Regexp, shortest int) bool {
-	switch re.Op {
-	case syntax.OpEmptyMatch, syntax.OpBeginLine, syntax.OpEndLine, syntax.OpBeginText,
-		syntax.OpEndText, syntax.OpWordBoundary, syntax.OpNoWordBoundary,
-		syntax.OpCharClass, syntax.OpAnyChar, syntax.OpAnyCharNotNL:
-		return true
-	case syntax.OpLiteral:
-		return len(re.Rune) < shortest
-	case syntax.OpCapture:
-		return keywordFree(re.Sub[0], shortest)
-	case syntax.OpStar, syntax.OpPlus, syntax.OpQuest, syntax.OpRepeat:
-		// A repeated single rune class can match keyword text, but regexspan
-		// never anchors on repetition, so the keyword element stays first.
-		sub := stripCaptures(re.Sub[0])
-		return sub.Op == syntax.OpCharClass || sub.Op == syntax.OpAnyChar || sub.Op == syntax.OpAnyCharNotNL ||
-			sub.Op == syntax.OpLiteral && len(sub.Rune) == 1
-	case syntax.OpAlternate:
-		for _, sub := range re.Sub {
-			if !keywordFree(sub, shortest) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }
 
 // reverseSyntax matches the reversed strings of re. Empty-width assertions

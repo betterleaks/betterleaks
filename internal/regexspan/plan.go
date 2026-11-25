@@ -221,7 +221,12 @@ const minAnchorLength = 3
 // contains. Compile still has to prove that they bound a match. It returns
 // nil when no such set of at most 16 literals of three or more bytes exists.
 func Anchors(re *syntax.Regexp) []string {
-	anchors, _ := requiredLiterals(re)
+	// A rejected set can still hold short literals; one would disable the
+	// keyword matcher's pair skipping for every rule.
+	anchors, ok := requiredLiterals(re)
+	if !ok {
+		return nil
+	}
 	return anchors
 }
 
