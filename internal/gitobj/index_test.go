@@ -2,9 +2,12 @@ package gitobj
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"io"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -280,4 +283,129 @@ func TestIndexCancellation(t *testing.T) {
 	_, err = i.HashesWithPrefix([]byte{1})
 	require.ErrorIs(t, err, context.Canceled)
 	require.ErrorIs(t, i.ForEachHashWithPrefix("0", func(Hash) bool { return true }), context.Canceled)
+}
+
+// sampledIndex builds a valid index of n objects. Every eighth hash repeats its
+// predecessor's first eight bytes, so sample prefixes tie across runs, and
+// offsets beyond 2 GiB use the large-offset table.
+func sampledIndex(t *testing.T, format ObjectFormat, n int, seed uint64) ([]byte, []byte, Hash, []Hash, []int64) {
+	t.Helper()
+	rng := rand.New(rand.NewPCG(seed, seed+1))
+	pack := NewHash(strings.Repeat("c", FromObjectFormat(format).Size()*2))
+	size := pack.Size()
+	seen := map[string]bool{}
+	var ids []Hash
+	for len(ids) < n {
+		id := pack
+		for b := range size {
+			id.data[b] = byte(rng.IntN(256))
+		}
+		if len(ids)%8 == 7 {
+			copy(id.data[:8], ids[len(ids)-1].data[:8])
+		}
+		if !seen[string(id.data[:size])] {
+			seen[string(id.data[:size])] = true
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b Hash) int { return bytes.Compare(a.data[:size], b.data[:size]) })
+	offsets := make([]int64, n)
+	used := map[int64]bool{}
+	for k := range offsets {
+		for {
+			off := int64(12 + rng.IntN(1<<20))
+			if rng.IntN(4) == 0 {
+				off += 3 << 30
+			}
+			if !used[off] {
+				used[off], offsets[k] = true, off
+				break
+			}
+		}
+	}
+	idx := []byte{255, 't', 'O', 'c', 0, 0, 0, 2}
+	for b := range 256 {
+		count := 0
+		for _, id := range ids {
+			if int(id.data[0]) <= b {
+				count++
+			}
+		}
+		idx = binary.BigEndian.AppendUint32(idx, uint32(count))
+	}
+	for _, id := range ids {
+		idx = append(idx, id.Bytes()...)
+	}
+	for range ids {
+		idx = binary.BigEndian.AppendUint32(idx, 0)
+	}
+	var large []int64
+	for _, off := range offsets {
+		if off > 0x7fffffff {
+			idx = binary.BigEndian.AppendUint32(idx, 0x80000000|uint32(len(large)))
+			large = append(large, off)
+		} else {
+			idx = binary.BigEndian.AppendUint32(idx, uint32(off))
+		}
+	}
+	for _, off := range large {
+		idx = binary.BigEndian.AppendUint64(idx, uint64(off))
+	}
+	idx = append(idx, pack.Bytes()...)
+	idx = append(idx, make([]byte, size)...)
+	order := make([]uint32, n)
+	for k := range order {
+		order[k] = uint32(k)
+	}
+	slices.SortFunc(order, func(a, b uint32) int { return cmp.Compare(offsets[a], offsets[b]) })
+	algo := uint32(1)
+	if format == SHA256 {
+		algo = 2
+	}
+	rev := []byte{'R', 'I', 'D', 'X', 0, 0, 0, 1}
+	rev = binary.BigEndian.AppendUint32(rev, algo)
+	for _, k := range order {
+		rev = binary.BigEndian.AppendUint32(rev, k)
+	}
+	rev = append(rev, pack.Bytes()...)
+	rev = append(rev, make([]byte, size)...)
+	return idx, rev, pack, ids, offsets
+}
+
+func TestSampledIndexLookups(t *testing.T) {
+	for _, format := range []ObjectFormat{SHA1, SHA256} {
+		for _, n := range []int{1, 15, 16, 17, 33, 1000} {
+			for _, reverse := range []bool{false, true} {
+				idx, rev, pack, ids, offsets := sampledIndex(t, format, n, uint64(n))
+				var reverseFile ReadAtCloser
+				if reverse {
+					reverseFile = indexFile(rev)
+				}
+				i, err := OpenIndex(t.Context(), indexFile(idx), reverseFile, pack)
+				require.NoError(t, err)
+				for k, id := range ids {
+					off, err := i.FindOffset(id)
+					require.NoError(t, err)
+					require.Equal(t, offsets[k], off)
+					got, err := i.FindHash(offsets[k])
+					require.NoError(t, err)
+					require.Equal(t, id, got)
+					// Neighbors of a present hash and offset are absent.
+					next := id
+					next.data[pack.Size()-1]++
+					if !slices.ContainsFunc(ids, func(h Hash) bool { return h == next }) {
+						_, err = i.FindOffset(next)
+						require.ErrorIs(t, err, ErrObjectNotFound)
+					}
+					if !slices.Contains(offsets, offsets[k]+1) {
+						_, err = i.FindHash(offsets[k] + 1)
+						require.ErrorIs(t, err, ErrObjectNotFound)
+					}
+				}
+				_, err = i.FindHash(11)
+				require.ErrorIs(t, err, ErrObjectNotFound)
+				require.NoError(t, i.Close())
+			}
+		}
+	}
 }

@@ -251,7 +251,7 @@ func (s *objectStorage) decodeLoose(f io.Reader, id gitobj.Hash) (*storedObject,
 	if int64(out.Len()) != n {
 		return nil, errors.New("loose Git object size mismatch")
 	}
-	return &storedObject{id: id, kind: typ, raw: out.String()}, nil
+	return &storedObject{id: id, kind: typ, raw: out.String(), work: inflateWork * float64(out.Len())}, nil
 }
 
 func (s *objectStorage) HashesWithPrefix(prefix []byte) ([]gitobj.Hash, error) {

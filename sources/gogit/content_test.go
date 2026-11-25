@@ -80,8 +80,8 @@ func TestLineAdditions(t *testing.T) {
 		fmt.Fprintf(&current, "new-%d\n", i)
 	}
 	checkLineAdditions(t, old.String(), current.String())
-	// Shared tokens cross the Unicode surrogate boundary as well. The final
-	// insertion must retain its original coordinate after matching all of them.
+	// The final insertion must retain its original coordinate after matching
+	// tens of thousands of shared tokens.
 	var additions []string
 	require.NoError(t, lineAdditions(t.Context(), old.String(), old.String()+"secret\n", func(raw string, line int) error {
 		require.Equal(t, 70001, line)
@@ -167,7 +167,7 @@ func TestLineAdditionsCancelDuringPreprocessing(t *testing.T) {
 	}{
 		{
 			name:       "parent tokenization",
-			started:    func(d *lineDiffer) bool { return d.ids["old-start\n"] != 0 },
+			started:    func(d *lineDiffer) bool { return d.lines.find("old-start\n") != 0 },
 			unfinished: func(d *lineDiffer) bool { return d.old[markerLine] == 0 },
 		},
 		{
@@ -178,9 +178,9 @@ func TestLineAdditionsCancelDuringPreprocessing(t *testing.T) {
 		{
 			name: "parent pruning",
 			started: func(d *lineDiffer) bool {
-				return d.ids["\n"] != 0 && d.old[0] == d.ids["\n"]
+				return d.lines.find("\n") != 0 && d.old[0] == d.lines.find("\n")
 			},
-			unfinished: func(d *lineDiffer) bool { return d.old[markerLine] == d.ids["marker\n"] },
+			unfinished: func(d *lineDiffer) bool { return d.old[markerLine] == d.lines.find("marker\n") },
 		},
 		{
 			name:       "destination pruning",

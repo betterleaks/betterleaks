@@ -1,37 +1,55 @@
 package gitobj
 
-import (
-	"container/list"
-	"sync"
-)
+import "sync"
 
 type FileSize int64
-type ObjectLRU struct {
+
+// ObjectCache is a byte-bounded GreedyDual-Size cache. An entry's priority is
+// the cache clock at its last use plus the work rebuilding it would take per
+// byte it occupies. Eviction removes the lowest priority and advances the
+// clock to it, so stale entries age out while, among entries used about as
+// recently, those that are cheap to rebuild for their size go first.
+type ObjectCache struct {
 	MaxSize FileSize
 	mu      sync.Mutex
 	bytes   FileSize
-	lru     list.List
-	entries map[Hash]*list.Element
-}
-type cachedObject struct {
-	id     Hash
-	object EncodedObject
-	size   FileSize
+	clock   float64
+	// queue is a binary min-heap on each entry's priority when it was last
+	// placed there. Uses raise priorities without reordering; eviction
+	// requeues an entry whose key has gone stale.
+	queue   []queued
+	entries map[Hash]*cacheEntry
 }
 
-func NewObjectLRU(n FileSize) *ObjectLRU {
-	return &ObjectLRU{MaxSize: n, entries: make(map[Hash]*list.Element)} //nolint:exhaustruct // Cache and mutex start empty.
+type queued struct {
+	key   float64
+	entry *cacheEntry
 }
-func (c *ObjectLRU) Get(id Hash) (EncodedObject, bool) {
+
+type cacheEntry struct {
+	id       Hash
+	object   EncodedObject
+	size     FileSize
+	value    float64 // rebuild work per byte
+	priority float64
+}
+
+func NewObjectCache(n FileSize) *ObjectCache {
+	return &ObjectCache{MaxSize: n, entries: make(map[Hash]*cacheEntry)} //nolint:exhaustruct // Cache and mutex start empty.
+}
+
+func (c *ObjectCache) Get(id Hash) (EncodedObject, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e := c.entries[id]; e != nil {
-		c.lru.MoveToFront(e)
-		return e.Value.(cachedObject).object, true
+		e.priority = c.clock + e.value
+		return e.object, true
 	}
 	return nil, false
 }
-func (c *ObjectLRU) Put(o EncodedObject) {
+
+// Put caches o, whose contents would take work to rebuild.
+func (c *ObjectCache) Put(o EncodedObject, work float64) {
 	id, size := o.Hash(), FileSize(o.Size())
 	if size < 0 || size > c.MaxSize {
 		return
@@ -39,23 +57,75 @@ func (c *ObjectLRU) Put(o EncodedObject) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e := c.entries[id]; e != nil {
-		c.lru.MoveToFront(e)
+		e.priority = c.clock + e.value
 		return
 	}
-	c.entries[id] = c.lru.PushFront(cachedObject{id, o, size})
+	value := work / float64(max(size, 1))
+	e := &cacheEntry{id: id, object: o, size: size, value: value, priority: c.clock + value}
+	c.entries[id] = e
+	c.queue = append(c.queue, queued{e.priority, e})
+	c.up(len(c.queue) - 1)
 	c.bytes += size
 	for c.bytes > c.MaxSize {
-		e := c.lru.Back()
-		v := e.Value.(cachedObject)
-		c.bytes -= v.size
-		delete(c.entries, v.id)
-		c.lru.Remove(e)
+		top := &c.queue[0]
+		e := top.entry
+		if top.key < e.priority {
+			top.key = e.priority
+			c.down(0)
+			continue
+		}
+		last := len(c.queue) - 1
+		c.queue[0], c.queue[last] = c.queue[last], queued{key: 0, entry: nil}
+		c.queue = c.queue[:last]
+		c.down(0)
+		c.clock = e.priority
+		c.bytes -= e.size
+		delete(c.entries, e.id)
 	}
 }
-func (c *ObjectLRU) Clear() {
+
+func (c *ObjectCache) up(i int) {
+	q := c.queue
+	x := q[i]
+	for i > 0 {
+		parent := (i - 1) / 2
+		if q[parent].key <= x.key {
+			break
+		}
+		q[i] = q[parent]
+		i = parent
+	}
+	q[i] = x
+}
+
+func (c *ObjectCache) down(i int) {
+	q := c.queue
+	if i >= len(q) {
+		return
+	}
+	x := q[i]
+	for {
+		child := 2*i + 1
+		if child >= len(q) {
+			break
+		}
+		if right := child + 1; right < len(q) && q[right].key < q[child].key {
+			child = right
+		}
+		if x.key <= q[child].key {
+			break
+		}
+		q[i] = q[child]
+		i = child
+	}
+	q[i] = x
+}
+
+func (c *ObjectCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries = make(map[Hash]*list.Element)
+	c.entries = make(map[Hash]*cacheEntry)
+	c.queue = nil
 	c.bytes = 0
-	c.lru.Init()
+	c.clock = 0
 }

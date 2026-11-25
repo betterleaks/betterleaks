@@ -169,6 +169,10 @@ type File struct {
 }
 
 func (f *File) Stat() (os.FileInfo, error) { return f.info, nil }
+
+// Bytes returns the mapped contents, or nil when the file is read through its
+// descriptor. The slice is valid until Close.
+func (f *File) Bytes() []byte { return f.data }
 func (f *File) ReadAt(b []byte, off int64) (int, error) {
 	if f.reader != nil {
 		return f.reader.ReadAt(b, off)

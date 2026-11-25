@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"sync"
 )
 
@@ -32,7 +33,16 @@ type Index struct {
 	once                     sync.Once
 	order                    []uint32
 	err                      error
+	// Every sampleStride-th entry's hash prefix (in hash order) and offset (in
+	// pack order). Searching these in memory leaves one short run of the
+	// mapped index to read, instead of a cache miss at every bisection step.
+	hashOnce, offsetOnce sync.Once
+	hashSamples          []uint64
+	offsetSamples        []int64
+	hashErr, offsetErr   error
 }
+
+const sampleStride = 16
 
 func OpenIndex(ctx context.Context, idx, rev ReadAtCloser, id Hash) (*Index, error) {
 	i := &Index{ctx: ctx, idx: idx, rev: rev, id: id}
@@ -152,6 +162,23 @@ func (i *Index) FindOffset(id Hash) (int64, error) {
 		lo = i.fanout[id.data[0]-1]
 	}
 	hi := i.fanout[id.data[0]]
+	if err := i.loadHashSamples(); err != nil {
+		return 0, err
+	}
+	// Bracket the target between samples whose prefixes are strictly smaller
+	// and strictly larger; equal prefixes can share a hash's run.
+	prefix := binary.BigEndian.Uint64(id.data[:8])
+	below, _ := slices.BinarySearch(i.hashSamples, prefix)
+	above := len(i.hashSamples)
+	if prefix < math.MaxUint64 {
+		above, _ = slices.BinarySearch(i.hashSamples, prefix+1)
+	}
+	if below > 0 {
+		lo = max(lo, uint32(below-1)*sampleStride)
+	}
+	if above < len(i.hashSamples) {
+		hi = min(hi, uint32(above)*sampleStride)
+	}
 	// Reuse one scratch buffer across the search. Passing a fresh Hash to
 	// ReaderAt at each step would allocate once per comparison on the heap.
 	var buf [32]byte
@@ -238,7 +265,19 @@ func (i *Index) buildReverse() error {
 	return nil
 }
 func (i *Index) FindHash(off int64) (Hash, error) {
-	lo, hi := uint32(0), i.count
+	if err := i.loadOffsetSamples(); err != nil {
+		return Hash{}, err
+	}
+	// Offsets are unique and ascend in pack order, so one run holds off.
+	k, found := slices.BinarySearch(i.offsetSamples, off)
+	if !found {
+		k--
+	}
+	if k < 0 {
+		return Hash{}, ErrObjectNotFound
+	}
+	lo := uint32(k) * sampleStride
+	hi := min(lo+sampleStride, i.count)
 	var buf [8]byte
 	for lo < hi {
 		mid := lo + (hi-lo)/2
@@ -259,6 +298,52 @@ func (i *Index) FindHash(off int64) (Hash, error) {
 		}
 	}
 	return Hash{}, ErrObjectNotFound
+}
+
+// loadHashSamples reads only the sorted hash table, so forward lookups never
+// build the reverse order that a missing .rev file would require.
+func (i *Index) loadHashSamples() error {
+	i.hashOnce.Do(func() {
+		samples := make([]uint64, (i.count+sampleStride-1)/sampleStride)
+		var buf [8]byte
+		for k := range samples {
+			if k%4096 == 0 {
+				if i.hashErr = i.ctx.Err(); i.hashErr != nil {
+					return
+				}
+			}
+			at := 1032 + int64(k)*sampleStride*int64(i.id.Size())
+			if _, i.hashErr = i.idx.ReadAt(buf[:], at); i.hashErr != nil {
+				return
+			}
+			samples[k] = binary.BigEndian.Uint64(buf[:])
+		}
+		i.hashSamples = samples
+	})
+	return i.hashErr
+}
+
+func (i *Index) loadOffsetSamples() error {
+	i.offsetOnce.Do(func() {
+		samples := make([]int64, (i.count+sampleStride-1)/sampleStride)
+		var buf [8]byte
+		for k := range samples {
+			if k%4096 == 0 {
+				if i.offsetErr = i.ctx.Err(); i.offsetErr != nil {
+					return
+				}
+			}
+			var n uint32
+			if n, i.offsetErr = i.reverse(uint32(k)*sampleStride, buf[:]); i.offsetErr != nil {
+				return
+			}
+			if samples[k], i.offsetErr = i.readOffset(n, buf[:]); i.offsetErr != nil {
+				return
+			}
+		}
+		i.offsetSamples = samples
+	})
+	return i.offsetErr
 }
 
 type IndexEntry struct {

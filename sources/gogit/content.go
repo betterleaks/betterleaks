@@ -3,6 +3,7 @@ package gogit
 import (
 	"context"
 	"errors"
+	"hash/maphash"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,7 +13,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/mholt/archives"
-	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 func (w *worker) change(ctx context.Context, c *gitobj.Change, attrs map[string]string, yield sources.FragmentsFunc) error {
@@ -87,12 +87,14 @@ func (w *worker) change(ctx context.Context, c *gitobj.Change, attrs map[string]
 // Each worker reuses its line bookkeeping, but releases unusually large diffs
 // and clears dictionary keys so scratch space never keeps old blobs alive.
 type lineDiffer struct {
-	ids          map[string]rune
+	lines        lineTable
 	old, current []rune
 	positions    []int
+	starts       []int // destination line offsets, plus the end
 	inOld, inNew []int32
 	classes      []byte
 	added        []bool
+	search       editSearch
 }
 
 func resize[T any](s []T, n int) []T {
@@ -137,16 +139,14 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	if src == "" {
 		return add(dst, 1)
 	}
-	// Tokens must fit the edit engine's Unicode alphabet. This also bounds the
-	// bookkeeping allocated for a diff independently of its input byte limit.
-	// Larger changes are scanned whole, which can only add findings.
+	// Bound the bookkeeping allocated for a diff independently of its input
+	// byte limit. Larger changes are scanned whole, which can only add findings.
 	oldBreaks, newBreaks := strings.Count(src, "\n"), strings.Count(dst, "\n")
 	if oldBreaks+newBreaks+2 > maxDiffLines {
 		return add(dst, 1)
 	}
 	// Tokenize parent lines once; destination-only lines need neither IDs nor
-	// strings in the dictionary. Use valid Unicode tokens because the edit
-	// engine serializes rune sequences as strings.
+	// strings in the dictionary.
 	lineCount := func(text string, n int) int {
 		if len(text) > 0 && text[len(text)-1] != '\n' {
 			n++
@@ -158,18 +158,10 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 		// Identical lines were removed by the prefix/suffix trim.
 		return add(dst, 1)
 	}
-	if d.ids == nil {
-		d.ids = make(map[string]rune, min(oldCount, 65536))
-	}
-	ids := d.ids
+	lines := &d.lines
+	lines.reset(oldCount)
 	defer func() {
-		if len(ids) > 4096 {
-			// Clearing a large map visits its whole capacity, even for the many
-			// tiny files that follow it. Retain only the common small dictionaries.
-			d.ids = nil
-		} else {
-			clear(ids)
-		}
+		lines.release()
 		if oldCount > 65536 || newCount > 65536 {
 			*d = lineDiffer{} //nolint:exhaustruct // Drop every retained buffer after a large diff.
 		}
@@ -191,28 +183,22 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 			end += offset + 1
 		}
 		line := src[offset:end]
-		id, ok := ids[line]
-		if !ok {
-			id = rune(len(ids) + 1)
-			if id >= 0xd800 {
-				id += 0x800
-			}
-			ids[line] = id
-		}
+		id := lines.insert(line)
 		oldClasses[len(a)] = blankFlag(line)
 		a = append(a, id)
 		offset = end
 	}
 	// Count every line in both versions. Destination-only lines get ID 0.
-	d.inOld, d.inNew = resize(d.inOld, len(ids)+1), resize(d.inNew, len(ids)+1)
+	d.inOld, d.inNew = resize(d.inOld, lines.count+1), resize(d.inNew, lines.count+1)
 	inOld, inNew := d.inOld, d.inNew
 	clear(inOld)
 	clear(inNew)
 	for _, id := range a {
-		inOld[slot(id)]++
+		inOld[id]++
 	}
 	d.current = resize(d.current, newCount)
-	b := d.current
+	d.starts = resize(d.starts, newCount+1)
+	b, starts := d.current, d.starts
 	for offset, pos := 0, 0; offset < len(dst); pos++ {
 		if pos%checkEvery == 0 {
 			if err := ctx.Err(); err != nil {
@@ -225,11 +211,13 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 		} else {
 			end += offset + 1
 		}
-		b[pos] = ids[dst[offset:end]]
-		inNew[slot(b[pos])]++
+		starts[pos] = offset
+		b[pos] = lines.find(dst[offset:end])
+		inNew[b[pos]]++
 		newClasses[pos] = blankFlag(dst[offset:end])
 		offset = end
 	}
+	starts[newCount] = len(dst)
 	classifyLines(oldClasses, a, inNew)
 	classifyLines(newClasses, b, inOld)
 	old := a[:0]
@@ -268,64 +256,137 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	for i := range added {
 		added[i] = true
 	}
-	// The edit engine has no context hook. Bound its synchronous search rather
+	// The edit search has no context hook. Bound its synchronous search rather
 	// than leaving a background goroutine running after cancellation. A search
 	// that runs out of time returns an approximate edit script, so scan the
 	// whole change instead: that can repeat findings but never drops any.
-	dmp := diffmatchpatch.New()
-	dmp.DiffTimeout = diffTimeout
+	timeout := diffTimeout
 	if deadline, ok := ctx.Deadline(); ok {
-		dmp.DiffTimeout = min(dmp.DiffTimeout, max(time.Until(deadline), time.Nanosecond))
+		timeout = min(timeout, max(time.Until(deadline), time.Nanosecond))
 	}
 	started := time.Now()
-	chunks := dmp.DiffMainRunes(old, current, false)
+	edits := d.search.diff(old, current, timeout)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if time.Since(started) >= dmp.DiffTimeout {
+	if time.Since(started) >= timeout {
 		return add(dst, 1)
 	}
 	at := 0
-	for _, chunk := range chunks {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		n := utf8.RuneCountInString(chunk.Text)
-		switch chunk.Type {
-		case diffmatchpatch.DiffEqual:
-			for _, pos := range positions[at : at+n] {
+	for _, e := range edits {
+		switch e.op {
+		case editEqual:
+			for _, pos := range positions[at : at+e.n] {
 				added[pos] = false
 			}
-			at += n
-		case diffmatchpatch.DiffInsert:
-			at += n
+			at += e.n
+		case editInsert:
+			at += e.n
 		}
 	}
 	// Slice original bytes directly. No equal/deleted contents are reconstructed,
 	// and the final unterminated line retains its original bytes.
-	offset, begin, first := 0, -1, 0
+	begin, first := -1, 0
 	for i, yes := range added {
 		if yes && begin < 0 {
-			begin = offset
+			begin = starts[i]
 			first = i + 1
 		}
 		if !yes && begin >= 0 {
-			if err := add(dst[begin:offset], first); err != nil {
+			if err := add(dst[begin:starts[i]], first); err != nil {
 				return err
 			}
 			begin = -1
 		}
-		end := strings.IndexByte(dst[offset:], '\n')
-		if end < 0 {
-			offset = len(dst)
-		} else {
-			offset += end + 1
-		}
 	}
 	if begin >= 0 {
-		return add(dst[begin:offset], first)
+		return add(dst[begin:], first)
 	}
 	return ctx.Err()
+}
+
+// lineTable assigns dense IDs to distinct parent lines in first-seen order.
+// Each slot packs the upper half of a line's hash with its ID, so probes touch
+// eight bytes and compare text only for a likely match. Lines are kept by ID,
+// which destination lookups visit in nearly parent order. Slots are reused
+// across diffs, and release clears the used ones and the lines so scratch
+// space never keeps an old blob alive.
+type lineTable struct {
+	slots []uint64 // hash tag | ID; zero is free because IDs start at one
+	lines []string // by ID
+	used  []int32  // slot index by ID
+	mask  int
+	count int
+}
+
+const lineTagMask = uint64(0xffffffff) << 32
+
+var lineSeed = maphash.MakeSeed()
+
+// reset prepares for at most n distinct lines at a load factor of one half.
+func (t *lineTable) reset(n int) {
+	size := 16
+	for size < 2*n {
+		size <<= 1
+	}
+	if len(t.slots) < size {
+		t.slots = make([]uint64, size)
+	}
+	t.mask = len(t.slots) - 1
+	t.count = 0
+	t.lines = append(t.lines[:0], "")
+	t.used = append(t.used[:0], 0)
+}
+
+func (t *lineTable) release() {
+	t.count = 0
+	if len(t.slots) > 1<<18 {
+		// Retain only tables of moderate size between diffs.
+		*t = lineTable{} //nolint:exhaustruct // Drop every buffer.
+		return
+	}
+	for _, i := range t.used[1:] {
+		t.slots[i] = 0
+	}
+	clear(t.lines)
+	t.lines, t.used = t.lines[:0], t.used[:0]
+}
+
+// insert returns line's ID, assigning the next one to a new line.
+func (t *lineTable) insert(line string) rune {
+	h := maphash.String(lineSeed, line)
+	tag := h & lineTagMask
+	for i := int(h) & t.mask; ; i = (i + 1) & t.mask {
+		s := t.slots[i]
+		if s == 0 {
+			t.count++
+			t.slots[i] = tag | uint64(t.count)
+			t.lines = append(t.lines, line)
+			t.used = append(t.used, int32(i))
+			return rune(t.count)
+		}
+		if s&lineTagMask == tag && t.lines[uint32(s)] == line {
+			return rune(uint32(s))
+		}
+	}
+}
+
+// find returns line's ID, or zero for a line the parent does not contain.
+func (t *lineTable) find(line string) rune {
+	if len(t.slots) == 0 {
+		return 0
+	}
+	h := maphash.String(lineSeed, line)
+	tag := h & lineTagMask
+	for i := int(h) & t.mask; ; i = (i + 1) & t.mask {
+		s := t.slots[i]
+		if s == 0 {
+			return 0
+		}
+		if s&lineTagMask == tag && t.lines[uint32(s)] == line {
+			return rune(uint32(s))
+		}
+	}
 }
 
 // commonLinePrefix returns the length of the longest common prefix of a and b
@@ -361,14 +422,6 @@ func commonLineSuffix(a, b string) int {
 	return 0
 }
 
-// slot maps a line token to a dense index; tokens skip the surrogate range.
-func slot(id rune) int {
-	if id >= 0xe000 {
-		return int(id - 0x800)
-	}
-	return int(id)
-}
-
 // Line classes, as in Git's xdl_cleanup_records: a line absent from the other
 // version, one that occurs there, and one that occurs there too often to be a
 // meaningful match, such as a blank line or a closing brace.
@@ -378,8 +431,23 @@ const (
 	lineCommon
 )
 
-// blankFlag marks whitespace-only lines for classifyLines.
+// blankFlag marks whitespace-only lines for classifyLines. Most lines have a
+// visible byte after their indentation; only non-ASCII input needs TrimSpace.
 func blankFlag(line string) byte {
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
+		case ' ', '\t', '\n', '\v', '\f', '\r':
+			continue
+		}
+		if line[i] < utf8.RuneSelf {
+			return 0
+		}
+		return blankFlagUnicode(line)
+	}
+	return 1
+}
+
+func blankFlagUnicode(line string) byte {
 	if strings.TrimSpace(line) == "" {
 		return 1
 	}
@@ -398,7 +466,7 @@ func classifyLines(classes []byte, lines []rune, other []int32) {
 	}
 	limit = min(limit, 1024)
 	for i, id := range lines {
-		switch n := int(other[slot(id)]); {
+		switch n := int(other[id]); {
 		case n == 0:
 			classes[i] = lineAbsent
 		case n >= limit || classes[i] == 1:
