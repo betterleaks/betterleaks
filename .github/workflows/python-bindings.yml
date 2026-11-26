@@ -1,0 +1,183 @@
+name: Python bindings
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/python-bindings.yml'
+      - '.github/workflows/python-release.yml'
+      - 'bindings/python/**'
+      - '!bindings/python/cli/**'
+      - '!bindings/python/sdk/**'
+  pull_request:
+    paths:
+      - '.github/workflows/python-bindings.yml'
+      - '.github/workflows/python-release.yml'
+      - 'bindings/python/**'
+      - '!bindings/python/cli/**'
+      - '!bindings/python/sdk/**'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build (defaults to triggering ref)
+        required: false
+        type: string
+        default: ''
+      python_version:
+        description: PEP 440 Python package version override
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      # v5.4.0
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: '3.11'
+
+      - name: Install Ruff
+        run: python -m pip install ruff
+
+      - name: Run Ruff linter
+        run: ruff check --config bindings/python/pyproject.toml bindings/python/src bindings/python/tests
+
+      - name: Run Ruff formatter check
+        run: ruff format --check --config bindings/python/pyproject.toml bindings/python/src bindings/python/tests
+
+  test_bundle:
+    name: Integration test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+          - name: macos-arm64
+            os: macos-latest
+          - name: windows-x86_64
+            os: windows-latest
+    steps:
+      # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # v6.3.0
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
+        with:
+          go-version: '1.26.x'
+
+      # v5.4.0
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: '3.11'
+
+      - name: Install workspace packages & pytest (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          python -m venv /tmp/bl-venv
+          /tmp/bl-venv/bin/pip install --no-cache-dir build pytest
+          mkdir -p /tmp/bl-wheelhouse
+          (cd bindings/python/cli && /tmp/bl-venv/bin/python -m build --wheel --outdir /tmp/bl-wheelhouse)
+          (cd bindings/python/sdk && /tmp/bl-venv/bin/python -m build --wheel --outdir /tmp/bl-wheelhouse)
+          (cd bindings/python && /tmp/bl-venv/bin/python -m build --wheel --outdir /tmp/bl-wheelhouse)
+          /tmp/bl-venv/bin/pip install --no-cache-dir --no-index --find-links /tmp/bl-wheelhouse betterleaks
+          /tmp/bl-venv/bin/pip check
+          /tmp/bl-venv/bin/pytest -v -o pythonpath= bindings/python/tests
+          /tmp/bl-venv/bin/betterleaks --version
+
+      - name: Install workspace packages & pytest (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m venv C:\bl-venv
+          C:\bl-venv\Scripts\pip install --no-cache-dir build pytest
+          New-Item -ItemType Directory -Force -Path C:\bl-wheelhouse | Out-Null
+          Push-Location bindings\python\cli; C:\bl-venv\Scripts\python -m build --wheel --outdir C:\bl-wheelhouse; Pop-Location
+          Push-Location bindings\python; C:\bl-venv\Scripts\python -m build --wheel --outdir C:\bl-wheelhouse; Pop-Location
+          C:\bl-venv\Scripts\pip install --no-cache-dir --no-index --find-links C:\bl-wheelhouse betterleaks
+          C:\bl-venv\Scripts\pip check
+          C:\bl-venv\Scripts\pytest -v -o pythonpath= bindings/python/tests
+          C:\bl-venv\Scripts\betterleaks --version
+
+  build_dist:
+    name: Build pure-Python wheel & sdist
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # v5.4.0
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: '3.11'
+
+      - name: Stamp release version
+        if: inputs.python_version != ''
+        shell: bash
+        env:
+          PY_VERSION: ${{ inputs.python_version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          py_ver = os.environ["PY_VERSION"]
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?", py_ver):
+              raise SystemExit(f"Invalid Python version: {py_ver!r}")
+
+          path = Path("bindings/python/src/betterleaks/_version.py")
+          path.write_text(
+              '"""Version metadata for Betterleaks Python package."""\n\n'
+              f"__version__ = {json.dumps(py_ver)}\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build wheel and sdist
+        working-directory: bindings/python
+        run: python -m pip install build twine && python -m build
+
+      - name: Check package metadata with twine
+        working-directory: bindings/python
+        run: python -m twine check --strict dist/*
+
+      # v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: python-dist-${{ github.run_attempt }}
+          path: bindings/python/dist/*
+          if-no-files-found: error

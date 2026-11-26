@@ -31,3 +31,12 @@ dist/
 
 # Local installation for the Node.js example
 /examples/node/node_modules/
+
+# Python bindings build artifacts (unignore package source dir named 'betterleaks')
+!/bindings/python/src/betterleaks/
+/bindings/python/.pytest_cache/
+/bindings/python/.ruff_cache/
+/bindings/python/.venv/
+/bindings/python/build/
+/bindings/python/dist/
+/bindings/python/src/*.egg-info/

@@ -1,0 +1,9 @@
+include README.md
+include pyproject.toml
+
+recursive-include src/betterleaks *.py py.typed
+recursive-include tests *.py
+recursive-include docs *.md
+recursive-include scripts *.py
+global-exclude .git*
+global-exclude *.py[cod]
