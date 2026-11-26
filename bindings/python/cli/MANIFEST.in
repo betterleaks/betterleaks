@@ -1,0 +1,10 @@
+include README.md
+include pyproject.toml
+include setup.py
+
+recursive-include src/betterleaks_cli *.py py.typed
+recursive-include tests *.py
+graft _upstream
+prune src/betterleaks_cli/bin
+global-exclude .git*
+global-exclude *.py[cod] *.exe

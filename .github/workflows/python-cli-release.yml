@@ -1,0 +1,76 @@
+name: Publish Python CLI package
+
+on:
+  push:
+    tags:
+      - 'cli-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Python CLI package version to publish (e.g. 2.0.0 or 2.0.0rc1)
+        required: true
+        type: string
+      ref:
+        description: Git ref or tag to build from (defaults to selected ref)
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  prepare:
+    name: Resolve release version
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    outputs:
+      ref: ${{ steps.version.outputs.ref }}
+      python_version: ${{ steps.version.outputs.python_version }}
+    steps:
+      - id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_REF: ${{ inputs.ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          py_ver="${INPUT_VERSION:-${REF_NAME#cli-v}}"
+          if [[ ! "$py_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$ ]]; then
+            echo "Unsupported PEP 440 Python version: $py_ver" >&2
+            exit 1
+          fi
+          echo "ref=${INPUT_REF}" >> "$GITHUB_OUTPUT"
+          echo "python_version=$py_ver" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    permissions:
+      contents: read
+    uses: ./.github/workflows/python-cli.yml
+    with:
+      ref: ${{ needs.prepare.outputs.ref }}
+      python_version: ${{ needs.prepare.outputs.python_version }}
+
+  publish:
+    name: Publish CLI to PyPI
+    needs: [prepare, build]
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/cli-v') || github.event_name == 'workflow_dispatch'
+    environment:
+      name: pypi-cli
+      url: https://pypi.org/p/betterleaks-cli
+    permissions:
+      id-token: write
+    steps:
+      # v7.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: python-cli-*
+          path: dist
+          merge-multiple: true
+
+      # v1.12.4
+      - uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
+        with:
+          attestations: true
+          packages-dir: dist

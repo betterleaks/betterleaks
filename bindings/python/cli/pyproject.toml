@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "betterleaks-cli"
+dynamic = ["version"]
+description = "Standalone CLI for Betterleaks, the high-performance secret and credential detection engine."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Betterleaks Contributors" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Go",
+    "License :: OSI Approved :: MIT License",
+    "Typing :: Typed",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Environment :: Console",
+]
+dependencies = []
+
+[project.scripts]
+betterleaks = "betterleaks_cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "build",
+    "twine",
+    "wheel",
+]
+
+[project.urls]
+Homepage = "https://github.com/betterleaks/betterleaks"
+Repository = "https://github.com/betterleaks/betterleaks"
+Issues = "https://github.com/betterleaks/betterleaks/issues"
+Changelog = "https://github.com/betterleaks/betterleaks/releases"
+
+[tool.setuptools.dynamic]
+version = {attr = "betterleaks_cli._version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["betterleaks_cli*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py38"
+src = ["src"]
+
+[tool.ruff.lint]
+ignore = ["UP006", "UP045", "FA100", "PYI034"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["betterleaks_cli"]
+
+[tool.cibuildwheel.macos.environment]
+MACOSX_DEPLOYMENT_TARGET = "12.0"
