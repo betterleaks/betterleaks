@@ -62,7 +62,7 @@ func genericCredential() config.Rule {
 		ID:          "generic-api-key",
 		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
-		Regex: `(?i)(?:` + identifier + operator + `|` + xmlIdentifier + `)` + structuredValuePrefix + `(?:[\w$]+(?:\.[\w$]+)+[ \t]*(?:\|\||\?\?))?(?:<!\[CDATA\[)?` +
+		Regex: `(?i)(?:` + identifier + operator + `|` + xmlIdentifier + `)` + structuredValuePrefix + `(?:[\w$]+(?:\.[\w$]+)+[ \t]*(?:\|\||\?\?)[ \t]*)*(?:<!\[CDATA\[)?` +
 			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;]|` + xmlClosingTag + `|\]\]>|\\[nr]|$)`,
 		Keywords: []string{
 			"access",
@@ -159,6 +159,10 @@ let _ = setConfidence(level);
 		rulebuilder.Match("nullish fallback", "const apiKey = process.env.SERVICE_API_KEY ?? 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4';", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
 		rulebuilder.Match("nullish fallback argument", "client.init(process.env.SERVICE_API_KEY ?? 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4');", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
 		rulebuilder.Match("spaced logical OR fallback", "const token = process.env.SERVICE_TOKEN || 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4';", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.Match("chained fallback", "const token = process.env.SERVICE_TOKEN || process.env.FALLBACK || 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4';", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.Match("undotted value before logical OR", "api_key = Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4 || fallbackValue", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.NoMatch("empty nullish fallback", "const token = process.env.SERVICE_TOKEN ?? '';"),
+		rulebuilder.NoMatch("reference nullish fallback", "const apiKey = process.env.SERVICE_API_KEY ?? process.env.OTHER_API_KEY;"),
 		rulebuilder.NoMatch("Access", `"accessor":"rA1wk0Y45YCufyfq",`),
 		rulebuilder.NoMatch("false positive 1", "report_access_id: e8e4df51-2054-49b0-ab1c-516ac95c691d"),
 		rulebuilder.NoMatch("false positive 2", `accessibilityYesOptionId = "0736f5ef-7e88-499a-80cc-90c85d2a5180"`),
