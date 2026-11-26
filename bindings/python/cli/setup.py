@@ -17,7 +17,9 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def get_cli_filename() -> str:
-    return "betterleaks.exe" if platform.system().lower() == "windows" else "betterleaks"
+    return (
+        "betterleaks.exe" if platform.system().lower() == "windows" else "betterleaks"
+    )
 
 
 def get_package_version() -> str:
@@ -139,9 +141,7 @@ def build_go_cli_binary(target_dir: str) -> str:
         _raise_missing_toolchain("Betterleaks Go source tree (go.mod) not found")
 
     engine_version = get_engine_version(repo_root)
-    ldflags = (
-        f"-s -w -X=github.com/betterleaks/betterleaks/v2/version.Version={engine_version}"
-    )
+    ldflags = f"-s -w -X=github.com/betterleaks/betterleaks/v2/version.Version={engine_version}"
     cmd = [
         go_bin,
         "build",
@@ -172,7 +172,11 @@ def build_go_cli_binary(target_dir: str) -> str:
 class CustomBuildPy(build_py):
     def run(self):
         super().run()
-        target_dir = os.path.join(self.build_lib, "betterleaks_cli")
+        target_dir = (
+            os.path.join(_HERE, "src", "betterleaks_cli")
+            if getattr(self, "editable_mode", False)
+            else os.path.join(self.build_lib, "betterleaks_cli")
+        )
         build_go_cli_binary(target_dir)
 
 

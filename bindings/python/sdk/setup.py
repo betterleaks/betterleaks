@@ -240,7 +240,11 @@ def build_go_shared_library(target_dir: str) -> str:
 class CustomBuildPy(build_py):
     def run(self):
         super().run()
-        target_dir = os.path.join(self.build_lib, "betterleaks_sdk")
+        target_dir = (
+            os.path.join(_HERE, "src", "betterleaks_sdk")
+            if getattr(self, "editable_mode", False)
+            else os.path.join(self.build_lib, "betterleaks_sdk")
+        )
         build_go_shared_library(target_dir)
 
 

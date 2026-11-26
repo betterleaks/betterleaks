@@ -5,7 +5,7 @@ High-performance in-process secret and credential detection powered by Go (bindi
 
 from typing import Dict, List, Optional
 
-from betterleaks_sdk._lib import create_backing, get_cached_backing
+from betterleaks_sdk._lib import create_backing, use_cached_backing
 from betterleaks_sdk._version import __version__
 from betterleaks_sdk.models import BetterleaksError, Finding, Location, Match
 
@@ -100,8 +100,8 @@ def scan_string(content: str, config_path: Optional[str] = None) -> List[Finding
     Raises:
         BetterleaksError: If scanning fails.
     """
-    backing = get_cached_backing(config_path=config_path)
-    resp = backing.scan_string(content)
+    with use_cached_backing(config_path=config_path) as backing:
+        resp = backing.scan_string(content)
     findings_data = resp.get("findings") or []
     return [Finding.from_dict(item) for item in findings_data]
 
@@ -119,7 +119,7 @@ def scan_file(file_path: str, config_path: Optional[str] = None) -> List[Finding
     Raises:
         BetterleaksError: If the file cannot be read or scanning fails.
     """
-    backing = get_cached_backing(config_path=config_path)
-    resp = backing.scan_file(file_path)
+    with use_cached_backing(config_path=config_path) as backing:
+        resp = backing.scan_file(file_path)
     findings_data = resp.get("findings") or []
     return [Finding.from_dict(item) for item in findings_data]

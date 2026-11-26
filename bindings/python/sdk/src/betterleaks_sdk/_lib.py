@@ -11,7 +11,7 @@ import platform
 import sys
 import threading
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from betterleaks_sdk.models import BetterleaksError
 
@@ -305,6 +305,8 @@ _native_lib_lock = threading.Lock()
 
 _default_scanner: Optional[_NativeScannerBacking] = None
 _scanner_cache: OrderedDict[str, _NativeScannerBacking] = OrderedDict()
+_active_leases: Dict[int, int] = {}
+_evicted_pending: Dict[int, _NativeScannerBacking] = {}
 _scanner_cache_lock = threading.Lock()
 
 
@@ -350,6 +352,77 @@ def create_backing(
     )
 
 
+def _acquire_cached_backing(
+    config_path: Optional[str] = None,
+) -> _NativeScannerBacking:
+    global _default_scanner
+    if config_path is None:
+        with _scanner_cache_lock:
+            if _default_scanner is None:
+                _default_scanner = create_backing(config_path=None)
+            key = id(_default_scanner)
+            _active_leases[key] = _active_leases.get(key, 0) + 1
+            return _default_scanner
+
+    if not config_path or "\x00" in config_path:
+        raise BetterleaksError("config_path must be a non-empty path without NUL")
+    resolved_path = os.path.abspath(config_path)
+
+    evicted_idle: List[_NativeScannerBacking] = []
+    with _scanner_cache_lock:
+        cached = _scanner_cache.get(resolved_path)
+        if cached is not None:
+            _scanner_cache.move_to_end(resolved_path)
+            backing = cached
+        else:
+            backing = create_backing(config_path=resolved_path)
+            _scanner_cache[resolved_path] = backing
+            _active_leases[id(backing)] = 0
+            while len(_scanner_cache) > _SCANNER_CACHE_MAX_SIZE:
+                _, evicted = _scanner_cache.popitem(last=False)
+                ev_key = id(evicted)
+                if _active_leases.get(ev_key, 0) == 0:
+                    _active_leases.pop(ev_key, None)
+                    evicted_idle.append(evicted)
+                else:
+                    _evicted_pending[ev_key] = evicted
+
+        b_key = id(backing)
+        _active_leases[b_key] = _active_leases.get(b_key, 0) + 1
+
+    for scanner in evicted_idle:
+        with contextlib.suppress(BetterleaksError, OSError, ctypes.ArgumentError):
+            scanner.close()
+    return backing
+
+
+def _release_cached_backing(backing: _NativeScannerBacking) -> None:
+    pending: Optional[_NativeScannerBacking] = None
+    with _scanner_cache_lock:
+        key = id(backing)
+        remaining = _active_leases.get(key, 0) - 1
+        if remaining <= 0:
+            _active_leases.pop(key, None)
+            pending = _evicted_pending.pop(key, None)
+        else:
+            _active_leases[key] = remaining
+
+    if pending is not None:
+        with contextlib.suppress(BetterleaksError, OSError, ctypes.ArgumentError):
+            pending.close()
+
+
+@contextlib.contextmanager
+def use_cached_backing(
+    config_path: Optional[str] = None,
+) -> Iterator[_NativeScannerBacking]:
+    backing = _acquire_cached_backing(config_path=config_path)
+    try:
+        yield backing
+    finally:
+        _release_cached_backing(backing)
+
+
 def get_cached_backing(config_path: Optional[str] = None) -> _NativeScannerBacking:
     global _default_scanner
     if config_path is None:
@@ -364,6 +437,7 @@ def get_cached_backing(config_path: Optional[str] = None) -> _NativeScannerBacki
         raise BetterleaksError("config_path must be a non-empty path without NUL")
     resolved_path = os.path.abspath(config_path)
 
+    evicted_idle: List[_NativeScannerBacking] = []
     with _scanner_cache_lock:
         cached = _scanner_cache.get(resolved_path)
         if cached is not None:
@@ -372,11 +446,20 @@ def get_cached_backing(config_path: Optional[str] = None) -> _NativeScannerBacki
 
         backing = create_backing(config_path=resolved_path)
         _scanner_cache[resolved_path] = backing
+        _active_leases[id(backing)] = 0
         while len(_scanner_cache) > _SCANNER_CACHE_MAX_SIZE:
             _, evicted = _scanner_cache.popitem(last=False)
-            with contextlib.suppress(BetterleaksError, OSError, ctypes.ArgumentError):
-                evicted.close()
-        return backing
+            ev_key = id(evicted)
+            if _active_leases.get(ev_key, 0) == 0:
+                _active_leases.pop(ev_key, None)
+                evicted_idle.append(evicted)
+            else:
+                _evicted_pending[ev_key] = evicted
+
+    for scanner in evicted_idle:
+        with contextlib.suppress(BetterleaksError, OSError, ctypes.ArgumentError):
+            scanner.close()
+    return backing
 
 
 def _cleanup_cached_scanners() -> None:
@@ -384,6 +467,9 @@ def _cleanup_cached_scanners() -> None:
     with _scanner_cache_lock:
         scanners = list(_scanner_cache.values())
         _scanner_cache.clear()
+        scanners.extend(_evicted_pending.values())
+        _evicted_pending.clear()
+        _active_leases.clear()
         if _default_scanner is not None:
             scanners.append(_default_scanner)
             _default_scanner = None

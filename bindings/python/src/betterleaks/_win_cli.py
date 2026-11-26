@@ -9,7 +9,7 @@ import os
 import subprocess
 import threading
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from betterleaks._models import BetterleaksError, Finding
 from betterleaks_cli import get_binary_path
@@ -41,33 +41,10 @@ _ARCHIVE_EXTENSIONS = (
     ".zz",
 )
 
-_ARCHIVE_MAGIC_PREFIXES = (
-    b"PK\x03\x04",
-    b"PK\x05\x06",
-    b"PK\x07\x08",
-    b"\x1f\x8b",
-    b"BZh",
-    b"\xfd7zXZ\x00",
-    b"\x28\xb5\x2f\xfd",
-    b"Rar!\x1a\x07",
-    b"7z\xbc\xaf\x27\x1c",
-    b'\x04"M\x18',
-)
-
 
 def _is_recognized_archive(file_path: str) -> bool:
-    lower = file_path.lower()
-    if lower.endswith(_ARCHIVE_EXTENSIONS):
-        return True
-    try:
-        with open(file_path, "rb") as fh:
-            head = fh.read(512)
-    except OSError:
-        return False
-    if any(head.startswith(prefix) for prefix in _ARCHIVE_MAGIC_PREFIXES):
-        return True
-    # POSIX ustar tar magic at byte offset 257.
-    return len(head) >= 263 and head[257:263] == b"ustar\x00"
+    # Match native bindings/c (DetectArchive: false): identify archives by extension.
+    return file_path.lower().endswith(_ARCHIVE_EXTENSIONS)
 
 
 def _validate_scanner_limits(
@@ -105,19 +82,21 @@ class _CLIBacking:
         max_input_bytes: Optional[int] = None,
         max_findings: Optional[int] = None,
     ) -> None:
+        resolved_config_path: Optional[str] = None
         if config_path is not None:
             if not config_path or "\x00" in config_path:
                 raise BetterleaksError(
                     "config_path must be a non-empty path without NUL"
                 )
-            if config_toml is None and not os.path.isfile(config_path):
+            resolved_config_path = os.path.abspath(config_path)
+            if config_toml is None and not os.path.isfile(resolved_config_path):
                 raise BetterleaksError(
                     f"failed to load config from {config_path}: file not found"
                 )
         effective_input, effective_findings = _validate_scanner_limits(
             workers, max_decode_depth, max_input_bytes, max_findings
         )
-        self._config_path = config_path
+        self._config_path = resolved_config_path
         self._config_toml = config_toml
         self._workers = workers
         self._max_decode_depth = max_decode_depth
@@ -232,7 +211,7 @@ class _CLIBacking:
         env, cfg_args = self._build_env_and_args()
         cmd = [
             binary,
-            file_path,
+            "filesystem",
             "--exit-code=0",
             "--no-banner",
             "--no-color",
@@ -241,6 +220,8 @@ class _CLIBacking:
             "-o",
             "-",
             *cfg_args,
+            "--",
+            file_path,
         ]
         proc = subprocess.run(
             cmd,
@@ -265,7 +246,76 @@ class _CLIBacking:
 
 _default_scanner: Optional[_CLIBacking] = None
 _scanner_cache: OrderedDict[str, _CLIBacking] = OrderedDict()
+_active_leases: Dict[int, int] = {}
+_evicted_pending: Dict[int, _CLIBacking] = {}
 _scanner_cache_lock = threading.Lock()
+
+
+def _acquire_cached_backing(config_path: Optional[str] = None) -> _CLIBacking:
+    global _default_scanner
+    if config_path is None:
+        with _scanner_cache_lock:
+            if _default_scanner is None:
+                _default_scanner = _CLIBacking(config_path=None)
+            key = id(_default_scanner)
+            _active_leases[key] = _active_leases.get(key, 0) + 1
+            return _default_scanner
+
+    if not config_path or "\x00" in config_path:
+        raise BetterleaksError("config_path must be a non-empty path without NUL")
+    resolved_path = os.path.abspath(config_path)
+
+    evicted_idle: List[_CLIBacking] = []
+    with _scanner_cache_lock:
+        cached = _scanner_cache.get(resolved_path)
+        if cached is not None:
+            _scanner_cache.move_to_end(resolved_path)
+            backing = cached
+        else:
+            backing = _CLIBacking(config_path=resolved_path)
+            _scanner_cache[resolved_path] = backing
+            _active_leases[id(backing)] = 0
+            while len(_scanner_cache) > _SCANNER_CACHE_MAX_SIZE:
+                _, evicted = _scanner_cache.popitem(last=False)
+                ev_key = id(evicted)
+                if _active_leases.get(ev_key, 0) == 0:
+                    _active_leases.pop(ev_key, None)
+                    evicted_idle.append(evicted)
+                else:
+                    _evicted_pending[ev_key] = evicted
+
+        b_key = id(backing)
+        _active_leases[b_key] = _active_leases.get(b_key, 0) + 1
+
+    for scanner in evicted_idle:
+        with contextlib.suppress(BetterleaksError, OSError):
+            scanner.close()
+    return backing
+
+
+def _release_cached_backing(backing: _CLIBacking) -> None:
+    pending: Optional[_CLIBacking] = None
+    with _scanner_cache_lock:
+        key = id(backing)
+        remaining = _active_leases.get(key, 0) - 1
+        if remaining <= 0:
+            _active_leases.pop(key, None)
+            pending = _evicted_pending.pop(key, None)
+        else:
+            _active_leases[key] = remaining
+
+    if pending is not None:
+        with contextlib.suppress(BetterleaksError, OSError):
+            pending.close()
+
+
+@contextlib.contextmanager
+def use_cached_backing(config_path: Optional[str] = None) -> Iterator[_CLIBacking]:
+    backing = _acquire_cached_backing(config_path=config_path)
+    try:
+        yield backing
+    finally:
+        _release_cached_backing(backing)
 
 
 def get_cached_backing(config_path: Optional[str] = None) -> _CLIBacking:
@@ -282,6 +332,7 @@ def get_cached_backing(config_path: Optional[str] = None) -> _CLIBacking:
         raise BetterleaksError("config_path must be a non-empty path without NUL")
     resolved_path = os.path.abspath(config_path)
 
+    evicted_idle: List[_CLIBacking] = []
     with _scanner_cache_lock:
         cached = _scanner_cache.get(resolved_path)
         if cached is not None:
@@ -290,11 +341,20 @@ def get_cached_backing(config_path: Optional[str] = None) -> _CLIBacking:
 
         backing = _CLIBacking(config_path=resolved_path)
         _scanner_cache[resolved_path] = backing
+        _active_leases[id(backing)] = 0
         while len(_scanner_cache) > _SCANNER_CACHE_MAX_SIZE:
             _, evicted = _scanner_cache.popitem(last=False)
-            with contextlib.suppress(BetterleaksError, OSError):
-                evicted.close()
-        return backing
+            ev_key = id(evicted)
+            if _active_leases.get(ev_key, 0) == 0:
+                _active_leases.pop(ev_key, None)
+                evicted_idle.append(evicted)
+            else:
+                _evicted_pending[ev_key] = evicted
+
+    for scanner in evicted_idle:
+        with contextlib.suppress(BetterleaksError, OSError):
+            scanner.close()
+    return backing
 
 
 def _cleanup_cached_scanners() -> None:
@@ -302,6 +362,9 @@ def _cleanup_cached_scanners() -> None:
     with _scanner_cache_lock:
         scanners = list(_scanner_cache.values())
         _scanner_cache.clear()
+        scanners.extend(_evicted_pending.values())
+        _evicted_pending.clear()
+        _active_leases.clear()
         if _default_scanner is not None:
             scanners.append(_default_scanner)
             _default_scanner = None
@@ -380,15 +443,15 @@ def create_scanner(
 
 def scan_string(content: str, config_path: Optional[str] = None) -> List[Finding]:
     """Scan a string for secrets and credentials."""
-    backing = get_cached_backing(config_path=config_path)
-    resp = backing.scan_string(content)
+    with use_cached_backing(config_path=config_path) as backing:
+        resp = backing.scan_string(content)
     findings_data = resp.get("findings") or []
     return [Finding.from_dict(item) for item in findings_data]
 
 
 def scan_file(file_path: str, config_path: Optional[str] = None) -> List[Finding]:
     """Scan a file for secrets and credentials."""
-    backing = get_cached_backing(config_path=config_path)
-    resp = backing.scan_file(file_path)
+    with use_cached_backing(config_path=config_path) as backing:
+        resp = backing.scan_file(file_path)
     findings_data = resp.get("findings") or []
     return [Finding.from_dict(item) for item in findings_data]

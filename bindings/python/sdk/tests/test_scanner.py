@@ -125,3 +125,33 @@ def test_windows_unsupported(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
     with pytest.raises(BetterleaksError, match="Windows is not supported"):
         _get_native_library()
+
+
+def test_concurrent_cache_eviction_does_not_break_inflight_scans():
+    import concurrent.futures
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        configs = []
+        for idx in range(24):
+            cfg_path = os.path.join(tmpdir, f"rule_{idx}.toml")
+            with open(cfg_path, "w", encoding="utf-8") as fh:
+                fh.write(
+                    f"[[rules]]\nid = 'r-{idx}'\n"
+                    f"regex = '''CONC_{idx:02d}_[0-9]{{4}}'''\n"
+                    f"keywords = ['CONC_{idx:02d}_']\n"
+                )
+            configs.append((idx, cfg_path))
+
+        def _worker(item):
+            idx, cfg_path = item
+            findings = betterleaks_sdk.scan_string(
+                f"secret = CONC_{idx:02d}_1234", config_path=cfg_path
+            )
+            return [f.rule_id for f in findings]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+            results = list(pool.map(_worker, configs * 3))
+
+        assert len(results) == len(configs) * 3
+        for expected_idx, actual in zip([i for i, _ in configs] * 3, results):
+            assert actual == [f"r-{expected_idx}"]
