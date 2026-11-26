@@ -1,0 +1,9 @@
+include README.md
+include pyproject.toml
+include setup.py
+
+recursive-include src/betterleaks_sdk *.py py.typed
+recursive-include tests *.py
+graft _upstream
+global-exclude .git*
+global-exclude *.py[cod] *.so *.dylib *.dll

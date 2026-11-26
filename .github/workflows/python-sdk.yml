@@ -1,0 +1,254 @@
+name: Python SDK package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/python-sdk.yml'
+      - '.github/workflows/python-sdk-release.yml'
+      - 'bindings/python/sdk/**'
+      - 'bindings/c/**'
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'config/betterleaks.toml'
+  pull_request:
+    paths:
+      - '.github/workflows/python-sdk.yml'
+      - '.github/workflows/python-sdk-release.yml'
+      - 'bindings/python/sdk/**'
+      - 'bindings/c/**'
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'config/betterleaks.toml'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build (defaults to triggering ref)
+        required: false
+        type: string
+        default: ''
+      python_version:
+        description: PEP 440 Python package version override
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      # v5.4.0
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: '3.11'
+
+      - name: Install Ruff
+        run: python -m pip install ruff
+
+      - name: Run Ruff linter
+        run: ruff check --config bindings/python/sdk/pyproject.toml bindings/python/sdk/src bindings/python/sdk/tests
+
+      - name: Run Ruff formatter check
+        run: ruff format --check --config bindings/python/sdk/pyproject.toml bindings/python/sdk/src bindings/python/sdk/tests
+
+  build_wheels:
+    name: Build SDK wheels on ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-latest
+            cibw_arch: arm64
+          - name: macos-x86_64
+            os: macos-15-intel
+            cibw_arch: x86_64
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            cibw_arch: x86_64
+          - name: linux-aarch64
+            os: ubuntu-22.04-arm
+            cibw_arch: aarch64
+    steps:
+      # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # v6.3.0
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
+        with:
+          go-version: '1.26.x'
+
+      # v5.4.0
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: '3.11'
+
+      - name: Stamp release version
+        if: inputs.python_version != ''
+        shell: bash
+        env:
+          PY_VERSION: ${{ inputs.python_version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          py_ver = os.environ["PY_VERSION"]
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?", py_ver):
+              raise SystemExit(f"Invalid Python version: {py_ver!r}")
+
+          path = Path("bindings/python/sdk/src/betterleaks_sdk/_version.py")
+          path.write_text(
+              '"""Version metadata for betterleaks-sdk."""\n\n'
+              f"__version__ = {json.dumps(py_ver)}\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Stage Go sources for Linux cibuildwheel container
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p bindings/python/sdk/_upstream
+          git archive HEAD -- . ':!bindings/python' ':!bindings/node' ':!bindings/rust' ':!testdata' ':!docs' | tar -x -C bindings/python/sdk/_upstream
+          echo "GO_TOOLCHAIN_VERSION=$(go env GOVERSION)" >> "$GITHUB_ENV"
+
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel==2.23.3 uv
+
+      - name: Build and test wheels
+        run: python -m cibuildwheel bindings/python/sdk --output-dir wheelhouse
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "12.0"
+          CIBW_BUILD_FRONTEND: ${{ runner.os != 'Linux' && 'build[uv]' || 'pip' }}
+          CIBW_ARCHS_LINUX: ${{ matrix.cibw_arch }}
+          CIBW_ENVIRONMENT_PASS_LINUX: "GO_TOOLCHAIN_VERSION"
+          CIBW_BEFORE_ALL_LINUX: >
+            sh -c 'ARCH=$(uname -m);
+            [ "$ARCH" = "x86_64" ] && GOARCH="amd64" || GOARCH="arm64";
+            curl -fsSL "https://go.dev/dl/${GO_TOOLCHAIN_VERSION}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz &&
+            /usr/local/go/bin/go version'
+          CIBW_ENVIRONMENT_LINUX: 'PATH="/usr/local/go/bin:$PATH"'
+          CIBW_ARCHS_MACOS: ${{ matrix.cibw_arch }}
+          CIBW_BEFORE_ALL_MACOS: "go version"
+          CIBW_ENVIRONMENT_MACOS: 'CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=12.0'
+          CIBW_SKIP: "cp36-* cp37-* pp* *-win32 *-win_amd64 *-manylinux_i686 *musllinux*"
+          CIBW_TEST_REQUIRES: "pytest"
+          CIBW_TEST_COMMAND: "pytest -o pythonpath= {package}/tests"
+
+      - name: Remove staged Go sources
+        if: always() && runner.os == 'Linux'
+        shell: bash
+        run: rm -rf bindings/python/sdk/_upstream
+
+      # v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: python-sdk-wheels-${{ matrix.name }}-${{ github.run_attempt }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  build_sdist:
+    name: Build SDK source distribution
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # v6.3.0
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
+        with:
+          go-version: '1.26.x'
+
+      # v5.4.0
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: '3.11'
+
+      - name: Stamp release version
+        if: inputs.python_version != ''
+        shell: bash
+        env:
+          PY_VERSION: ${{ inputs.python_version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          py_ver = os.environ["PY_VERSION"]
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?", py_ver):
+              raise SystemExit(f"Invalid Python version: {py_ver!r}")
+
+          path = Path("bindings/python/sdk/src/betterleaks_sdk/_version.py")
+          path.write_text(
+              '"""Version metadata for betterleaks-sdk."""\n\n'
+              f"__version__ = {json.dumps(py_ver)}\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Stage Go sources for sdist
+        run: |
+          mkdir -p bindings/python/sdk/_upstream
+          git archive HEAD -- . ':!bindings/python' ':!bindings/node' ':!bindings/rust' ':!testdata' ':!docs' | tar -x -C bindings/python/sdk/_upstream
+
+      - name: Build sdist
+        working-directory: bindings/python/sdk
+        run: python -m pip install build twine pytest && python -m build --sdist
+
+      - name: Check package metadata with twine
+        working-directory: bindings/python/sdk
+        run: python -m twine check --strict dist/*.tar.gz
+
+      - name: Verify standalone sdist installation
+        run: |
+          mkdir -p /tmp/sdist-verify
+          tar -xzf bindings/python/sdk/dist/*.tar.gz -C /tmp/sdist-verify
+          pkg_dir=$(find /tmp/sdist-verify -maxdepth 1 -mindepth 1 -type d)
+          python -m venv /tmp/sdist-venv
+          /tmp/sdist-venv/bin/pip install --no-cache-dir "$pkg_dir" pytest
+          /tmp/sdist-venv/bin/pytest -v -o pythonpath= "$pkg_dir/tests"
+          rm -rf /tmp/sdist-verify /tmp/sdist-venv bindings/python/sdk/_upstream
+
+      # v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: python-sdk-sdist-${{ github.run_attempt }}
+          path: bindings/python/sdk/dist/*.tar.gz
+          if-no-files-found: error
