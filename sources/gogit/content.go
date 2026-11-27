@@ -5,7 +5,6 @@ import (
 	"errors"
 	"hash/maphash"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
@@ -90,10 +89,9 @@ type lineDiffer struct {
 	lines        lineTable
 	old, current []rune
 	positions    []int
-	starts       []int // destination line offsets, plus the end
+	starts       []int // destination line offsets
 	inOld, inNew []int32
 	classes      []byte
-	added        []bool
 	search       editSearch
 }
 
@@ -127,6 +125,9 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	suffix := commonLineSuffix(src, dst)
 	src, dst = src[:len(src)-suffix], dst[:len(dst)-suffix]
 	add := func(raw string, line int) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// Clone parts so a small queued addition cannot keep a large blob alive.
 		if len(raw) < len(whole) {
 			raw = strings.Clone(raw)
@@ -197,7 +198,7 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 		inOld[id]++
 	}
 	d.current = resize(d.current, newCount)
-	d.starts = resize(d.starts, newCount+1)
+	d.starts = resize(d.starts, newCount)
 	b, starts := d.current, d.starts
 	for offset, pos := 0, 0; offset < len(dst); pos++ {
 		if pos%checkEvery == 0 {
@@ -217,7 +218,6 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 		newClasses[pos] = blankFlag(dst[offset:end])
 		offset = end
 	}
-	starts[newCount] = len(dst)
 	classifyLines(oldClasses, a, inNew)
 	classifyLines(newClasses, b, inOld)
 	old := a[:0]
@@ -251,56 +251,34 @@ func (d *lineDiffer) additions(ctx context.Context, src, dst string, emit func(s
 	if len(current) == 0 {
 		return add(dst, 1)
 	}
-	d.added = resize(d.added, newCount)
-	added := d.added
-	for i := range added {
-		added[i] = true
-	}
-	// The edit search has no context hook. Bound its synchronous search rather
-	// than leaving a background goroutine running after cancellation. A search
-	// that runs out of time returns an approximate edit script, so scan the
-	// whole change instead: that can repeat findings but never drops any.
-	timeout := diffTimeout
-	if deadline, ok := ctx.Deadline(); ok {
-		timeout = min(timeout, max(time.Until(deadline), time.Nanosecond))
-	}
-	started := time.Now()
-	edits := d.search.diff(old, current, timeout)
+	edits, complete := d.search.diff(ctx, old, current, diffTimeout)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if time.Since(started) >= timeout {
+	if !complete {
 		return add(dst, 1)
 	}
-	at := 0
+	// Emit gaps between matched destination lines directly. Pruned lines in
+	// those gaps belong to the same addition as explicit insertions.
+	at, next := 0, 0
 	for _, e := range edits {
 		switch e.op {
 		case editEqual:
 			for _, pos := range positions[at : at+e.n] {
-				added[pos] = false
+				if next < pos {
+					if err := add(dst[starts[next]:starts[pos]], next+1); err != nil {
+						return err
+					}
+				}
+				next = pos + 1
 			}
 			at += e.n
 		case editInsert:
 			at += e.n
 		}
 	}
-	// Slice original bytes directly. No equal/deleted contents are reconstructed,
-	// and the final unterminated line retains its original bytes.
-	begin, first := -1, 0
-	for i, yes := range added {
-		if yes && begin < 0 {
-			begin = starts[i]
-			first = i + 1
-		}
-		if !yes && begin >= 0 {
-			if err := add(dst[begin:starts[i]], first); err != nil {
-				return err
-			}
-			begin = -1
-		}
-	}
-	if begin >= 0 {
-		return add(dst[begin:], first)
+	if next < newCount {
+		return add(dst[starts[next]:], next+1)
 	}
 	return ctx.Err()
 }

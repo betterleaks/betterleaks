@@ -158,9 +158,13 @@ func (s *objectStorage) read(id gitobj.Hash) (*storedObject, error) {
 	shard := &s.loads[id.Bytes()[0]]
 	shard.mu.Lock()
 	if load := shard.pending[id]; load != nil {
+		if load.done == nil {
+			load.done = make(chan struct{})
+		}
+		done := load.done
 		shard.mu.Unlock()
 		select {
-		case <-load.done:
+		case <-done:
 			return load.obj, load.err
 		case <-s.ctx.Done():
 			return nil, s.ctx.Err()
@@ -170,7 +174,7 @@ func (s *objectStorage) read(id gitobj.Hash) (*storedObject, error) {
 		shard.mu.Unlock()
 		return o, nil
 	}
-	load := &objectLoad{done: make(chan struct{}), obj: nil, err: nil}
+	load := new(objectLoad)
 	if shard.pending == nil {
 		shard.pending = make(map[gitobj.Hash]*objectLoad)
 	}
@@ -179,8 +183,10 @@ func (s *objectStorage) read(id gitobj.Hash) (*storedObject, error) {
 	defer func() {
 		shard.mu.Lock()
 		delete(shard.pending, id)
+		if load.done != nil {
+			close(load.done)
+		}
 		shard.mu.Unlock()
-		close(load.done)
 	}()
 	load.obj, load.err = s.load(id)
 	return load.obj, load.err

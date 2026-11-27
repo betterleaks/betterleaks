@@ -12,6 +12,7 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"sync/atomic"
 )
 
 type ReadAtCloser interface {
@@ -36,13 +37,26 @@ type Index struct {
 	// Every sampleStride-th entry's hash prefix (in hash order) and offset (in
 	// pack order). Searching these in memory leaves one short run of the
 	// mapped index to read, instead of a cache miss at every bisection step.
-	hashOnce, offsetOnce sync.Once
-	hashSamples          []uint64
-	offsetSamples        []int64
-	hashErr, offsetErr   error
+	hashOnce, offsetOnce       sync.Once
+	hashLookups, offsetLookups atomic.Uint32
+	hashSamples                []uint64
+	offsetSamples              []int64
+	hashErr, offsetErr         error
 }
 
 const sampleStride = 16
+
+// Sampling costs one read per stride. Use ordinary binary searches until
+// enough lookups have accumulated to amortize building each table. In
+// particular, a detached HEAD or a short commit list may need very few reads.
+func useSamples(lookups *atomic.Uint32, objects uint32) bool {
+	threshold := objects / (sampleStride * sampleStride)
+	return lookups.Load() >= threshold || lookups.Add(1) >= threshold
+}
+
+func sampleCount(objects uint32) uint32 {
+	return uint32((uint64(objects) + sampleStride - 1) / sampleStride)
+}
 
 func OpenIndex(ctx context.Context, idx, rev ReadAtCloser, id Hash) (*Index, error) {
 	i := &Index{ctx: ctx, idx: idx, rev: rev, id: id}
@@ -154,6 +168,9 @@ func (i *Index) readOffset(n uint32, b []byte) (int64, error) {
 	return int64(n64), nil
 }
 func (i *Index) FindOffset(id Hash) (int64, error) {
+	if err := i.ctx.Err(); err != nil {
+		return 0, err
+	}
 	if id.Size() != i.id.Size() {
 		return 0, ErrObjectNotFound
 	}
@@ -162,22 +179,30 @@ func (i *Index) FindOffset(id Hash) (int64, error) {
 		lo = i.fanout[id.data[0]-1]
 	}
 	hi := i.fanout[id.data[0]]
-	if err := i.loadHashSamples(); err != nil {
-		return 0, err
-	}
-	// Bracket the target between samples whose prefixes are strictly smaller
-	// and strictly larger; equal prefixes can share a hash's run.
-	prefix := binary.BigEndian.Uint64(id.data[:8])
-	below, _ := slices.BinarySearch(i.hashSamples, prefix)
-	above := len(i.hashSamples)
-	if prefix < math.MaxUint64 {
-		above, _ = slices.BinarySearch(i.hashSamples, prefix+1)
-	}
-	if below > 0 {
-		lo = max(lo, uint32(below-1)*sampleStride)
-	}
-	if above < len(i.hashSamples) {
-		hi = min(hi, uint32(above)*sampleStride)
+	if hi-lo > sampleStride && useSamples(&i.hashLookups, i.count) {
+		if err := i.loadHashSamples(); err != nil {
+			return 0, err
+		}
+		// Search only samples in this fanout bucket. Equal prefixes can
+		// straddle a sample, so exclude only strictly smaller/larger ones.
+		first := sampleCount(lo)
+		samples := i.hashSamples[first:sampleCount(hi)]
+		prefix := binary.BigEndian.Uint64(id.data[:8])
+		k, found := slices.BinarySearch(samples, prefix)
+		if k > 0 {
+			lo = (first+uint32(k-1))*sampleStride + 1
+		}
+		if found {
+			if prefix == math.MaxUint64 {
+				k = len(samples)
+			} else {
+				next, _ := slices.BinarySearch(samples[k+1:], prefix+1)
+				k += 1 + next
+			}
+		}
+		if k < len(samples) {
+			hi = (first + uint32(k)) * sampleStride
+		}
 	}
 	// Reuse one scratch buffer across the search. Passing a fresh Hash to
 	// ReaderAt at each step would allocate once per comparison on the heap.
@@ -265,19 +290,25 @@ func (i *Index) buildReverse() error {
 	return nil
 }
 func (i *Index) FindHash(off int64) (Hash, error) {
-	if err := i.loadOffsetSamples(); err != nil {
+	if err := i.ctx.Err(); err != nil {
 		return Hash{}, err
 	}
-	// Offsets are unique and ascend in pack order, so one run holds off.
-	k, found := slices.BinarySearch(i.offsetSamples, off)
-	if !found {
-		k--
+	lo, hi := uint32(0), i.count
+	if hi > sampleStride && useSamples(&i.offsetLookups, i.count) {
+		if err := i.loadOffsetSamples(); err != nil {
+			return Hash{}, err
+		}
+		// Offsets are unique and ascend in pack order, so one run holds off.
+		k, found := slices.BinarySearch(i.offsetSamples, off)
+		if !found {
+			k--
+		}
+		if k < 0 {
+			return Hash{}, ErrObjectNotFound
+		}
+		lo = uint32(k) * sampleStride
+		hi = lo + min(sampleStride, hi-lo)
 	}
-	if k < 0 {
-		return Hash{}, ErrObjectNotFound
-	}
-	lo := uint32(k) * sampleStride
-	hi := min(lo+sampleStride, i.count)
 	var buf [8]byte
 	for lo < hi {
 		mid := lo + (hi-lo)/2
@@ -304,7 +335,10 @@ func (i *Index) FindHash(off int64) (Hash, error) {
 // build the reverse order that a missing .rev file would require.
 func (i *Index) loadHashSamples() error {
 	i.hashOnce.Do(func() {
-		samples := make([]uint64, (i.count+sampleStride-1)/sampleStride)
+		if i.hashErr = i.ctx.Err(); i.hashErr != nil {
+			return
+		}
+		samples := make([]uint64, sampleCount(i.count))
 		var buf [8]byte
 		for k := range samples {
 			if k%4096 == 0 {
@@ -325,7 +359,10 @@ func (i *Index) loadHashSamples() error {
 
 func (i *Index) loadOffsetSamples() error {
 	i.offsetOnce.Do(func() {
-		samples := make([]int64, (i.count+sampleStride-1)/sampleStride)
+		if i.offsetErr = i.ctx.Err(); i.offsetErr != nil {
+			return
+		}
+		samples := make([]int64, sampleCount(i.count))
 		var buf [8]byte
 		for k := range samples {
 			if k%4096 == 0 {

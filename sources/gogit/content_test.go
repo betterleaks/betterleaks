@@ -230,14 +230,15 @@ func TestExpensiveDiffBudget(t *testing.T) {
 	var src, dst strings.Builder
 	// Every line exists in both versions, defeating unmatched-line pruning.
 	// Reverse order also avoids the diff engine's half-match shortcut.
-	for i := range 30000 {
+	const lines = 30000
+	for i := range lines {
 		fmt.Fprintf(&src, "line %d\n", i)
-		fmt.Fprintf(&dst, "line %d\n", 29999-i)
+		fmt.Fprintf(&dst, "line %d\n", lines-1-i)
 	}
 	t.Run("budget", func(t *testing.T) {
 		// An exhausted search scans the whole file instead of an approximate patch.
 		defer func(timeout time.Duration) { diffTimeout = timeout }(diffTimeout)
-		diffTimeout = 50 * time.Millisecond
+		diffTimeout = time.Nanosecond
 		var additions []string
 		require.NoError(t, lineAdditions(t.Context(), src.String(), dst.String(), func(raw string, line int) error {
 			require.Equal(t, 1, line)
@@ -252,24 +253,31 @@ func TestExpensiveDiffBudget(t *testing.T) {
 			// reported rather than scanning the whole file.
 			ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
 			defer cancel()
+			var d lineDiffer
 			if cancelDuringSearch {
-				timer := time.AfterFunc(50*time.Millisecond, cancel)
-				defer timer.Stop()
+				ctx = diffCancelContext{Context: ctx, onCheck: func() {
+					if d.search.ctx != nil {
+						cancel()
+					}
+				}}
 			}
 			started := time.Now()
+			var added int
 			var whole bool
-			err := lineAdditions(ctx, src.String(), dst.String(), func(raw string, _ int) error {
+			err := d.additions(ctx, src.String(), dst.String(), func(raw string, _ int) error {
+				added += strings.Count(raw, "\n")
 				whole = raw == dst.String()
 				return nil
 			})
 			switch {
 			case cancelDuringSearch:
 				require.ErrorIs(t, err, context.Canceled)
-			case err == nil:
-				// The shortened search can end just before the deadline fires.
-				require.True(t, whole, "an exhausted search scans the whole file")
-			default:
+			case err != nil:
 				require.ErrorIs(t, err, context.DeadlineExceeded)
+			case !whole:
+				// A completed search preserves exactly one of the distinct
+				// reversed lines. An exhausted one emits the whole change.
+				require.Equal(t, lines-1, added)
 			}
 			require.Less(t, time.Since(started), 5*time.Second)
 		})

@@ -4,11 +4,14 @@ package gogit
 import (
 	"bytes"
 	"compress/zlib"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 
 	"github.com/betterleaks/betterleaks/v2/internal/gitobj"
 	"github.com/betterleaks/betterleaks/v2/scm"
@@ -16,6 +19,43 @@ import (
 	"github.com/go-git/go-billy/v5"
 	"github.com/stretchr/testify/require"
 )
+
+type blockedObjectFS struct {
+	billy.Filesystem
+	opens   atomic.Int32
+	release chan struct{}
+	err     error
+}
+
+func (f *blockedObjectFS) OpenFile(string, int, os.FileMode) (billy.File, error) {
+	f.opens.Add(1)
+	<-f.release
+	return nil, f.err
+}
+
+func TestConcurrentObjectReadSharesErrorAndRetries(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		fs := &blockedObjectFS{release: make(chan struct{}), err: errors.New("read failed")}
+		store := &objectStorage{fs: readOnlyFS{Filesystem: fs}, objects: newObjectCache(1), ctx: t.Context()}
+		id := gitobj.NewHash(strings.Repeat("a", 40))
+		results := make(chan error, 8)
+		for range cap(results) {
+			go func() {
+				_, err := store.read(id)
+				results <- err
+			}()
+		}
+		synctest.Wait() // All callers are waiting on the file or the shared load.
+		close(fs.release)
+		for range cap(results) {
+			require.ErrorIs(t, <-results, fs.err)
+		}
+		require.EqualValues(t, 1, fs.opens.Load())
+		_, err := store.read(id)
+		require.ErrorIs(t, err, fs.err)
+		require.EqualValues(t, 2, fs.opens.Load())
+	})
+}
 
 func TestWorktreePrivateReferences(t *testing.T) {
 	for _, namespace := range []string{"worktree", "bisect", "rewritten"} {

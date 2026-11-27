@@ -45,6 +45,6 @@ func limitf(format string, args ...any) error {
 }
 
 func isLimit(err error) bool {
-	var limit *limitError
-	return errors.As(err, &limit)
+	_, ok := errors.AsType[*limitError](err)
+	return ok
 }

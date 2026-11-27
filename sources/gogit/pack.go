@@ -3,6 +3,7 @@ package gogit
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -289,18 +290,37 @@ func (s *objectStorage) inflate(p *objectPack, offset int64, deltas bool) (packE
 	if err != nil {
 		return e, err
 	}
-	var out strings.Builder
-	out.Grow(int(size))
-	_, err = io.CopyBuffer(&out, io.LimitReader(contextReader{s.ctx, inflater.reader}, size+1), inflater.buffer[:])
+	e.raw, err = inflater.readBody(s.ctx, int(size))
 	if closeErr := inflater.reader.Close(); err == nil {
 		err = closeErr
 	}
-	if err != nil {
-		return e, err
+	return e, err
+}
+
+// Read through EOF to verify zlib's checksum, even when the declared size
+// has already been reached. Keep the builder and size accounting local.
+func (p *packInflater) readBody(ctx context.Context, size int) (string, error) {
+	var out strings.Builder
+	out.Grow(size)
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		remaining := size - out.Len()
+		buf := p.buffer[:]
+		if remaining < len(buf) {
+			buf = buf[:remaining+1]
+		}
+		n, err := p.reader.Read(buf)
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+		if n > remaining || (err == io.EOF && n < remaining) {
+			return "", errors.New("git packed object size mismatch")
+		}
+		out.Write(buf[:n])
+		if err == io.EOF {
+			return out.String(), nil
+		}
 	}
-	if int64(out.Len()) != size {
-		return e, errors.New("git packed object size mismatch")
-	}
-	e.raw = out.String()
-	return e, nil
 }

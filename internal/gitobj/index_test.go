@@ -286,8 +286,8 @@ func TestIndexCancellation(t *testing.T) {
 }
 
 // sampledIndex builds a valid index of n objects. Every eighth hash repeats its
-// predecessor's first eight bytes, so sample prefixes tie across runs, and
-// offsets beyond 2 GiB use the large-offset table.
+// predecessor's first eight bytes. Larger groups also share a sampled prefix,
+// including the maximum uint64. Offsets beyond 2 GiB use the large-offset table.
 func sampledIndex(t *testing.T, format ObjectFormat, n int, seed uint64) ([]byte, []byte, Hash, []Hash, []int64) {
 	t.Helper()
 	rng := rand.New(rand.NewPCG(seed, seed+1))
@@ -299,6 +299,12 @@ func sampledIndex(t *testing.T, format ObjectFormat, n int, seed uint64) ([]byte
 		id := pack
 		for b := range size {
 			id.data[b] = byte(rng.IntN(256))
+		}
+		switch len(ids) % 4 {
+		case 0:
+			binary.BigEndian.PutUint64(id.data[:8], 12345)
+		case 1:
+			binary.BigEndian.PutUint64(id.data[:8], ^uint64(0))
 		}
 		if len(ids)%8 == 7 {
 			copy(id.data[:8], ids[len(ids)-1].data[:8])
@@ -370,6 +376,23 @@ func sampledIndex(t *testing.T, format ObjectFormat, n int, seed uint64) ([]byte
 	rev = append(rev, pack.Bytes()...)
 	rev = append(rev, make([]byte, size)...)
 	return idx, rev, pack, ids, offsets
+}
+
+func TestSparseIndexLookups(t *testing.T) {
+	idx, rev, pack, ids, offsets := sampledIndex(t, SHA1, 8192, 22)
+	file := &countedIndexFile{testIndexFile: indexFile(idx), reads: 0}
+	reverse := &countedIndexFile{testIndexFile: indexFile(rev), reads: 0}
+	i, err := OpenIndex(t.Context(), file, reverse, pack)
+	require.NoError(t, err)
+	defer i.Close()
+	file.reads, reverse.reads = 0, 0
+	off, err := i.FindOffset(ids[0])
+	require.NoError(t, err)
+	require.Equal(t, offsets[0], off)
+	id, err := i.FindHash(off)
+	require.NoError(t, err)
+	require.Equal(t, ids[0], id)
+	require.Less(t, file.reads+reverse.reads, 64, "sparse lookups should only probe the two binary search paths")
 }
 
 func TestSampledIndexLookups(t *testing.T) {
