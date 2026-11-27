@@ -15,8 +15,7 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def check_published(root, version, index):
-    host = {"pypi": "pypi.org", "testpypi": "test.pypi.org"}[index]
+def check_published(root, version):
     number = r"(?:0|[1-9][0-9]*)"
     if not re.fullmatch(rf"2\.{number}\.{number}(?:rc{number})?", version):
         raise ValueError(f"Expected a v2 release or release candidate version, got {version!r}")
@@ -29,7 +28,7 @@ def check_published(root, version, index):
         if not any(files.glob("*.whl")) or not any(files.glob("*.tar.gz")):
             raise ValueError(f"Missing wheel or source distribution for {project}")
         try:
-            with opener.open(f"https://{host}/pypi/{project}/{version}/json", timeout=30) as response:
+            with opener.open(f"https://pypi.org/pypi/{project}/{version}/json", timeout=30) as response:
                 release = json.load(response)
         except HTTPError as error:
             if error.code == 404:
@@ -46,4 +45,4 @@ def check_published(root, version, index):
 
 
 if __name__ == "__main__":
-    check_published(Path(sys.argv[1]), sys.argv[2], sys.argv[3])
+    check_published(Path(sys.argv[1]), sys.argv[2])

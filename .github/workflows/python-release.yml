@@ -95,68 +95,28 @@ jobs:
       cli: ${{ needs.release.outputs.cli }}
       tag: ${{ needs.release.outputs.tag }}
 
-  testpypi:
+  smoke:
     needs: [release, build]
     runs-on: ubuntu-22.04
-    environment: testpypi
-    concurrency:
-      group: python-testpypi-${{ needs.release.outputs.version }}
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      id-token: write
+    permissions: {}
     steps:
-      # Read the verifier from the trusted main workflow revision.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ needs.build.outputs.artifact }}
           path: candidate
           merge-multiple: true
-      - env:
-          VERSION: ${{ needs.release.outputs.version }}
-        run: python3 -I bindings/python/scripts/check-published.py candidate "$VERSION" testpypi
-      - name: Publish betterleaks-cli
-        if: hashFiles('candidate/betterleaks-cli/*') != ''
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
-        with:
-          packages-dir: candidate/betterleaks-cli/
-          attestations: true
-          repository-url: https://test.pypi.org/legacy/
-      - name: Publish betterleaks-sdk
-        if: hashFiles('candidate/betterleaks-sdk/*') != ''
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
-        with:
-          packages-dir: candidate/betterleaks-sdk/
-          attestations: true
-          repository-url: https://test.pypi.org/legacy/
-      - name: Publish betterleaks
-        if: hashFiles('candidate/betterleaks/*') != ''
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
-        with:
-          packages-dir: candidate/betterleaks/
-          attestations: true
-          repository-url: https://test.pypi.org/legacy/
-
-  rehearsal:
-    needs: [release, testpypi]
-    runs-on: ubuntu-22.04
-    permissions: {}
-    steps:
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
         with:
           python-version: '3.11'
-      - env:
+      - name: Install and exercise the exact wheels submitted for approval
+        env:
           VERSION: ${{ needs.release.outputs.version }}
         run: |
-          python -m venv /tmp/pypi-smoke
-          source /tmp/pypi-smoke/bin/activate
-          for attempt in {1..5}; do
-            python -m pip install --only-binary=:all: --index-url https://test.pypi.org/simple/ "betterleaks==$VERSION" && break
-            sleep 10
-          done
+          python -m venv "$RUNNER_TEMP/pypi-smoke"
+          source "$RUNNER_TEMP/pypi-smoke/bin/activate"
+          python -m pip install --no-index --only-binary=:all: \
+            --find-links candidate/betterleaks --find-links candidate/betterleaks-cli \
+            --find-links candidate/betterleaks-sdk "betterleaks==$VERSION"
           python -m pip check
           test "$(betterleaks --version)" = "${VERSION/rc/-rc.}"
           python - <<'PY'
@@ -166,7 +126,7 @@ jobs:
           PY
 
   pypi:
-    needs: [release, build, rehearsal]
+    needs: [release, build, smoke]
     runs-on: ubuntu-22.04
     environment: pypi
     concurrency:
@@ -187,7 +147,7 @@ jobs:
           merge-multiple: true
       - env:
           VERSION: ${{ needs.release.outputs.version }}
-        run: python3 -I bindings/python/scripts/check-published.py candidate "$VERSION" pypi
+        run: python3 -I bindings/python/scripts/check-published.py candidate "$VERSION"
       - name: Publish betterleaks-cli
         if: hashFiles('candidate/betterleaks-cli/*') != ''
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
