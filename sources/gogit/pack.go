@@ -2,6 +2,8 @@ package gogit
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -21,6 +23,9 @@ type objectPack struct {
 		io.ReaderAt
 		io.Closer
 	}
+	// data is the mapped pack, when mapping succeeded. Inflating from it
+	// avoids copying compressed bytes through a buffered reader.
+	data     []byte
 	end      int64
 	hashSize int
 }
@@ -77,7 +82,10 @@ func (s *objectStorage) openPacks(fs readOnlyFS) error {
 				index.Close()
 				return err
 			}
-			p := &objectPack{index: index, file: f, end: end - int64(id.Size()), hashSize: id.Size()}
+			p := &objectPack{index: index, file: f, data: nil, end: end - int64(id.Size()), hashSize: id.Size()}
+			if mapped, ok := f.(interface{ Bytes() []byte }); ok && int64(len(mapped.Bytes())) == end {
+				p.data = mapped.Bytes()
+			}
 			s.packs = append(s.packs, p)
 			var header [12]byte
 			if _, err := f.ReadAt(header[:], 0); err != nil {
@@ -117,12 +125,13 @@ func (s *objectStorage) closePacks() {
 
 type packInflater struct {
 	input  *bufio.Reader
+	mapped bytes.Reader
 	reader io.ReadCloser
 	buffer [32 << 10]byte
 }
 
 var packInflaters = sync.Pool{New: func() any {
-	return &packInflater{input: bufio.NewReaderSize(nil, 8192), reader: nil, buffer: [32 << 10]byte{}}
+	return &packInflater{input: bufio.NewReaderSize(nil, 8192), mapped: bytes.Reader{}, reader: nil, buffer: [32 << 10]byte{}}
 }}
 
 // readPacked reconstructs a packed object. It walks the delta chain down to a
@@ -137,6 +146,9 @@ func (s *objectStorage) readPacked(p *objectPack, offset int64, id gitobj.Hash) 
 	}
 	var chain []link
 	var base *storedObject
+	// work is what the versions built since the last cached one cost,
+	// including inflating a base read whole.
+	work := float64(0)
 	for base == nil {
 		if err := s.ctx.Err(); err != nil {
 			return nil, err
@@ -154,8 +166,9 @@ func (s *objectStorage) readPacked(p *objectPack, offset int64, id gitobj.Hash) 
 			return nil, fmt.Errorf("pack object %s: %w", id, err)
 		}
 		if !e.kind.IsDelta() {
-			base = &storedObject{id: id, kind: e.kind, raw: e.raw}
+			base = &storedObject{id: id, kind: e.kind, raw: e.raw, work: inflateWork * float64(len(e.raw))}
 			s.keep(base)
+			work = base.work
 			break
 		}
 		if len(chain) == maxDeltaChain {
@@ -178,6 +191,7 @@ func (s *objectStorage) readPacked(p *objectPack, offset int64, id gitobj.Hash) 
 			if base, err = s.readFallback(id); err != nil {
 				return nil, err
 			}
+			work = inflateWork * float64(len(base.raw))
 			break
 		}
 		p, offset = next, nextOffset
@@ -193,6 +207,7 @@ func (s *objectStorage) readPacked(p *objectPack, offset int64, id gitobj.Hash) 
 			if cached := s.cached(l.id); cached != nil {
 				base = cached
 				versions.Reset(base.raw)
+				work = 0
 				continue
 			}
 		}
@@ -210,8 +225,10 @@ func (s *objectStorage) readPacked(p *objectPack, offset int64, id gitobj.Hash) 
 		if err != nil {
 			return nil, fmt.Errorf("delta %s: %w", l.id, err)
 		}
+		work += inflateWork * float64(len(e.raw))
 		if raw, ready := versions.Text(); ready {
-			base = &storedObject{id: l.id, kind: base.kind, raw: raw}
+			work += float64(len(raw))
+			base = &storedObject{id: l.id, kind: base.kind, raw: raw, work: work}
 			if checkpoint || len(raw) < 256<<10 {
 				s.keep(base)
 			}
@@ -237,9 +254,22 @@ func (s *objectStorage) inflate(p *objectPack, offset int64, deltas bool) (packE
 		return e, errors.New("git pack offset out of bounds")
 	}
 	inflater := packInflaters.Get().(*packInflater)
-	defer func() { inflater.input.Reset(nil); packInflaters.Put(inflater) }()
-	r := inflater.input
-	r.Reset(io.NewSectionReader(p.file, offset, p.end-offset))
+	defer func() {
+		inflater.input.Reset(nil)
+		inflater.mapped.Reset(nil)
+		packInflaters.Put(inflater)
+	}()
+	var r interface {
+		io.Reader
+		io.ByteReader
+	}
+	if p.data != nil {
+		inflater.mapped.Reset(p.data[offset:p.end])
+		r = &inflater.mapped
+	} else {
+		inflater.input.Reset(io.NewSectionReader(p.file, offset, p.end-offset))
+		r = inflater.input
+	}
 	header, err := gitpack.ReadHeader(r, offset, p.hashSize, s.limit)
 	if errors.Is(err, gitpack.ErrLimit) {
 		return e, limitf("%s", err)
@@ -260,18 +290,37 @@ func (s *objectStorage) inflate(p *objectPack, offset int64, deltas bool) (packE
 	if err != nil {
 		return e, err
 	}
-	var out strings.Builder
-	out.Grow(int(size))
-	_, err = io.CopyBuffer(&out, io.LimitReader(contextReader{s.ctx, inflater.reader}, size+1), inflater.buffer[:])
+	e.raw, err = inflater.readBody(s.ctx, int(size))
 	if closeErr := inflater.reader.Close(); err == nil {
 		err = closeErr
 	}
-	if err != nil {
-		return e, err
+	return e, err
+}
+
+// Read through EOF to verify zlib's checksum, even when the declared size
+// has already been reached. Keep the builder and size accounting local.
+func (p *packInflater) readBody(ctx context.Context, size int) (string, error) {
+	var out strings.Builder
+	out.Grow(size)
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		remaining := size - out.Len()
+		buf := p.buffer[:]
+		if remaining < len(buf) {
+			buf = buf[:remaining+1]
+		}
+		n, err := p.reader.Read(buf)
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+		if n > remaining || (err == io.EOF && n < remaining) {
+			return "", errors.New("git packed object size mismatch")
+		}
+		out.Write(buf[:n])
+		if err == io.EOF {
+			return out.String(), nil
+		}
 	}
-	if int64(out.Len()) != size {
-		return e, errors.New("git packed object size mismatch")
-	}
-	e.raw = out.String()
-	return e, nil
 }

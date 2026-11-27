@@ -64,9 +64,9 @@ type Source struct {
 	// MaxCount limits selected commits in the date-prioritized history walk.
 	// It also limits note commits separately for each notes ref. Zero is unlimited.
 	MaxCount int
-	// Workers defaults to min(GOMAXPROCS, 8), at most 16.
+	// Workers defaults to GOMAXPROCS, at most 16.
 	Workers int
-	// CacheMiB defaults to 256 and limits cached materialized content bytes,
+	// CacheMiB defaults to 512 and limits cached materialized content bytes,
 	// excluding object overhead. Parsed trees have a separate 32 MiB budget.
 	CacheMiB int
 	// DiskCacheMiB enables a private temporary cache of large reconstructed
@@ -285,7 +285,7 @@ func (s *Source) commits(ctx context.Context, r *repository, walk *history, sel 
 	accept := s.selector()
 	workers := s.Workers
 	if workers == 0 {
-		workers = min(runtime.GOMAXPROCS(0), 8)
+		workers = min(runtime.GOMAXPROCS(0), maxWorkers)
 	}
 	maxBlob := s.MaxBlobBytes
 	if maxBlob == 0 {

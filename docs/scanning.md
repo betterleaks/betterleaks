@@ -56,7 +56,7 @@ Sources choose their own bounded I/O concurrency, independently of detection:
 | Source work | Concurrency |
 | :--- | :--- |
 | Filesystem readers | `GOMAXPROCS` |
-| Git history workers | Up to `min(GOMAXPROCS, 8)` |
+| Git history workers | Up to `min(GOMAXPROCS, 16)` |
 | S3 and Hugging Face object reads | 4 |
 | GitHub Actions runs | 4 |
 | Provider repositories or buckets | One target at a time |
@@ -962,7 +962,7 @@ Platform types and constants come from
 Skipped content is logged as a warning on `Logger`, and the scan continues.
 Storage outside the repository fails with `gogit.ErrExternalStore` unless
 `AllowExternalObjects` is set. The SDK additionally exposes `Workers` (default
-`min(GOMAXPROCS, 8)`, maximum 16) and `CacheMiB` (default 256, maximum 4096).
+`min(GOMAXPROCS, 16)`, maximum 16) and `CacheMiB` (default 512, maximum 4096).
 `DiskCacheMiB` enables a temporary-file cache of large reconstructed objects for
 repositories with deep delta chains; `0` disables it and the maximum is 4096.
 These three tuning fields have no CLI flags. `RemoteURL` overrides the fetch

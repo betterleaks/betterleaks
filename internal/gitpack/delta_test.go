@@ -87,6 +87,53 @@ func TestFragmentedDeltaFallsBackAndValidatesTail(t *testing.T) {
 	require.ErrorIs(t, chain.Apply(ctx, string(program), 1<<20, false), context.Canceled)
 }
 
+func TestLargeDeltaReadsBorrowedRanges(t *testing.T) {
+	base := strings.Repeat("abcdef012345", 32<<10)
+	pivot := len(base)/2 + 1
+	first := binary.AppendUvarint(nil, uint64(len(base)))
+	first = binary.AppendUvarint(first, uint64(len(base)+3))
+	first = appendTestCopy(first, pivot, len(base)-pivot)
+	first = append(first, 3, 'x', 'y', 'z')
+	first = appendTestCopy(first, 0, pivot)
+	rotated := base[pivot:] + "xyz" + base[:pivot]
+
+	var chain DeltaChain
+	chain.Reset(base)
+	require.NoError(t, chain.Apply(t.Context(), string(first), 1<<20, false))
+	_, ready := chain.Text()
+	require.False(t, ready)
+
+	// Cancel a checkpoint in the middle of copying borrowed bytes. The next
+	// delta still names the previous version as its base.
+	checkpoint := binary.AppendUvarint(nil, uint64(len(rotated)))
+	checkpoint = binary.AppendUvarint(checkpoint, uint64(len(rotated)+1))
+	checkpoint = appendTestCopy(checkpoint, 0, len(rotated))
+	checkpoint = append(checkpoint, 1, '!')
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	counted := &cancelCopyContext{Context: ctx, cancel: cancel, checks: 8}
+	require.ErrorIs(t, chain.Apply(counted, string(checkpoint), 1<<20, true), context.Canceled)
+
+	// Force contiguous output with a large literal stream. Both copies
+	// cross the inserted text, and the second starts before the first.
+	literal := strings.Repeat("L", 127)
+	const repeats = 520
+	want := rotated[100:] + strings.Repeat(literal, repeats) + rotated[:pivot+10]
+	next := binary.AppendUvarint(nil, uint64(len(rotated)))
+	next = binary.AppendUvarint(next, uint64(len(want)))
+	next = appendTestCopy(next, 100, len(rotated)-100)
+	for range repeats {
+		next = append(next, byte(len(literal)))
+		next = append(next, literal...)
+	}
+	next = appendTestCopy(next, 0, pivot+10)
+	require.Error(t, chain.Apply(t.Context(), string(next)+"\x00", 1<<20, true))
+	require.NoError(t, chain.Apply(t.Context(), string(next), 1<<20, true))
+	got, ready := chain.Text()
+	require.True(t, ready)
+	require.Equal(t, want, got)
+}
+
 // A Git copy opcode can carry four little-endian offset bytes and three length bytes.
 func appendTestCopy(dst []byte, offset, size int) []byte {
 	dst = append(dst, 0xff)

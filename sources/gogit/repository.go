@@ -78,7 +78,7 @@ func (s *Source) open(ctx context.Context) (*repository, func(), error) {
 	}
 	budget := s.CacheMiB
 	if budget == 0 {
-		budget = 256
+		budget = 512
 	}
 	objects := newObjectCache(gitobj.FileSize(budget) << 20)
 	reader := &objectStorage{fs: fs, objects: objects, ctx: ctx, limit: max(s.MaxBlobBytes, defaultMaxBlobBytes), shallow: shallow}

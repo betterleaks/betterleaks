@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sort"
-	"strings"
 )
 
 // DeltaChain reconstructs successive versions of a single object. Small deltas
@@ -38,23 +37,19 @@ func (s *DeltaChain) Apply(ctx context.Context, delta string, limit int64, mater
 	if err != nil {
 		return err
 	}
-	if s.size >= 256<<10 && len(delta) <= 64<<10 && (!materialize || len(s.pieces) > 0) {
+	if !materialize && s.size >= 256<<10 && len(delta) <= 64<<10 {
 		err := s.applyPieces(ctx, p)
 		switch {
 		case err == nil:
 			s.raw = ""
-			if materialize {
-				return s.flatten(ctx)
-			}
 			return nil
 		case !errors.Is(err, errFragmented):
 			return err
 		}
 	}
-	if err := s.flatten(ctx); err != nil {
-		return err
-	}
-	raw, err := p.apply(ctx, s.raw)
+	// Write contiguous results directly from the source pieces. This avoids
+	// copying an intermediate version and leaves the chain intact on error.
+	raw, err := p.apply(ctx, s.raw, s.pieces)
 	if err == nil {
 		s.Reset(raw)
 	}
@@ -64,7 +59,7 @@ func (s *DeltaChain) Apply(ctx context.Context, delta string, limit int64, mater
 var errFragmented = errors.New("too many Git delta spans")
 
 // applyPieces leaves the previous version intact when a fragmented delta
-// exceeds the metadata budget. Apply can then retry it on contiguous bytes.
+// exceeds the metadata budget. Apply can then copy from the original pieces.
 func (s *DeltaChain) applyPieces(ctx context.Context, p deltaProgram) error {
 	source := s.pieces
 	if len(source) == 0 {
@@ -84,19 +79,7 @@ func (s *DeltaChain) applyPieces(ctx context.Context, p deltaProgram) error {
 		if literal != "" {
 			return appendPiece(literal)
 		}
-		i := sort.Search(len(source), func(i int) bool { return source[i].end > offset })
-		for n > 0 {
-			piece := source[i]
-			start := offset - (piece.end - len(piece.text))
-			count := min(n, len(piece.text)-start)
-			if err := appendPiece(piece.text[start : start+count]); err != nil {
-				return err
-			}
-			offset += count
-			n -= count
-			i++
-		}
-		return nil
+		return visitRange(source, offset, n, appendPiece)
 	})
 	if err != nil {
 		clear(out)
@@ -109,20 +92,18 @@ func (s *DeltaChain) applyPieces(ctx context.Context, p deltaProgram) error {
 	return nil
 }
 
-func (s *DeltaChain) flatten(ctx context.Context) error {
-	if len(s.pieces) == 0 {
-		return nil
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	var out strings.Builder
-	out.Grow(s.size)
-	for _, p := range s.pieces {
-		if err := writeDeltaBytes(ctx, &out, p.text); err != nil {
+func visitRange(pieces []deltaPiece, offset, n int, visit func(string) error) error {
+	i := sort.Search(len(pieces), func(i int) bool { return pieces[i].end > offset })
+	for n > 0 {
+		piece := pieces[i]
+		start := offset - (piece.end - len(piece.text))
+		count := min(n, len(piece.text)-start)
+		if err := visit(piece.text[start : start+count]); err != nil {
 			return err
 		}
+		offset += count
+		n -= count
+		i++
 	}
-	s.Reset(out.String())
 	return nil
 }
