@@ -4235,11 +4235,13 @@ let genericMatchPrefix = findMatch(
 );
 
 // Keep credential-path names and confidence hints, excluding skipped metadata.
+let fallbackReferences = findMatch(nameContext, `(?:=>|:{1,3}=|\|\||\?\?|\?=|[=:,])[ \t]*(?:[\w$]+(?:\.[\w$]+)+[ \t]*(?:\|\||\?\?)[ \t]*)+`);
 let genericMatchContext =
   genericMatchPrefix +
-  nameContext;
+  (fallbackReferences == "" ? nameContext
+    : replace(nameContext, fallbackReferences, findMatch(fallbackReferences, `^(?:=>|:{1,3}=|\|\||\?\?|\?=|[=:,])`), 1));
 
-let level = matchesAny(genericMatchContext, [
+let level = matchesAny(genericMatchPrefix + nameContext, [
   `(?i)\b[a-z0-9]+[_.-]+token\b`
 ]) ? "medium" : "low";
 let _ = setConfidence(level);
