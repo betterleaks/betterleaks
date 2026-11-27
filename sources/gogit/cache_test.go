@@ -214,6 +214,38 @@ func TestPatchCachePreservesBinaryArchiveMembers(t *testing.T) {
 	require.Empty(t, w.patches.entries, "archive extraction must run for every commit")
 }
 
+func TestArchiveIdentifiedByContent(t *testing.T) {
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	member, err := writer.Create("secret.bin")
+	require.NoError(t, err)
+	content := "\x00TOKEN_BINARY_MEMBER\x00\n"
+	_, err = member.Write([]byte(content))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	objects := newObjectCache(1 << 20)
+	blob := &storedObject{id: gitobj.NewHash(strings.Repeat("3", 40)), kind: gitobj.BlobObject, raw: archive.String()}
+	objects.Put(blob)
+	entry := gitobj.ChangeEntry{Name: "bundle.jar", TreeEntry: gitobj.TreeEntry{Hash: blob.id, Mode: filemode.Regular}}
+	for _, depth := range []int{0, 1} {
+		w := worker{source: &Source{MaxArchiveDepth: depth}, store: &objectStorage{ctx: t.Context(), objects: objects}, patches: &patchCache{}, maxBlob: 1 << 20}
+		var got []sources.Fragment
+		yield := func(f sources.Fragment, err error) error {
+			require.NoError(t, err)
+			got = append(got, f)
+			return nil
+		}
+		require.NoError(t, w.change(t.Context(), &gitobj.Change{To: entry}, map[string]string{sources.AttrPath: "bundle.jar"}, yield))
+		if depth == 0 {
+			require.Empty(t, got)
+			continue
+		}
+		require.Len(t, got, 1)
+		require.Equal(t, content, got[0].Raw)
+		require.Equal(t, "bundle.jar!secret.bin", got[0].Attr(sources.AttrPath))
+	}
+}
+
 func TestSmallGitObjectsSurviveLargeBlobEvictions(t *testing.T) {
 	cache := newObjectCache(16 << 20)
 	seed := &storedObject{id: gitobj.NewHash(strings.Repeat("1", 40)), kind: gitobj.TreeObject, raw: "tree"}

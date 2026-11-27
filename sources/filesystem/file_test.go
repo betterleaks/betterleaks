@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,6 +17,30 @@ import (
 	"github.com/mholt/archives"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIdentifyContentReadsPastCachedHeader(t *testing.T) {
+	f, err := os.Create(filepath.Join(t.TempDir(), "archive"))
+	require.NoError(t, err)
+	defer f.Close()
+	const prefix = "prefix before archive"
+	_, err = io.WriteString(f, prefix)
+	require.NoError(t, err)
+	tw := tar.NewWriter(f)
+	// The tar reader must consume the extended header to reach the first file.
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name: "member", Mode: 0600, PAXRecords: map[string]string{"comment": strings.Repeat("x", 4096)},
+	}))
+	require.NoError(t, tw.Close())
+	_, err = f.Seek(int64(len(prefix)), io.SeekStart)
+	require.NoError(t, err)
+	format, content, err := identifyContent(t.Context(), f, nil)
+	require.NoError(t, err)
+	require.IsType(t, archives.Tar{}, format)
+	require.Same(t, f, content)
+	pos, err := f.Seek(0, io.SeekCurrent)
+	require.NoError(t, err)
+	require.EqualValues(t, len(prefix), pos)
+}
 
 func TestFileBrotliCompression(t *testing.T) {
 	const content = "ARCHIVE_TEST_SECRET\n"
@@ -54,6 +80,29 @@ func TestFileBrotliCompression(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Brotli has no signature, so content detection only trusts it with a .br
+// name. Other files that happen to decode as brotli are scanned as-is.
+func TestFileBrotliContentNeedsExtension(t *testing.T) {
+	var compressed bytes.Buffer
+	w, err := (archives.Brotli{}).OpenWriter(&compressed)
+	require.NoError(t, err)
+	_, err = io.WriteString(w, "ARCHIVE_TEST_SECRET\n")
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	format, _, err := archives.Identify(t.Context(), "", bytes.NewReader(compressed.Bytes()))
+	require.NoError(t, err)
+	require.IsType(t, archives.Brotli{}, format)
+
+	s := File{Path: "Mawson", Content: bytes.NewReader(compressed.Bytes()), MaxArchiveDepth: 8, DetectArchive: true, StrictArchives: true}
+	var fragments []string
+	require.NoError(t, s.Fragments(t.Context(), func(f sources.Fragment, err error) error {
+		require.NoError(t, err)
+		fragments = append(fragments, f.Raw)
+		return nil
+	}))
+	require.Equal(t, []string{compressed.String()}, fragments)
 }
 
 // panicReader panics on the first Read, emulating a decompressor that blows up

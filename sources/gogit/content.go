@@ -2,7 +2,6 @@ package gogit
 
 import (
 	"context"
-	"errors"
 	"hash/maphash"
 	"strings"
 	"unicode/utf8"
@@ -11,7 +10,6 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/filesystem"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
-	"github.com/mholt/archives"
 )
 
 func (w *worker) change(ctx context.Context, c *gitobj.Change, attrs map[string]string, yield sources.FragmentsFunc) error {
@@ -513,17 +511,13 @@ func (w *worker) archive(ctx context.Context, path, raw string, attrs map[string
 	if w.source.MaxArchiveDepth <= 0 {
 		return nil
 	}
-	format, _, err := archives.Identify(ctx, path, nil)
-	if errors.Is(err, archives.NoMatch) {
-		return nil
+	source := filesystem.File{
+		Logger:          w.source.Logger,
+		Content:         contextReader{ctx, strings.NewReader(raw)},
+		Path:            path,
+		Attributes:      attrs,
+		Prefilter:       w.source.Prefilter,
+		MaxArchiveDepth: w.source.MaxArchiveDepth,
 	}
-	if err != nil {
-		return err
-	}
-	if format == nil {
-		return nil
-	}
-	// Match filesystem scans: damaged archives warn without failing history traversal.
-	source := filesystem.File{Logger: w.source.Logger, Content: contextReader{ctx, strings.NewReader(raw)}, Path: path, Attributes: attrs, Prefilter: w.source.Prefilter, MaxArchiveDepth: w.source.MaxArchiveDepth, StrictArchives: false, Symlink: "", DetectArchive: false}
-	return source.Fragments(ctx, yield)
+	return source.ArchiveFragments(ctx, yield)
 }
