@@ -1,0 +1,22 @@
+{
+  "name": "betterleaks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Scan for leaked secrets from Node.js or the Betterleaks CLI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/betterleaks/betterleaks.git",
+    "directory": "bindings/node"
+  },
+  "main": "index.js",
+  "types": "index.d.ts",
+  "bin": {
+    "betterleaks": "bin/betterleaks.cjs"
+  },
+  "scripts": {
+    "build:addon": "node scripts/build-addon.mjs",
+    "pack:cli": "node scripts/pack.mjs",
+    "test:pack": "node scripts/test-pack.mjs"
+  }
+}

@@ -125,10 +125,10 @@ func ApplyDelta(ctx context.Context, base, delta string, limit int64) (string, e
 	if err != nil {
 		return "", err
 	}
-	return p.apply(ctx, base)
+	return p.apply(ctx, base, nil)
 }
 
-func (p deltaProgram) apply(ctx context.Context, base string) (string, error) {
+func (p deltaProgram) apply(ctx context.Context, base string, pieces []deltaPiece) (string, error) {
 	if err := p.walk(ctx, nil); err != nil {
 		return "", err
 	}
@@ -137,12 +137,16 @@ func (p deltaProgram) apply(ctx context.Context, base string) (string, error) {
 	}
 	var out strings.Builder
 	out.Grow(p.target)
+	write := func(text string) error { return writeDeltaBytes(ctx, &out, text) }
 	err := p.walk(ctx, func(offset, size int, literal string) error {
 		if literal != "" {
 			out.WriteString(literal)
 			return nil
 		}
-		return writeDeltaBytes(ctx, &out, base[offset:offset+size])
+		if len(pieces) != 0 {
+			return visitRange(pieces, offset, size, write)
+		}
+		return write(base[offset : offset+size])
 	})
 	if err != nil {
 		return "", err

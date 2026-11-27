@@ -123,6 +123,14 @@ betterleaks s3 https://commoncrawl.s3.us-east-1.amazonaws.com/crawl-data/CC-MAIN
 # Enumerate and scan every bucket in a Cloudflare R2 account
 betterleaks s3 'https://<account-id>.r2.cloudflarestorage.com/*'
 
+# Scan a registry image: every platform, historical layer, and image metadata
+betterleaks container ghcr.io/owner/app:latest
+# Scan one platform of a public image without saved registry credentials
+betterleaks container ubuntu:24.04 --platform linux/amd64 --anonymous
+# Scan an image from the local Docker daemon, or a `docker save` archive
+betterleaks container --daemon docker myapp:latest
+betterleaks container --archive image.tar
+
 # Scan stdin
 cat some_file.txt | betterleaks stdin
 
@@ -195,6 +203,10 @@ See the [examples directory](examples/) for runnable SDK examples covering custo
 
 See the [`scan` package documentation](https://pkg.go.dev/github.com/betterleaks/betterleaks/v2/scan)
 for complete default-config and custom-config examples.
+
+Experimental [C, Rust, and Node.js bindings](bindings/README.md) target macOS and
+glibc Linux on x86-64 and ARM64. Rust consumers use a safe wrapper and do not need
+Go installed when using a matching prebuilt archive.
 
 ### Configuration
 
@@ -311,17 +323,18 @@ tested rules.
 ### Who uses Betterleaks?
 Projects and organizations that run Betterleaks. Open a pull request to add yours!
 - [Aikido Security](https://www.aikido.dev/)
-- [MegaLinter](https://megalinter.io) - open-source linter aggregator for CI, ships Betterleaks out of the box ([Betterleaks page](https://megalinter.io/latest/descriptors/repository_betterleaks/))
-- [Moyai](https://moyai.ai/)
-- [Entire.io](https://entire.io/)
-- [LeakTK](https://github.com/leaktk)
-- [CodeRabbit](https://www.coderabbit.ai/)
-- [Nhost](https://github.com/nhost/nhost)
 - [Atlas](https://github.com/pacifio/atlas)
-- [Kingfisher](https://github.com/mongodb/kingfisher)
 - [Chainloop](https://github.com/chainloop-dev/chainloop)
 - [Chezmoi](https://github.com/twpayne/chezmoi)
+- [CodeRabbit](https://www.coderabbit.ai/)
+- [Entire.io](https://entire.io/)
+- [GAMSPy](https://github.com/GAMS-dev/gamspy)
+- [Kingfisher](https://github.com/mongodb/kingfisher)
+- [LeakTK](https://github.com/leaktk)
+- [MegaLinter](https://megalinter.io) - open-source linter aggregator for CI, ships Betterleaks out of the box ([Betterleaks page](https://megalinter.io/latest/descriptors/repository_betterleaks/))
+- [Moyai](https://moyai.ai/)
+- [Nhost](https://github.com/nhost/nhost)
 - [Pipeleek](https://github.com/CompassSecurity/pipeleek)
+- [Siemens](https://github.com/siemens)
 - [Veridox](https://veridox.ai)
 - [Webflow](https://github.com/webflow/ctxcop)
-- [GAMSPy](https://github.com/GAMS-dev/gamspy)

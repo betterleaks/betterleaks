@@ -59,8 +59,6 @@ require (
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
-	github.com/tetratelabs/wazero v1.12.0 // indirect
-	github.com/wasilibs/wazero-helpers v0.0.0-20250123031827-cd30c44769bb // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
@@ -71,11 +69,11 @@ require (
 )
 
 require (
-	github.com/betterleaks/go-re2 v1.11.0-betterleaks.3
+	github.com/betterleaks/go-re2 v1.13.1-betterleaks.1
 	github.com/go-git/gcfg/v2 v2.0.2
 	github.com/lucasjones/reggen v0.0.0-20200904144131-37ba4fa293bb
 	github.com/spf13/afero v1.15.0 // indirect
 	golang.org/x/sync v0.23.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.42.0 // indirect
 )

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 )
@@ -31,7 +32,40 @@ var (
 			return bufio.NewReader(nil)
 		},
 	}
+	readaheadPool = sync.Pool{New: newReadahead}
 )
+
+// readaheadSize is the read size for files longer than one chunk. Lookahead
+// otherwise costs a read syscall for every 4 KB the boundary search consumes.
+// Tests change it to misalign buffer refills.
+var readaheadSize = 256 << 10
+
+func newReadahead() any {
+	return bufio.NewReaderSize(nil, readaheadSize)
+}
+
+// fullReader fills each request unless its source ends, as regular file reads
+// do. The 4 KB reader above it therefore keeps the same chunk boundaries.
+type fullReader struct{ reader *bufio.Reader }
+
+func (r fullReader) Read(p []byte) (int, error) {
+	n, err := io.ReadFull(r.reader, p)
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		err = io.EOF
+	}
+	return n, err
+}
+
+// readahead reports whether content is a regular file. Pipes and other
+// streams keep returning whatever bytes are available.
+func readahead(content io.Reader) (*os.File, bool) {
+	file, ok := content.(*os.File)
+	if !ok {
+		return nil, false
+	}
+	info, err := file.Stat()
+	return file, err == nil && info.Mode().IsRegular()
+}
 
 // Read yields owned text chunks, one-based starting lines, and the zero-based
 // byte offset of each chunk on its first line. Read failures are
@@ -53,6 +87,7 @@ func read(ctx context.Context, content io.Reader, buffer []byte, yield func(stri
 
 	nextLine := 1
 	nextColumnOffset := 0
+	firstRead := true
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -65,6 +100,20 @@ func read(ctx context.Context, content io.Reader, buffer []byte, yield func(stri
 			}
 			return nil
 		}
+		// A full first read bypassed the empty 4 KB buffer, so swapping its
+		// source here drops nothing. Smaller files keep direct reads.
+		if firstRead && n == len(buffer) && readErr == nil {
+			if file, ok := readahead(content); ok {
+				ahead := readaheadPool.Get().(*bufio.Reader)
+				ahead.Reset(file)
+				defer func() {
+					ahead.Reset(nil)
+					readaheadPool.Put(ahead)
+				}()
+				reader.Reset(fullReader{ahead})
+			}
+		}
+		firstRead = false
 
 		chunk := buffer[:n]
 

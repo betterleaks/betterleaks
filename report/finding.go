@@ -88,6 +88,8 @@ func reportAttributes(attributes map[string]string) map[string]string {
 type Match struct {
 	Full  string `json:"full"`
 	Value string `json:"value"`
+	// Entropy is the original non-empty Value's Shannon entropy in bits per byte, rounded to three significant digits.
+	Entropy json.Number `json:"entropy,omitempty"`
 	// Fingerprint identifies the original Value bytes independently of rule or location.
 	// It is a 64-character lowercase SHA-256 digest, or hmac-sha256: followed by
 	// the HMAC-SHA-256 digest when the scanner has a fingerprint key.

@@ -36,10 +36,10 @@ func TestAssignmentGuardProof(t *testing.T) {
 	}
 }
 
-func guardAccepts(guard *assignmentGuard, matcher *ahocorasick.Matcher, raw string) bool {
+func guardAccepts(guard keywordGuard, matcher *ahocorasick.Matcher, raw string) bool {
 	accepted := false
-	matcher.Visit(raw, func(_, _, end int) bool {
-		if guard.possible(raw, end) {
+	matcher.Visit(raw, func(_, start, end int) bool {
+		if guard.possible(raw, start, end) {
 			accepted = true
 			return false
 		}

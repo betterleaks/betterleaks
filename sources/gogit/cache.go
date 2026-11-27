@@ -13,10 +13,11 @@ import (
 
 // Keep frequently accessed small objects in independent shards. Large blob
 // chains share the rest of the budget, and cannot displace the metadata needed
-// to traverse the same commits.
+// to traverse the same commits. Each tier favors objects that took the most
+// work to reconstruct for their size, such as the deep ends of delta chains.
 type objectCache struct {
-	large *gitobj.ObjectLRU
-	small [16]*gitobj.ObjectLRU
+	large *gitobj.ObjectCache
+	small [16]*gitobj.ObjectCache
 }
 
 func newObjectCache(budget gitobj.FileSize) *objectCache {
@@ -24,11 +25,11 @@ func newObjectCache(budget gitobj.FileSize) *objectCache {
 	if budget >= 16<<20 {
 		shardSize := budget / 4 / gitobj.FileSize(len(c.small))
 		for i := range c.small {
-			c.small[i] = gitobj.NewObjectLRU(shardSize)
+			c.small[i] = gitobj.NewObjectCache(shardSize)
 		}
 		budget -= shardSize * gitobj.FileSize(len(c.small))
 	}
-	c.large = gitobj.NewObjectLRU(budget)
+	c.large = gitobj.NewObjectCache(budget)
 	return c
 }
 
@@ -42,12 +43,20 @@ func (c *objectCache) Get(id gitobj.Hash) (gitobj.EncodedObject, bool) {
 }
 
 func (c *objectCache) Put(o gitobj.EncodedObject) {
+	work := inflateWork * float64(o.Size())
+	if s, ok := o.(*storedObject); ok && s.work > 0 {
+		work = s.work
+	}
 	if o.Size() < 32<<10 && c.small[0] != nil {
-		c.small[int(o.Hash().Bytes()[0])%len(c.small)].Put(o)
+		c.small[int(o.Hash().Bytes()[0])%len(c.small)].Put(o, work)
 		return
 	}
-	c.large.Put(o)
+	c.large.Put(o, work)
 }
+
+// Reconstruction work is counted in bytes copied. Inflating costs about
+// sixteen times as much per output byte as applying a delta.
+const inflateWork = 16
 
 func (c *objectCache) Clear() {
 	for _, s := range c.small {
@@ -227,7 +236,8 @@ func (c *diskObjectCache) get(id gitobj.Hash) (*storedObject, bool) {
 	if err != nil || n != e.size {
 		return nil, false
 	}
-	return &storedObject{id: id, kind: e.kind, raw: out.String()}, true
+	// The ring may overwrite this copy, so it costs what inflating it would.
+	return &storedObject{id: id, kind: e.kind, raw: out.String(), work: 0}, true
 }
 
 func (c *diskObjectCache) put(o *storedObject) {

@@ -1,0 +1,84 @@
+name: Publish npm RC
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Release run that produced the signed RC tarballs
+        required: true
+        type: string
+      bootstrap:
+        description: Stage packages for approval on npm
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'betterleaks/betterleaks' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        startsWith(github.event.workflow_run.head_branch, 'v2.') &&
+        contains(github.event.workflow_run.head_branch, '-rc.')))
+    runs-on: ubuntu-latest
+    environment: npm
+    concurrency:
+      group: npm-publish-next
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3' # Includes npm 11.19.1 with staged publishing support.
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with:
+          cosign-release: v3.0.6
+
+      - name: Download the signed artifact from the successful tag run
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.release_run_id || github.event.workflow_run.id }}
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")
+          tag=$(jq -er --arg repo "$GITHUB_REPOSITORY" 'select(
+            .path == ".github/workflows/release.yml" and .head_repository.full_name == $repo and
+            .event == "push" and .status == "completed" and .conclusion == "success"
+          ) | .head_branch' <<< "$run")
+          [[ "$tag" =~ ^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.(0|[1-9][0-9]*)$ ]]
+          sha=$(jq -er '.head_sha | select(test("^[0-9a-f]{40}$"))' <<< "$run")
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "npm-cli-$tag" --dir "$RUNNER_TEMP/npm-rc"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the release signature
+        working-directory: ${{ runner.temp }}/npm-rc
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$TAG" \
+            --certificate-github-workflow-sha "$SHA" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+      - name: Verify tarball hashes and submit packages under next
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          MODE: ${{ inputs.bootstrap && 'bootstrap' || 'oidc' }}
+          NODE_AUTH_TOKEN: ${{ inputs.bootstrap && secrets.NPM_STAGE_TOKEN || '' }}
+        run: node bindings/node/scripts/publish-rc.mjs "$RUNNER_TEMP/npm-rc" "$TAG" "$MODE"

@@ -541,7 +541,7 @@ func (e *Runtime) baseBindings(rt *runtimeBindings) bindings {
 		"matchesAny":           e.matchesAny,
 		"containsAny":          containsAny,
 		"startsWithAny":        startsWithAny,
-		"entropy":              shannonEntropy,
+		"entropy":              ShannonEntropy,
 	}
 	rtb["__runtime"] = rt
 	return rtb

@@ -56,7 +56,7 @@ Sources choose their own bounded I/O concurrency, independently of detection:
 | Source work | Concurrency |
 | :--- | :--- |
 | Filesystem readers | `GOMAXPROCS` |
-| Git history workers | Up to `min(GOMAXPROCS, 8)` |
+| Git history workers | Up to `min(GOMAXPROCS, 16)` |
 | S3 and Hugging Face object reads | 4 |
 | GitHub Actions runs | 4 |
 | Provider repositories or buckets | One target at a time |
@@ -955,6 +955,8 @@ Platform types and constants come from
 
 | CLI option | `gogit.Source` field | SDK behavior |
 |---|---|---|
+| `--commit-list-file` | `Commits` | Full commit IDs; `nil` uses `Revision`, and an empty slice selects no commits. |
+| `--author`, `--committer` | `Author`, `Committer` | Go regular expressions over `Name <email>`. |
 | `--max-commits` | `MaxCount` | `0` is unlimited. |
 | `--since`, `--until` | `Since`, `Until` | Inclusive `*time.Time` bounds; callers parse dates and choose any end-of-day adjustment. |
 | `--git-max-blob-mib` | `MaxBlobBytes` | Bytes, not MiB; `0` selects 64 MiB. |
@@ -965,7 +967,7 @@ Platform types and constants come from
 Skipped content is logged as a warning on `Logger`, and the scan continues.
 Storage outside the repository fails with `gogit.ErrExternalStore` unless
 `AllowExternalObjects` is set. The SDK additionally exposes `Workers` (default
-`min(GOMAXPROCS, 8)`, maximum 16) and `CacheMiB` (default 256, maximum 4096).
+`min(GOMAXPROCS, 16)`, maximum 16) and `CacheMiB` (default 512, maximum 4096).
 `DiskCacheMiB` enables a temporary-file cache of large reconstructed objects for
 repositories with deep delta chains; `0` disables it and the maximum is 4096.
 These three tuning fields have no CLI flags. `RemoteURL` overrides the fetch
@@ -2111,7 +2113,15 @@ curl -sL https://example.com/blob.txt.gz | gunzip | betterleaks stdin
 
 # JSON report to stdout
 some-command | betterleaks stdin --output -
+
+# name the piped content so path prefilters, filters, and report locations apply
+kubectl get secret app -o yaml | betterleaks stdin --set-attr path=k8s/app-secret.yaml
 ```
+
+`--set-attr key=value` attaches a source attribute to piped content and can be
+repeated. A `path` attribute becomes the finding's `location.path` and is checked
+by `prefilter` and `filter` expressions like a file path; other keys appear under
+`attributes`. Values are literal, so commas are not separators.
 
 ---
 
@@ -2122,7 +2132,7 @@ some-command | betterleaks stdin --output -
 betterleaks filesystem . --config .betterleaks.toml
 
 # only run selected rules
-betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-key
+betterleaks git . --isolate-rule github-pat --isolate-rule aws-access-token
 
 # disable selected rules
 betterleaks git . --disable-rule generic-api-key

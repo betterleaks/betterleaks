@@ -32,7 +32,7 @@ type objectStorage struct {
 	packedRefs map[gitobj.ReferenceName]*gitobj.Reference
 	packedErr  error
 	objects    *objectCache
-	loadLocks  [256]sync.Mutex
+	loads      [256]loadShard
 	// Cache decoded parents shared by the walk and its workers. Only commit
 	// bodies up to 16 KiB qualify, bounding their retained input to 4 MiB.
 	commits [256]atomic.Pointer[gitobj.Commit]
@@ -153,15 +153,61 @@ func (s *objectStorage) read(id gitobj.Hash) (*storedObject, error) {
 		return o, nil
 	}
 	// Neighboring commits often request the same tree or blob concurrently.
-	// Only top-level reads take this lock; delta-base walks never nest it.
-	lock := &s.loadLocks[id.Bytes()[0]]
-	lock.Lock()
-	defer lock.Unlock()
-	if err := s.ctx.Err(); err != nil {
-		return nil, err
+	// Later requests wait for the first one; other objects load in parallel.
+	// Only top-level reads join a load; delta-base walks never nest one.
+	shard := &s.loads[id.Bytes()[0]]
+	shard.mu.Lock()
+	if load := shard.pending[id]; load != nil {
+		if load.done == nil {
+			load.done = make(chan struct{})
+		}
+		done := load.done
+		shard.mu.Unlock()
+		select {
+		case <-done:
+			return load.obj, load.err
+		case <-s.ctx.Done():
+			return nil, s.ctx.Err()
+		}
 	}
 	if o := s.cached(id); o != nil {
+		shard.mu.Unlock()
 		return o, nil
+	}
+	load := new(objectLoad)
+	if shard.pending == nil {
+		shard.pending = make(map[gitobj.Hash]*objectLoad)
+	}
+	shard.pending[id] = load
+	shard.mu.Unlock()
+	defer func() {
+		shard.mu.Lock()
+		delete(shard.pending, id)
+		if load.done != nil {
+			close(load.done)
+		}
+		shard.mu.Unlock()
+	}()
+	load.obj, load.err = s.load(id)
+	return load.obj, load.err
+}
+
+// loadShard tracks objects being reconstructed, keyed by ID.
+type loadShard struct {
+	mu      sync.Mutex
+	pending map[gitobj.Hash]*objectLoad
+}
+
+// objectLoad publishes one reconstruction's result to concurrent readers.
+type objectLoad struct {
+	done chan struct{}
+	obj  *storedObject
+	err  error
+}
+
+func (s *objectStorage) load(id gitobj.Hash) (*storedObject, error) {
+	if err := s.ctx.Err(); err != nil {
+		return nil, err
 	}
 	p, offset, err := s.locate(id)
 	if err != nil {
@@ -240,6 +286,9 @@ type storedObject struct {
 	id   gitobj.Hash
 	kind gitobj.ObjectType
 	raw  string
+	// work is what reconstructing raw cost, in the units of inflateWork. The
+	// cache charges inflating an object without a recorded cost.
+	work float64
 }
 
 func (o *storedObject) Hash() gitobj.Hash       { return o.id }

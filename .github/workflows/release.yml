@@ -5,19 +5,23 @@ on:
     tags:
       - "v2.*"
 
-permissions:
-  contents: write
-  packages: write
-  id-token: write
+permissions: {}
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    outputs:
+      binaries: ${{ steps.binaries.outputs.artifact-id }}
     steps:
       # v6.0.2 (https://github.com/actions/checkout/releases/tag/v6.0.2)
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # v6.3.0 (https://github.com/actions/setup-go/releases/tag/v6.3.0)
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
@@ -57,3 +61,65 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Select npm build inputs
+        working-directory: dist
+        run: |
+          mkdir npm-inputs
+          jq -e '{project_name, version}' metadata.json > npm-inputs/metadata.json
+          jq -e '[.[] | select(.type == "Binary" and .extra.ID == "betterleaks")
+            | {type, goos, goarch, path, extra: {ID: .extra.ID}}] | select(length == 6)' \
+            artifacts.json > npm-inputs/artifacts.json
+          cp --parents -- betterleaks_*/betterleaks betterleaks_*/betterleaks.exe npm-inputs/
+      - name: Pass the GoReleaser binaries to the npm packager
+        id: binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: npm-build-inputs-${{ github.run_attempt }}
+          path: dist/npm-inputs/
+          if-no-files-found: error
+          compression-level: 0
+
+  npm:
+    needs: release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/npm-cli.yml
+    with:
+      binaries: ${{ needs.release.outputs.binaries }}
+
+  sign-npm:
+    needs: npm
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with:
+          cosign-release: "v3.0.6"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.npm.outputs.tarballs }}
+          path: candidate
+          merge-multiple: true
+      - name: Sign the checksums of the tested npm packages
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^2\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          src="candidate/npm/$version"
+          mkdir signed
+          cp -- "$src/betterleaks-$version.tgz" "$src/betterleaks-sdk-$version.tgz" \
+            "$src"/betterleaks-cli-{darwin,linux,win32}-{arm64,x64}-"$version".tgz \
+            "$src"/betterleaks-sdk-{darwin,linux}-{arm64,x64}-"$version".tgz signed/
+          cd signed
+          sha256sum -- *.tgz > SHA256SUMS
+          cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+
+      - name: Save signed npm packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: npm-cli-${{ github.ref_name }}
+          path: signed/
+          if-no-files-found: error
+          compression-level: 0

@@ -149,7 +149,9 @@ func (m *Matcher) Visit(text string, fn func(patternID, start, end int) bool) {
 		for i < end {
 			b := text[i]
 			if m.foldASCII && b >= utf8.RuneSelf {
-				if strings.HasPrefix(text[i:], longS) || strings.HasPrefix(text[i:], kelvinSign) {
+				// Compare the lead byte first; binary input reaches here constantly.
+				if b == longS[0] && strings.HasPrefix(text[i:], longS) ||
+					b == kelvinSign[0] && strings.HasPrefix(text[i:], kelvinSign) {
 					i, state = m.visitUnicode(text, i, state, &largeStarts, fn)
 				} else {
 					state = 0

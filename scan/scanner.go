@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -552,15 +553,16 @@ ScanLoop:
 			break ScanLoop
 		default:
 			candidates := s.candidatePool.Get().(*ruleCandidates)
-			// Keywords select rules; proven assignment shapes can reject a hit.
+			// Keywords select rules; guards reject hits no match could use.
 			// Keep every eligible location for merging conservative search windows.
 			s.keywordMatcher.Visit(currentRaw, func(patternID, start, end int) bool {
 				for _, ruleIndex := range s.keywordRuleIndexes[patternID] {
 					rule := &s.rulesBySpecificity[ruleIndex]
-					if rule.guard != nil && !rule.guard.possible(currentRaw, end) {
+					if rule.guard == nil || rule.guard.possible(currentRaw, start, end) {
+						candidates.mark(ruleIndex)
+					} else if rule.guard.narrowsWindows() {
 						continue
 					}
-					candidates.mark(ruleIndex)
 					if rule.span != nil && rule.searchAnchors == nil {
 						candidates.addWindow(ruleIndex, currentRaw, start, end, rule.span)
 					}
@@ -732,10 +734,17 @@ func snapshotRules(cfg *config.Config, engine blregexp.Engine) ([]compiledRule, 
 			if err != nil {
 				return nil, nil, fmt.Errorf("compile rule %q regex: %w", rule.ID, err)
 			}
-			compiled.guard = inferAssignmentGuard(parsed, rule.Keywords)
+			if guard := inferAssignmentGuard(parsed, rule.Keywords); guard != nil {
+				compiled.guard = guard
+			} else if guard := inferContextGuard(parsed, rule.Keywords); guard != nil {
+				compiled.guard = guard
+			}
 			compiled.span = regexspan.Compile(parsed, rule.Keywords)
 			if compiled.span == nil {
 				compiled.span, compiled.searchAnchors = compilePrefixWindows(parsed, rule.Keywords)
+			}
+			if compiled.span == nil {
+				compiled.span, compiled.searchAnchors = compileLiteralWindows(parsed, rule.Keywords)
 			}
 			compiled.regex, err = blregexp.CompileWithEngine(rule.Regex, engine)
 			if err != nil {
@@ -997,8 +1006,6 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			continue
 		}
 
-		entropy := shannonEntropy(finding.Match.Value)
-
 		hasGlobalFilter := s.globalFilter != nil
 		hasRuleFilter := r.filter != nil
 		// Context is opt-in. Filters can slice fragment_raw using match offsets
@@ -1017,7 +1024,7 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 				findingMap[key] = value
 			}
 			findingMap["captures"] = finding.Match.Captures
-			findingMap["entropy"] = strconv.FormatFloat(entropy, 'g', -1, 64)
+			findingMap["entropy"] = strconv.FormatFloat(shannonEntropy(finding.Match.Value), 'g', -1, 64)
 			findingMap["fragment_raw"] = currentRaw
 			findingMap["match_start_idx"] = filterMatchStartIdx
 			findingMap["match_end_idx"] = filterMatchEndIdx
@@ -1060,6 +1067,9 @@ func (s *Scanner) detectFragmentWithRule(ruleTimings *ruletiming.Collector,
 			}
 		}
 
+		if finding.Match.Value != "" {
+			finding.Match.Entropy = json.Number(fmt.Sprintf("%#.3g", exprruntime.ShannonEntropy(finding.Match.Value)))
+		}
 		findings = append(findings, finding)
 	}
 
