@@ -2784,6 +2784,19 @@ entropy(finding["secret"]) < 3.0
 '''
 
 # ──────────────────────────────────────────────────────────────────────────────
+# databricks-oauth-secret
+# ──────────────────────────────────────────────────────────────────────────────
+[[rules]]
+id = "databricks-oauth-secret"
+description = "Uncovered a Databricks OAuth client secret, which may allow a service principal to access Databricks workspaces and accounts."
+regex = '''\b(dose[a-z0-9]{32})(?:\\?['"\x60]|[\s;)]|\\[nr]|$)'''
+confidence = "high"
+keywords = ["dose"]
+filter = '''
+entropy(finding["secret"]) < 3.0
+'''
+
+# ──────────────────────────────────────────────────────────────────────────────
 # datadog-api-key
 # ──────────────────────────────────────────────────────────────────────────────
 [[rules]]
