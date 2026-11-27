@@ -125,7 +125,9 @@ def test_scan_string_multi_component_aws():
 def test_report_fields_survive_conversion():
     with betterleaks_sdk.create_scanner() as scanner:
         report = scanner.scan_string_report("token = " + GH_TOKEN)
-    assert report["engine_version"] == betterleaks_sdk.__version__.replace("rc", "-rc.")
+    version = betterleaks_sdk.__version__
+    expected = "dev" if ".dev" in version else version.replace("rc", "-rc.")
+    assert report["engine_version"] == expected
     assert report["config_hash"]
     assert report["summary"]["findings"] == 1
     raw = report["findings"][0]

@@ -41,9 +41,12 @@ jobs:
       - name: Build all three source distributions and the umbrella wheel
         id: stamp
         env:
-          # Exercise prerelease resolution on pull requests, too.
-          TAG: ${{ inputs.tag || 'v2.0.0-rc.0' }}
+          TAG: ${{ inputs.tag }}
         run: |
+          if [[ -z "$TAG" ]]; then
+            # Exercise the oldest release supported by the bundled rules on PRs and main.
+            TAG=$(python -c 'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["minVersion"])' < config/betterleaks.toml)
+          fi
           version=$(python bindings/python/scripts/stamp.py "$TAG")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           python -m pip install build==1.2.2.post1 twine==6.1.0 ruff==0.11.13

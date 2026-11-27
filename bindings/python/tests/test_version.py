@@ -27,7 +27,9 @@ def test_cli_entrypoint():
         text=True,
         check=True,
     )
-    assert proc.stdout.strip() == betterleaks.__version__.replace("rc", "-rc.")
+    version = betterleaks.__version__
+    expected = "dev" if ".dev" in version else version.replace("rc", "-rc.")
+    assert proc.stdout.strip() == expected
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows CLI-only distribution")

@@ -65,8 +65,12 @@ def configure(package_dir, module):
                         glibc = None
                     if not glibc:
                         raise RuntimeError("betterleaks-sdk requires glibc on Linux")
-            version = self.distribution.get_version().replace("rc", "-rc.")
-            flags = "-s -w -X github.com/betterleaks/betterleaks/v2/version.Version=" + version
+            package_version = self.distribution.get_version()
+            flags = "-s -w"
+            # Untagged checkouts use the Go engine's built-in "dev" version.
+            if ".dev" not in package_version:
+                engine_version = package_version.replace("rc", "-rc.")
+                flags += " -X github.com/betterleaks/betterleaks/v2/version.Version=" + engine_version
             cmd = ["go", "build", "-mod=readonly", "-trimpath"]
             env = os.environ.copy()
             env["CGO_ENABLED"] = "1" if is_sdk else "0"
