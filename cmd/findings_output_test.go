@@ -191,6 +191,23 @@ func TestFindingCollectorPrintsFindingsByDefault(t *testing.T) {
 	require.Equal(t, 1, collector.Count())
 }
 
+func TestSilentScanHidesFindingsAndBanner(t *testing.T) {
+	previousBanner := bannerPrinted
+	bannerPrinted = false
+	t.Cleanup(func() { bannerPrinted = previousBanner })
+
+	configPath := writeTestConfig(t, "[[rules]]\nid='token'\nregex='secret-[a-z]+'\n")
+	root, stdout := newTestCLI(t)
+	var stderr bytes.Buffer
+	root.runtime.stderr = &stderr
+	root.SetIn(strings.NewReader("secret-alpha"))
+	root.SetArgs([]string{"stdin", "-s", "--config", configPath, "--no-color"})
+	require.NoError(t, root.Execute())
+	assert.Empty(t, stdout.String())
+	assert.NotContains(t, stderr.String(), plainLogo)
+	assert.Contains(t, stderr.String(), "leaks found: 1")
+}
+
 func TestCLIReportOutput(t *testing.T) {
 	configPath := writeTestConfig(t, "[[rules]]\nid='token'\nregex='secret-[a-z]+'\n")
 	for _, tc := range []struct {

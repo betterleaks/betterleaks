@@ -683,7 +683,7 @@ validate = '''let r = http.get(%q); {"result": "valid"}'''
 			root.SetArgs(args)
 			require.NoError(t, root.Execute())
 			assert.False(t, bannerPrinted)
-			assert.NotContains(t, stderr.String(), banner)
+			assert.NotContains(t, stderr.String(), plainLogo)
 			assert.Zero(t, requests.Load(), "default scans must not make provider requests")
 			raw, err := os.ReadFile(outputPath)
 			require.NoError(t, err)
