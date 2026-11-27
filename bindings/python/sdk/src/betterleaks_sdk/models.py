@@ -13,11 +13,13 @@ class BetterleaksError(Exception):
 
 @dataclass
 class Match:
-    full: str = ""
-    value: str = ""
+    full: str = field(default="", repr=False)
+    value: str = field(default="", repr=False)
     fingerprint: Optional[str] = None
-    line: Optional[str] = None
-    captures: Dict[str, str] = field(default_factory=dict)
+    line: Optional[str] = field(default=None, repr=False)
+    captures: Dict[str, str] = field(default_factory=dict, repr=False)
+    entropy: Optional[float] = None
+    context: Optional[str] = field(default=None, repr=False)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> Match:
@@ -27,6 +29,8 @@ class Match:
             fingerprint=data.get("fingerprint"),
             line=data.get("line"),
             captures=data.get("captures") or {},
+            entropy=data.get("entropy"),
+            context=data.get("context"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -35,6 +39,10 @@ class Match:
             "value": self.value,
             "captures": self.captures,
         }
+        if self.entropy is not None:
+            res["entropy"] = self.entropy
+        if self.context is not None:
+            res["context"] = self.context
         if self.fingerprint:
             res["fingerprint"] = self.fingerprint
         if self.line:
@@ -78,7 +86,7 @@ class Finding(Mapping):
     match: Match
     location: Location
     tags: List[str] = field(default_factory=list)
-    raw: Dict[str, Any] = field(default_factory=dict)
+    raw: Dict[str, Any] = field(default_factory=dict, repr=False)
 
     @property
     def secret(self) -> str:
@@ -124,8 +132,8 @@ class Finding(Mapping):
                 "confidence": self.confidence,
                 "secret": self.secret,
                 "file": self.file,
-                "match": self.match.to_dict(),
-                "location": self.location.to_dict(),
+                "match": {**(self.raw.get("match") or {}), **self.match.to_dict()},
+                "location": {**(self.raw.get("location") or {}), **self.location.to_dict()},
                 "tags": list(self.tags),
             }
         )

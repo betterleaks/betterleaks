@@ -15,9 +15,9 @@ pip install betterleaks-cli
 
 | Platform | Architecture | CLI (`betterleaks`) |
 | --- | --- | --- |
-| macOS 12+ | ARM64 & x86-64 | Bundled `betterleaks` binary |
+| macOS | ARM64 & x86-64 | Bundled `betterleaks` binary. The wheel tag specifies the minimum macOS for that release. |
 | Linux (glibc) | x86-64 & ARM64 | Bundled `betterleaks` binary |
-| Windows | x86-64 | Bundled `betterleaks.exe` binary |
+| Windows | x86-64 & ARM64 | Bundled `betterleaks.exe` binary |
 
 ### Building from Source
 
@@ -46,4 +46,4 @@ print(get_binary_path())
 
 ## License
 
-MIT License. See [LICENSE](../../../LICENSE) for details.
+MIT License. See [LICENSE](https://github.com/betterleaks/betterleaks/blob/main/LICENSE) for details.

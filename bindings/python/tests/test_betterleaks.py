@@ -6,7 +6,9 @@ from collections.abc import Mapping
 import pytest
 
 import betterleaks
-from betterleaks import BetterleaksError, Finding
+from betterleaks import BetterleaksError
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="native SDK tests")
 
 GH_TOKEN = "gh" + "p_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5"
 AWS_KEY = "AK" + "IALALEMEL33243OLIB"
@@ -14,8 +16,6 @@ AWS_SECRET = "wJalrXUtn" + "FEMI/K7MDENG/bPxRfiCY1234567890"
 
 
 def test_reexports_sdk_on_posix():
-    if sys.platform == "win32":
-        pytest.skip("Windows uses CLI fallback instead of betterleaks-sdk")
     import betterleaks_sdk
 
     assert betterleaks.BetterleaksError is betterleaks_sdk.BetterleaksError
@@ -34,7 +34,7 @@ def test_scan_string_and_mapping_contract():
 
     assert len(findings) == 1
     f = findings[0]
-    assert isinstance(f, Finding)
+    assert isinstance(f, betterleaks.Finding)
     assert isinstance(f, Mapping)
     assert f.rule_id == "github-pat"
     assert f.secret == GH_TOKEN

@@ -17,7 +17,6 @@ import argparse
 import gc
 import json
 import os
-import shutil
 import statistics
 import subprocess
 import sys
@@ -25,23 +24,9 @@ import tempfile
 import time
 from typing import Any, Callable, Dict, List
 
-_PY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from betterleaks_cli import get_binary_path
 
-
-def _find_cli_binary() -> str:
-    which_cli = shutil.which("betterleaks")
-    if which_cli:
-        return which_cli
-    try:
-        from betterleaks_cli import get_binary_path
-
-        return get_binary_path()
-    except ImportError:
-        bin_name = "betterleaks.exe" if sys.platform == "win32" else "betterleaks"
-        return os.path.join(_PY_ROOT, "cli", "src", "betterleaks_cli", "bin", bin_name)
-
-
-CLI_PATH = _find_cli_binary()
+CLI_PATH = get_binary_path()
 
 # Tokens constructed dynamically so static push-protection is not triggered.
 _GH_TOKEN = "gh" + "p_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5"
@@ -94,7 +79,7 @@ def _cli_stdin(content: str) -> List[Dict[str, Any]]:
         ],
         input=content.encode(),
         capture_output=True,
-        check=False,
+        check=True,
     )
     return json.loads(proc.stdout).get("findings", [])
 
@@ -103,6 +88,7 @@ def _cli_file(path: str) -> List[Dict[str, Any]]:
     proc = subprocess.run(
         [
             CLI_PATH,
+            "filesystem",
             path,
             "--exit-code=0",
             "--no-banner",
@@ -112,7 +98,7 @@ def _cli_file(path: str) -> List[Dict[str, Any]]:
             "-",
         ],
         capture_output=True,
-        check=False,
+        check=True,
     )
     return json.loads(proc.stdout).get("findings", [])
 

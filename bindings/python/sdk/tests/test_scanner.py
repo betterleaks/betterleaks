@@ -9,8 +9,6 @@ import betterleaks_sdk
 from betterleaks_sdk import BetterleaksError
 from betterleaks_sdk._lib import (
     _get_native_library,
-    _scanner_cache,
-    get_cached_backing,
 )
 
 GH_TOKEN = "gh" + "p_aB3dE5fG7hI9jK1mN3pQ5rS7tU9vW1xY3zA5"
@@ -61,7 +59,7 @@ keywords = ["FILERULE_"]
             os.remove(cfg_path)
 
 
-def test_relative_config_cache_key_resolves_abspath():
+def test_relative_config_uses_current_directory():
     cfg_a = (
         "[[rules]]\nid = 'dir-a'\nregex = '''DIRA_[0-9]{4}'''\nkeywords = ['DIRA_']\n"
     )
@@ -82,16 +80,12 @@ def test_relative_config_cache_key_resolves_abspath():
                 "DIRA_1234 DIRB_1234", config_path="rules.toml"
             )
             assert [f.rule_id for f in res_a] == ["dir-a"]
-            assert os.path.abspath("rules.toml") in _scanner_cache
 
             os.chdir(dir_b)
             res_b = betterleaks_sdk.scan_string(
                 "DIRA_1234 DIRB_1234", config_path="rules.toml"
             )
             assert [f.rule_id for f in res_b] == ["dir-b"]
-            assert get_cached_backing("rules.toml") is not get_cached_backing(
-                os.path.join(dir_a, "rules.toml")
-            )
         finally:
             os.chdir(orig_cwd)
 
@@ -127,7 +121,7 @@ def test_windows_unsupported(monkeypatch):
         _get_native_library()
 
 
-def test_concurrent_cache_eviction_does_not_break_inflight_scans():
+def test_concurrent_custom_config_scans():
     import concurrent.futures
 
     with tempfile.TemporaryDirectory() as tmpdir:

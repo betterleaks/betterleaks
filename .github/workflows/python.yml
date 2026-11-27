@@ -1,213 +1,222 @@
-name: Python package
+name: Python distributions
 
 on:
+  pull_request:
+    paths: ['bindings/python/**', 'bindings/c/**', '**/*.go', 'go.mod', 'go.sum', 'config/**', '.github/workflows/python*.yml']
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/python.yml'
-      - '.github/workflows/python-release.yml'
-      - 'bindings/python/**'
-      - 'bindings/c/**'
-      - '**/*.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'config/betterleaks.toml'
-  pull_request:
-    paths:
-      - '.github/workflows/python.yml'
-      - '.github/workflows/python-release.yml'
-      - 'bindings/python/**'
-      - 'bindings/c/**'
-      - '**/*.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'config/betterleaks.toml'
-  workflow_dispatch:
+    paths: ['bindings/python/**', 'bindings/c/**', '**/*.go', 'go.mod', 'go.sum', 'config/**', '.github/workflows/python*.yml']
   workflow_call:
     inputs:
-      ref:
-        description: Git ref to build (defaults to triggering ref)
-        required: false
+      sha:
         type: string
-        default: ''
-      python_version:
-        description: PEP 440 Python package version override
-        required: false
+        required: true
+      cli:
+        description: Verified upstream CLI artifact ID
         type: string
-        default: ''
+        required: true
+      tag:
+        type: string
+        required: true
+    outputs:
+      artifact:
+        value: ${{ jobs.verify.outputs.artifact }}
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
-  lint:
-    name: Lint & Format
+  source:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: read
+    outputs:
+      version: ${{ steps.stamp.outputs.version }}
     steps:
-      # v6.0.2
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
-
-      # v5.4.0
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
         with:
           python-version: '3.11'
+      - name: Build all three source distributions and the umbrella wheel
+        id: stamp
+        env:
+          # Exercise prerelease resolution on pull requests, too.
+          TAG: ${{ inputs.tag || 'v2.0.0-rc.0' }}
+        run: |
+          version=$(python bindings/python/scripts/stamp.py "$TAG")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          python -m pip install build==1.2.2.post1 twine==6.1.0 ruff==0.11.13
+          ruff check bindings/python
+          python -m build --sdist --wheel --outdir dist/python bindings/python
+          for kind in cli sdk; do
+            python -m build --sdist --outdir dist/python "bindings/python/$kind"
+          done
+          python -m twine check --strict dist/python/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: python-sources
+          path: dist/python/*
+          if-no-files-found: error
+          overwrite: true
 
-      - name: Install Ruff
-        run: python -m pip install ruff
-
-      - name: Run Ruff linter
-        run: ruff check --config bindings/python/pyproject.toml bindings/python/src bindings/python/tests bindings/python/scripts
-
-      - name: Run Ruff formatter check
-        run: ruff format --check --config bindings/python/pyproject.toml bindings/python/src bindings/python/tests
-
-  test_bundle:
-    name: Integration test (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
+  wheels:
+    needs: source
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: linux-x86_64
-            os: ubuntu-22.04
-          - name: macos-arm64
-            os: macos-latest
-          - name: windows-x86_64
-            os: windows-latest
+          - {os: ubuntu-22.04, cli: linux-x64, arch: x86_64}
+          - {os: ubuntu-22.04-arm, cli: linux-arm64, arch: aarch64}
+          - {os: macos-15-intel, cli: darwin-x64, arch: x86_64}
+          - {os: macos-15, cli: darwin-arm64, arch: arm64}
+          - {os: windows-latest, cli: win32-x64, arch: AMD64}
+          - {os: windows-11-arm, cli: win32-arm64, arch: ARM64}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
     steps:
-      # v6.0.2
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          ref: ${{ inputs.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      # v6.3.0
+          name: python-sources
+          path: wheelhouse
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: '3.11'
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
         with:
           go-version: '1.26.x'
-
-      # v5.4.0
-      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+          cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: inputs.cli != ''
         with:
-          python-version: '3.11'
-
-      - name: Stamp release version
-        if: inputs.python_version != ''
-        shell: bash
+          artifact-ids: ${{ inputs.cli }}
+          path: upstream-cli
+          merge-multiple: true
+      - name: Build native wheels from the release sdists
         env:
-          PY_VERSION: ${{ inputs.python_version }}
+          RELEASE_CLI: ${{ inputs.cli }}
+          CLI_TARGET: ${{ matrix.cli }}
+          CIBW_ARCHS: ${{ matrix.arch }}
+          CIBW_BUILD: cp311-*
+          CIBW_SKIP: '*musllinux*'
+          CIBW_ENVIRONMENT_LINUX: 'PATH="/project/.ci-go/bin:$PATH"'
+          CIBW_TEST_REQUIRES: pytest==8.3.5
+          CIBW_TEST_COMMAND: 'python -m pytest -o pythonpath= {package}/tests'
+          CIBW_BUILD_FRONTEND: build
+          MACOSX_DEPLOYMENT_TARGET: '12.0'
         run: |
-          python - <<'PY'
-          import json
-          import os
-          import re
+          python -m pip install cibuildwheel==2.23.3
+          kinds=(cli)
+          if [[ "$RUNNER_OS" != Windows ]]; then kinds+=(sdk); fi
+          for kind in "${kinds[@]}"; do
+            mkdir "$kind"
+            tar -xzf wheelhouse/betterleaks_"${kind}"-*.tar.gz --strip-components=1 -C "$kind"
+            if [[ "$kind" == cli && -n "$RELEASE_CLI" ]]; then
+              mkdir cli/.release-bin
+              cp "upstream-cli/$CLI_TARGET/"* cli/.release-bin/
+            fi
+            # Copy setup-go's verified Linux toolchain into the manylinux build context.
+            if [[ "$RUNNER_OS" == Linux ]]; then cp -R "$(go env GOROOT)" "$kind/.ci-go"; fi
+            (cd "$kind" && python -m cibuildwheel . --output-dir ../wheelhouse)
+          done
+          if [[ -n "$RELEASE_CLI" ]]; then
+            python - <<'PYCODE'
           from pathlib import Path
-
-          py_ver = os.environ["PY_VERSION"]
-          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?", py_ver):
-              raise SystemExit(f"Invalid Python version: {py_ver!r}")
-
-          path = Path("bindings/python/src/betterleaks/_version.py")
-          path.write_text(
-              '"""Version metadata for Betterleaks Python package."""\n\n'
-              f"__version__ = {json.dumps(py_ver)}\n",
-              encoding="utf-8",
-          )
-          PY
-
-      - name: Install workspace packages & pytest (POSIX)
-        if: runner.os != 'Windows'
+          from zipfile import ZipFile
+          binary, = Path("cli/.release-bin").iterdir()
+          wheel, = Path("wheelhouse").glob("betterleaks_cli-*.whl")
+          with ZipFile(wheel) as archive:
+              if archive.read("betterleaks_cli/bin/" + binary.name) != binary.read_bytes():
+                  raise ValueError("Packaged CLI differs from the signed release")
+          PYCODE
+          fi
+      - name: Install and test all applicable wheels together
         run: |
-          python -m venv /tmp/bl-venv
-          /tmp/bl-venv/bin/pip install --no-cache-dir build pytest
-          mkdir -p /tmp/bl-wheelhouse
-          (cd bindings/python/cli && /tmp/bl-venv/bin/python -m build --wheel --outdir /tmp/bl-wheelhouse)
-          (cd bindings/python/sdk && /tmp/bl-venv/bin/python -m build --wheel --outdir /tmp/bl-wheelhouse)
-          (cd bindings/python && /tmp/bl-venv/bin/python -m build --wheel --outdir /tmp/bl-wheelhouse)
-          /tmp/bl-venv/bin/pip install --no-cache-dir --no-index --find-links /tmp/bl-wheelhouse betterleaks
-          /tmp/bl-venv/bin/pip check
-          /tmp/bl-venv/bin/pytest -v -o pythonpath= bindings/python/tests
-          /tmp/bl-venv/bin/betterleaks --version
-
-      - name: Install workspace packages & pytest (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+          mkdir bundle-tests
+          tar -xzf wheelhouse/betterleaks-[0-9]*.tar.gz --strip-components=1 -C bundle-tests
+          python -m pip install pytest==8.3.5
+          python -m pip install --only-binary=:all: --no-index --find-links wheelhouse "betterleaks==${{ needs.source.outputs.version }}"
+          python -m pip check
+          python -m pytest -o pythonpath= bundle-tests/tests
+      - name: Check editable builds
+        if: matrix.os == 'ubuntu-22.04'
         run: |
-          python -m venv C:\bl-venv
-          C:\bl-venv\Scripts\pip install --no-cache-dir build pytest
-          New-Item -ItemType Directory -Force -Path C:\bl-wheelhouse | Out-Null
-          Push-Location bindings\python\cli; C:\bl-venv\Scripts\python -m build --wheel --outdir C:\bl-wheelhouse; Pop-Location
-          Push-Location bindings\python; C:\bl-venv\Scripts\python -m build --wheel --outdir C:\bl-wheelhouse; Pop-Location
-          C:\bl-venv\Scripts\pip install --no-cache-dir --no-index --find-links C:\bl-wheelhouse betterleaks
-          C:\bl-venv\Scripts\pip check
-          C:\bl-venv\Scripts\pytest -v -o pythonpath= bindings/python/tests
-          C:\bl-venv\Scripts\betterleaks --version
-
-  build_dist:
-    name: Build pure-Python wheel & sdist
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-    steps:
-      # v6.0.2
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ inputs.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      # v5.4.0
-      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
-        with:
-          python-version: '3.11'
-
-      - name: Stamp release version
-        if: inputs.python_version != ''
-        shell: bash
-        env:
-          PY_VERSION: ${{ inputs.python_version }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import re
-          from pathlib import Path
-
-          py_ver = os.environ["PY_VERSION"]
-          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?", py_ver):
-              raise SystemExit(f"Invalid Python version: {py_ver!r}")
-
-          path = Path("bindings/python/src/betterleaks/_version.py")
-          path.write_text(
-              '"""Version metadata for Betterleaks Python package."""\n\n'
-              f"__version__ = {json.dumps(py_ver)}\n",
-              encoding="utf-8",
-          )
-          PY
-
-      - name: Build wheel and sdist
-        working-directory: bindings/python
-        run: python -m pip install build twine && python -m build
-
-      - name: Check package metadata with twine
-        working-directory: bindings/python
-        run: python -m twine check --strict dist/*
-
-      # v7.0.2
+          python -m venv /tmp/editable
+          /tmp/editable/bin/pip install -e ./cli -e ./sdk
+          /tmp/editable/bin/betterleaks --version
+          /tmp/editable/bin/python -c "import betterleaks_sdk; assert betterleaks_sdk.scan_string('ordinary text') == []"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: python-dist-${{ github.run_attempt }}
-          path: bindings/python/dist/*
+          name: python-native-${{ matrix.os }}
+          path: wheelhouse/betterleaks_*.whl
+          if-no-files-found: error
+          overwrite: true
+
+  compatibility:
+    needs: [source, wheels]
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        python: ['3.8', '3.14']
+    env:
+      VERSION: ${{ needs.source.outputs.version }}
+    steps:
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: python-sources
+          path: wheelhouse
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: python-native-ubuntu-22.04
+          path: wheelhouse
+      - name: Verify standalone installs and module ownership
+        run: |
+          python -m venv /tmp/sdk
+          python -m venv /tmp/cli
+          /tmp/sdk/bin/pip install --only-binary=:all: --no-index -f wheelhouse "betterleaks-sdk==$VERSION"
+          /tmp/sdk/bin/python -c "import betterleaks_sdk; assert betterleaks_sdk.scan_string('ordinary text') == []"
+          test ! -e /tmp/sdk/bin/betterleaks
+          /tmp/cli/bin/pip install --only-binary=:all: --no-index -f wheelhouse "betterleaks-cli==$VERSION"
+          test "$(/tmp/cli/bin/betterleaks --version)" = "${VERSION/rc/-rc.}"
+          /tmp/cli/bin/python -c "import importlib.util; assert importlib.util.find_spec('betterleaks_sdk') is None"
+          /tmp/cli/bin/pip install --only-binary=:all: --no-index -f wheelhouse "betterleaks==$VERSION"
+          /tmp/cli/bin/pip check
+          /tmp/cli/bin/python -c "import betterleaks; assert betterleaks.scan_string('ordinary text') == []"
+
+  verify:
+    needs: [source, wheels, compatibility]
+    runs-on: ubuntu-22.04
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: python-sources
+          path: incoming
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: python-native-*
+          path: incoming
+          merge-multiple: true
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: '3.11'
+      - run: |
+          python -m pip install packaging==25.0
+          python bindings/python/scripts/verify-release.py incoming validated "${{ needs.source.outputs.version }}"
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: python-release-${{ needs.source.outputs.version }}-${{ github.run_attempt }}
+          path: validated/
           if-no-files-found: error

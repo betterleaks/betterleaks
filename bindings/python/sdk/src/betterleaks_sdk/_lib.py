@@ -7,84 +7,17 @@ import contextlib
 import ctypes
 import json
 import os
-import platform
 import sys
 import threading
-from collections import OrderedDict
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, Optional
 
 from betterleaks_sdk.models import BetterleaksError
 
 _EXPECTED_ABI_VERSION = 1
-_SCANNER_CACHE_MAX_SIZE = 16
 
 
 class _BlBuffer(ctypes.Structure):
     _fields_ = [("data", ctypes.c_void_p), ("len", ctypes.c_size_t)]
-
-
-def _candidate_library_names() -> List[str]:
-    system = platform.system().lower()
-    if system == "darwin":
-        return ["libbetterleaks_ffi.dylib", "libbetterleaks_ffi.so"]
-    return ["libbetterleaks_ffi.so"]
-
-
-def _native_target_dir_name() -> Optional[str]:
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    if system == "darwin":
-        return (
-            "aarch64-apple-darwin"
-            if machine in ("arm64", "aarch64")
-            else "x86_64-apple-darwin"
-        )
-    if system == "linux":
-        return (
-            "aarch64-unknown-linux-gnu"
-            if machine in ("arm64", "aarch64")
-            else "x86_64-unknown-linux-gnu"
-        )
-    return None
-
-
-def _find_library() -> Optional[str]:
-    """Locate the compiled Betterleaks FFI shared library, or None if unavailable."""
-    custom_path = os.environ.get("BETTERLEAKS_LIB_PATH")
-    if custom_path:
-        if os.path.isfile(custom_path):
-            return custom_path
-        raise BetterleaksError(
-            f"BETTERLEAKS_LIB_PATH points to a missing file: {custom_path}"
-        )
-
-    candidate_names = _candidate_library_names()
-
-    custom_dir = os.environ.get("BETTERLEAKS_LIB_DIR")
-    if custom_dir:
-        for name in candidate_names:
-            candidate = os.path.join(custom_dir, name)
-            if os.path.isfile(candidate):
-                return candidate
-        raise BetterleaksError(
-            f"Could not find {candidate_names} in BETTERLEAKS_LIB_DIR={custom_dir}"
-        )
-
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    for name in candidate_names:
-        candidate = os.path.join(pkg_dir, name)
-        if os.path.isfile(candidate):
-            return candidate
-
-    target = _native_target_dir_name()
-    if target:
-        repo_root = os.path.abspath(os.path.join(pkg_dir, "..", "..", "..", "..", ".."))
-        for name in candidate_names:
-            candidate = os.path.join(repo_root, "dist", "native", target, "lib", name)
-            if os.path.isfile(candidate):
-                return candidate
-
-    return None
 
 
 class _NativeLibrary:
@@ -147,6 +80,16 @@ class _NativeLibrary:
         msg = raw.decode("utf-8", errors="replace").strip() if raw else ""
         raise BetterleaksError(msg or f"Betterleaks native error (status {status})")
 
+    def _decode_report(self, buf: _BlBuffer) -> Dict[str, Any]:
+        raw = self._decode_buffer(buf)
+        try:
+            report = json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as err:
+            raise BetterleaksError("Invalid JSON report from Betterleaks") from err
+        if not isinstance(report, dict) or not isinstance(report.get("findings"), list):
+            raise BetterleaksError("Betterleaks report is missing a findings array")
+        return report
+
     def new_scanner(self, options_json: Optional[bytes]) -> int:
         handle = ctypes.c_uint64()
         err_buf = _BlBuffer()
@@ -186,15 +129,7 @@ class _NativeLibrary:
             )
             if status != 0:
                 self._raise_error(status, err_buf)
-            raw = self._decode_buffer(res_buf)
-            if not raw:
-                raise BetterleaksError("Empty response from Betterleaks native library")
-            try:
-                return json.loads(raw.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError) as err:
-                raise BetterleaksError(
-                    f"Failed to parse response from Betterleaks library: {err}"
-                ) from err
+            return self._decode_report(res_buf)
         finally:
             self._lib.bl_buffer_free(res_buf)
             self._lib.bl_buffer_free(err_buf)
@@ -212,15 +147,7 @@ class _NativeLibrary:
             )
             if status != 0:
                 self._raise_error(status, err_buf)
-            raw = self._decode_buffer(res_buf)
-            if not raw:
-                raise BetterleaksError("Empty response from Betterleaks native library")
-            try:
-                return json.loads(raw.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError) as err:
-                raise BetterleaksError(
-                    f"Failed to parse response from Betterleaks library: {err}"
-                ) from err
+            return self._decode_report(res_buf)
         finally:
             self._lib.bl_buffer_free(res_buf)
             self._lib.bl_buffer_free(err_buf)
@@ -304,10 +231,7 @@ _native_lib_instance: Optional[_NativeLibrary] = None
 _native_lib_lock = threading.Lock()
 
 _default_scanner: Optional[_NativeScannerBacking] = None
-_scanner_cache: OrderedDict[str, _NativeScannerBacking] = OrderedDict()
-_active_leases: Dict[int, int] = {}
-_evicted_pending: Dict[int, _NativeScannerBacking] = {}
-_scanner_cache_lock = threading.Lock()
+_default_lock = threading.Lock()
 
 
 def _get_native_library() -> _NativeLibrary:
@@ -321,14 +245,12 @@ def _get_native_library() -> _NativeLibrary:
     if _native_lib_instance is None:
         with _native_lib_lock:
             if _native_lib_instance is None:
-                lib_path = _find_library()
-                if not lib_path:
-                    raise BetterleaksError(
-                        "Could not find Betterleaks native shared library "
-                        f"({_candidate_library_names()}). "
-                        "Build the native library or set BETTERLEAKS_LIB_PATH / BETTERLEAKS_LIB_DIR."
-                    )
-                _native_lib_instance = _NativeLibrary(lib_path)
+                name = "libbetterleaks_ffi.dylib" if sys.platform == "darwin" else "libbetterleaks_ffi.so"
+                lib_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), name)
+                try:
+                    _native_lib_instance = _NativeLibrary(lib_path)
+                except OSError as exc:
+                    raise BetterleaksError(f"Could not load packaged native library {lib_path}: {exc}") from exc
     return _native_lib_instance
 
 
@@ -352,130 +274,26 @@ def create_backing(
     )
 
 
-def _acquire_cached_backing(
-    config_path: Optional[str] = None,
-) -> _NativeScannerBacking:
-    global _default_scanner
-    if config_path is None:
-        with _scanner_cache_lock:
-            if _default_scanner is None:
-                _default_scanner = create_backing(config_path=None)
-            key = id(_default_scanner)
-            _active_leases[key] = _active_leases.get(key, 0) + 1
-            return _default_scanner
-
-    if not config_path or "\x00" in config_path:
-        raise BetterleaksError("config_path must be a non-empty path without NUL")
-    resolved_path = os.path.abspath(config_path)
-
-    evicted_idle: List[_NativeScannerBacking] = []
-    with _scanner_cache_lock:
-        cached = _scanner_cache.get(resolved_path)
-        if cached is not None:
-            _scanner_cache.move_to_end(resolved_path)
-            backing = cached
-        else:
-            backing = create_backing(config_path=resolved_path)
-            _scanner_cache[resolved_path] = backing
-            _active_leases[id(backing)] = 0
-            while len(_scanner_cache) > _SCANNER_CACHE_MAX_SIZE:
-                _, evicted = _scanner_cache.popitem(last=False)
-                ev_key = id(evicted)
-                if _active_leases.get(ev_key, 0) == 0:
-                    _active_leases.pop(ev_key, None)
-                    evicted_idle.append(evicted)
-                else:
-                    _evicted_pending[ev_key] = evicted
-
-        b_key = id(backing)
-        _active_leases[b_key] = _active_leases.get(b_key, 0) + 1
-
-    for scanner in evicted_idle:
-        with contextlib.suppress(BetterleaksError, OSError, ctypes.ArgumentError):
-            scanner.close()
-    return backing
-
-
-def _release_cached_backing(backing: _NativeScannerBacking) -> None:
-    pending: Optional[_NativeScannerBacking] = None
-    with _scanner_cache_lock:
-        key = id(backing)
-        remaining = _active_leases.get(key, 0) - 1
-        if remaining <= 0:
-            _active_leases.pop(key, None)
-            pending = _evicted_pending.pop(key, None)
-        else:
-            _active_leases[key] = remaining
-
-    if pending is not None:
-        with contextlib.suppress(BetterleaksError, OSError, ctypes.ArgumentError):
-            pending.close()
-
-
 @contextlib.contextmanager
-def use_cached_backing(
-    config_path: Optional[str] = None,
-) -> Iterator[_NativeScannerBacking]:
-    backing = _acquire_cached_backing(config_path=config_path)
-    try:
-        yield backing
-    finally:
-        _release_cached_backing(backing)
+def scan_backing(config_path: Optional[str] = None) -> Iterator[_NativeScannerBacking]:
+    """Share the default scanner. Each custom-config call owns its scanner."""
+    if config_path is not None:
+        backing = create_backing(config_path=config_path)
+        try:
+            yield backing
+        finally:
+            backing.close()
+        return
 
-
-def get_cached_backing(config_path: Optional[str] = None) -> _NativeScannerBacking:
     global _default_scanner
-    if config_path is None:
-        if _default_scanner is not None:
-            return _default_scanner
-        with _scanner_cache_lock:
-            if _default_scanner is None:
-                _default_scanner = create_backing(config_path=None)
-            return _default_scanner
-
-    if not config_path or "\x00" in config_path:
-        raise BetterleaksError("config_path must be a non-empty path without NUL")
-    resolved_path = os.path.abspath(config_path)
-
-    evicted_idle: List[_NativeScannerBacking] = []
-    with _scanner_cache_lock:
-        cached = _scanner_cache.get(resolved_path)
-        if cached is not None:
-            _scanner_cache.move_to_end(resolved_path)
-            return cached
-
-        backing = create_backing(config_path=resolved_path)
-        _scanner_cache[resolved_path] = backing
-        _active_leases[id(backing)] = 0
-        while len(_scanner_cache) > _SCANNER_CACHE_MAX_SIZE:
-            _, evicted = _scanner_cache.popitem(last=False)
-            ev_key = id(evicted)
-            if _active_leases.get(ev_key, 0) == 0:
-                _active_leases.pop(ev_key, None)
-                evicted_idle.append(evicted)
-            else:
-                _evicted_pending[ev_key] = evicted
-
-    for scanner in evicted_idle:
-        with contextlib.suppress(BetterleaksError, OSError, ctypes.ArgumentError):
-            scanner.close()
-    return backing
+    with _default_lock:
+        if _default_scanner is None:
+            _default_scanner = create_backing()
+        backing = _default_scanner
+    yield backing
 
 
-def _cleanup_cached_scanners() -> None:
-    global _default_scanner
-    with _scanner_cache_lock:
-        scanners = list(_scanner_cache.values())
-        _scanner_cache.clear()
-        scanners.extend(_evicted_pending.values())
-        _evicted_pending.clear()
-        _active_leases.clear()
-        if _default_scanner is not None:
-            scanners.append(_default_scanner)
-            _default_scanner = None
-    for scanner in scanners:
-        with contextlib.suppress(BetterleaksError, OSError, ctypes.ArgumentError):
-            scanner.close()
-
-
-atexit.register(_cleanup_cached_scanners)
+@atexit.register
+def _close_default() -> None:
+    if _default_scanner is not None:
+        _default_scanner.close()

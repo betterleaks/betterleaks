@@ -1,12 +1,6 @@
 # Benchmarks: Library vs. CLI Subprocess
 
-> **One-liner:** the in-process Python library is **1,000x - 10,000x faster than spawning the CLI via `subprocess.run()`** for repeated scans, and **~15-25% faster even on a single cold start**.
-
----
-
-## Overview
-
-Installing `betterleaks` provides both execution paths through its component packages:
+The benchmark measures the installed SDK and CLI on the same workload. Warm runs reuse the native scanner. Cold runs include scanner initialization. The results depend on input size, rules and host.
 
 | Mode | How it works |
 |------|---|

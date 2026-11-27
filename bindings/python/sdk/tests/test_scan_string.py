@@ -37,6 +37,15 @@ def test_scan_string_empty():
     assert findings == []
 
 
+def test_missing_findings_is_an_error(monkeypatch):
+    from betterleaks_sdk._lib import _NativeLibrary
+
+    with betterleaks_sdk.create_scanner() as scanner:
+        monkeypatch.setattr(_NativeLibrary, "_decode_buffer", staticmethod(lambda buf: b"{}"))
+        with pytest.raises(BetterleaksError, match="findings array"):
+            scanner.scan_string("ordinary text")
+
+
 def test_scan_string_dict_access():
     content = f"token = '{GH_TOKEN}'"
     findings = betterleaks_sdk.scan_string(content)
@@ -111,3 +120,21 @@ def test_scan_string_multi_component_aws():
     exported = dict(f)
     assert exported["component_sets"] == f.component_sets
     assert f.to_dict()["component_sets"] == f.component_sets
+
+
+def test_report_fields_survive_conversion():
+    with betterleaks_sdk.create_scanner() as scanner:
+        report = scanner.scan_string_report("token = " + GH_TOKEN)
+    assert report["engine_version"] == betterleaks_sdk.__version__.replace("rc", "-rc.")
+    assert report["config_hash"]
+    assert report["summary"]["findings"] == 1
+    raw = report["findings"][0]
+    assert raw["match"]["entropy"] > 0
+    raw["match"]["context"] = "surrounding text"
+    finding = betterleaks_sdk.Finding.from_dict(raw)
+    assert GH_TOKEN not in repr(finding)
+    assert GH_TOKEN not in repr(finding.match)
+    assert finding.match.entropy == raw["match"]["entropy"]
+    exported = finding.to_dict()
+    for key, value in raw["match"].items():
+        assert exported["match"][key] == value

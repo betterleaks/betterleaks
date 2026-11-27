@@ -3,9 +3,9 @@
 High-performance in-process secret and credential detection powered by Go (bindings/c).
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from betterleaks_sdk._lib import create_backing, use_cached_backing
+from betterleaks_sdk._lib import create_backing, scan_backing
 from betterleaks_sdk._version import __version__
 from betterleaks_sdk.models import BetterleaksError, Finding, Location, Match
 
@@ -48,14 +48,22 @@ class Scanner:
     ) -> List[Finding]:
         """Scan a string for secrets and credentials."""
         resp = self._backing.scan_string(content, attributes=attributes)
-        findings_data = resp.get("findings") or []
-        return [Finding.from_dict(item) for item in findings_data]
+        return [Finding.from_dict(item) for item in resp["findings"]]
 
     def scan_file(self, file_path: str) -> List[Finding]:
         """Scan a regular file for secrets and credentials."""
         resp = self._backing.scan_file(file_path)
-        findings_data = resp.get("findings") or []
-        return [Finding.from_dict(item) for item in findings_data]
+        return [Finding.from_dict(item) for item in resp["findings"]]
+
+    def scan_string_report(
+        self, content: str, attributes: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """Return the full engine report, including version, config hash and summary."""
+        return self._backing.scan_string(content, attributes=attributes)
+
+    def scan_file_report(self, file_path: str) -> Dict[str, Any]:
+        """Return the full engine report for a regular file."""
+        return self._backing.scan_file(file_path)
 
     def close(self) -> None:
         """Release native resources held by this scanner."""
@@ -100,10 +108,9 @@ def scan_string(content: str, config_path: Optional[str] = None) -> List[Finding
     Raises:
         BetterleaksError: If scanning fails.
     """
-    with use_cached_backing(config_path=config_path) as backing:
+    with scan_backing(config_path=config_path) as backing:
         resp = backing.scan_string(content)
-    findings_data = resp.get("findings") or []
-    return [Finding.from_dict(item) for item in findings_data]
+    return [Finding.from_dict(item) for item in resp["findings"]]
 
 
 def scan_file(file_path: str, config_path: Optional[str] = None) -> List[Finding]:
@@ -119,7 +126,6 @@ def scan_file(file_path: str, config_path: Optional[str] = None) -> List[Finding
     Raises:
         BetterleaksError: If the file cannot be read or scanning fails.
     """
-    with use_cached_backing(config_path=config_path) as backing:
+    with scan_backing(config_path=config_path) as backing:
         resp = backing.scan_file(file_path)
-    findings_data = resp.get("findings") or []
-    return [Finding.from_dict(item) for item in findings_data]
+    return [Finding.from_dict(item) for item in resp["findings"]]

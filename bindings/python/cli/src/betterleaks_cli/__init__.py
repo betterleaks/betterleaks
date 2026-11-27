@@ -5,7 +5,6 @@ For the in-process Python SDK, install ``betterleaks-sdk`` or ``betterleaks``.
 """
 
 import os
-import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -27,14 +26,6 @@ def get_binary_path() -> str:
         raise FileNotFoundError(
             "Betterleaks CLI binary not found. This wheel may not match your platform."
         )
-
-    if sys.platform != "win32":
-        try:
-            current_mode = binary.stat().st_mode
-            if not (current_mode & stat.S_IXUSR):
-                binary.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        except OSError:
-            pass
 
     return os.fspath(binary)
 

@@ -1,76 +1,208 @@
-name: Publish Python package
+name: Publish Python distributions
 
 on:
-  push:
-    tags:
-      - 'python-v*'
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
     inputs:
-      version:
-        description: Python package version to publish (e.g. 2.0.0 or 2.0.0rc1)
+      release_run_id:
+        description: Successful Release run for the v2 tag
         required: true
-        type: string
-      ref:
-        description: Git ref or tag to build from (defaults to selected ref)
-        required: false
         type: string
 
 permissions: {}
 
 jobs:
-  prepare:
-    name: Resolve release version
+  release:
+    if: >-
+      github.repository == 'betterleaks/betterleaks' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     runs-on: ubuntu-22.04
     permissions:
+      actions: read
       contents: read
     outputs:
-      ref: ${{ steps.version.outputs.ref }}
-      python_version: ${{ steps.version.outputs.python_version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      cli: ${{ steps.binaries.outputs.artifact-id }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      version: ${{ steps.resolve.outputs.version }}
     steps:
-      - id: version
-        shell: bash
+      - id: resolve
         env:
-          INPUT_VERSION: ${{ inputs.version }}
-          INPUT_REF: ${{ inputs.ref }}
-          REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.release_run_id || github.event.workflow_run.id }}
         run: |
-          py_ver="${INPUT_VERSION:-${REF_NAME#python-v}}"
-          if [[ ! "$py_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$ ]]; then
-            echo "Unsupported PEP 440 Python version: $py_ver" >&2
-            exit 1
-          fi
-          echo "ref=${INPUT_REF}" >> "$GITHUB_OUTPUT"
-          echo "python_version=$py_ver" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")
+          tag=$(jq -er --arg repo "$GITHUB_REPOSITORY" 'select(
+            .head_repository.full_name == $repo and .path == ".github/workflows/release.yml" and
+            .event == "push" and .status == "completed" and .conclusion == "success"
+          ) | .head_branch' <<< "$run")
+          [[ "$tag" =~ ^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]
+          sha=$(jq -er '.head_sha | select(test("^[0-9a-f]{40}$"))' <<< "$run")
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/refs%2Ftags%2F$tag" --jq .sha)" == "$sha" ]]
+          # The tagged source must be in the official main branch's history.
+          gh api "repos/$GITHUB_REPOSITORY/compare/$sha...main" --jq .status | grep -Ex 'ahead|identical'
+          version="${tag#v}"
+          echo "version=${version/-rc./rc}" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with:
+          cosign-release: v3.0.6
+      - name: Recover the tested CLI executables from the signed release artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.release_run_id || github.event.workflow_run.id }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "npm-cli-$TAG" --dir signed
+          cd signed
+          cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$TAG" \
+            --certificate-github-workflow-sha "$SHA" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+          sha256sum --strict -c SHA256SUMS
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
+            name=betterleaks
+            if [[ "$target" == win32-* ]]; then name=betterleaks.exe; fi
+            archive="betterleaks-cli-$target-${TAG#v}.tgz"
+            awk -v file="$archive" '$2 == file { found++ } END { exit found != 1 }' SHA256SUMS
+            mkdir -p "../cli/$target"
+            tar -xOzf "$archive" "package/bin/$name" > "../cli/$target/$name"
+            test -s "../cli/$target/$name"
+          done
+      - id: binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: python-cli-inputs-${{ github.run_attempt }}
+          path: cli/
+          compression-level: 0
+          if-no-files-found: error
 
   build:
-    needs: prepare
+    needs: release
     permissions:
       contents: read
     uses: ./.github/workflows/python.yml
     with:
-      ref: ${{ needs.prepare.outputs.ref }}
-      python_version: ${{ needs.prepare.outputs.python_version }}
+      sha: ${{ needs.release.outputs.sha }}
+      cli: ${{ needs.release.outputs.cli }}
+      tag: ${{ needs.release.outputs.tag }}
 
-  publish:
-    name: Publish to PyPI
-    needs: [prepare, build]
+  testpypi:
+    needs: [release, build]
     runs-on: ubuntu-22.04
-    if: startsWith(github.ref, 'refs/tags/python-v') || github.event_name == 'workflow_dispatch'
-    environment:
-      name: pypi
-      url: https://pypi.org/p/betterleaks
+    environment: testpypi
+    concurrency:
+      group: python-testpypi-${{ needs.release.outputs.version }}
+      cancel-in-progress: false
     permissions:
+      contents: read
       id-token: write
     steps:
-      # v7.0.2
+      # Read the verifier from the trusted main workflow revision.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          pattern: python-dist-*
-          path: dist
+          artifact-ids: ${{ needs.build.outputs.artifact }}
+          path: candidate
           merge-multiple: true
-
-      # v1.12.4
-      - uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
+      - env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: python3 -I bindings/python/scripts/check-published.py candidate "$VERSION" testpypi
+      - name: Publish betterleaks-cli
+        if: hashFiles('candidate/betterleaks-cli/*') != ''
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
         with:
+          packages-dir: candidate/betterleaks-cli/
           attestations: true
-          packages-dir: dist
+          repository-url: https://test.pypi.org/legacy/
+      - name: Publish betterleaks-sdk
+        if: hashFiles('candidate/betterleaks-sdk/*') != ''
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
+        with:
+          packages-dir: candidate/betterleaks-sdk/
+          attestations: true
+          repository-url: https://test.pypi.org/legacy/
+      - name: Publish betterleaks
+        if: hashFiles('candidate/betterleaks/*') != ''
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
+        with:
+          packages-dir: candidate/betterleaks/
+          attestations: true
+          repository-url: https://test.pypi.org/legacy/
+
+  rehearsal:
+    needs: [release, testpypi]
+    runs-on: ubuntu-22.04
+    permissions: {}
+    steps:
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: '3.11'
+      - env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          python -m venv /tmp/pypi-smoke
+          source /tmp/pypi-smoke/bin/activate
+          for attempt in {1..5}; do
+            python -m pip install --only-binary=:all: --index-url https://test.pypi.org/simple/ "betterleaks==$VERSION" && break
+            sleep 10
+          done
+          python -m pip check
+          test "$(betterleaks --version)" = "${VERSION/rc/-rc.}"
+          python - <<'PY'
+          import betterleaks
+          with betterleaks.create_scanner(config_toml="[[rules]]\nid='test-rule'\nregex='PYTEST_[0-9]{4}'") as scanner:
+              assert [f.rule_id for f in scanner.scan_string("PYTEST_0123")] == ["test-rule"]
+          PY
+
+  pypi:
+    needs: [release, build, rehearsal]
+    runs-on: ubuntu-22.04
+    environment: pypi
+    concurrency:
+      group: python-pypi-${{ needs.release.outputs.version }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Read the verifier from the trusted main workflow revision.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact }}
+          path: candidate
+          merge-multiple: true
+      - env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: python3 -I bindings/python/scripts/check-published.py candidate "$VERSION" pypi
+      - name: Publish betterleaks-cli
+        if: hashFiles('candidate/betterleaks-cli/*') != ''
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
+        with:
+          packages-dir: candidate/betterleaks-cli/
+          attestations: true
+      - name: Publish betterleaks-sdk
+        if: hashFiles('candidate/betterleaks-sdk/*') != ''
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
+        with:
+          packages-dir: candidate/betterleaks-sdk/
+          attestations: true
+      - name: Publish betterleaks
+        if: hashFiles('candidate/betterleaks/*') != ''
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc
+        with:
+          packages-dir: candidate/betterleaks/
+          attestations: true

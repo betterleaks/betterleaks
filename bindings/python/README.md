@@ -2,14 +2,16 @@
 
 Python bindings and CLI for [Betterleaks](https://github.com/betterleaks/betterleaks), the fast secret and credential detection engine written in Go.
 
-A single `pip install betterleaks` installs the modular Betterleaks Python stack:
+The three packages share a release version.
+
 - **`betterleaks-cli`** — standalone Go CLI executable (`betterleaks git .`, `betterleaks filesystem .`, `betterleaks stdin`) across macOS, Linux, and Windows.
 - **`betterleaks-sdk`** *(macOS & glibc Linux)* — fast in-process C ABI library (`bindings/c`).
-- **`betterleaks`** — unified `import betterleaks` API (re-exporting `betterleaks_sdk` directly on macOS/Linux and falling back cleanly to `betterleaks_cli` on Windows).
+- **`betterleaks`** — unified `import betterleaks` API (re-exporting `betterleaks_sdk` on supported macOS and Linux targets).
 
-If you only want the CLI or only the C ABI SDK, you can also install them individually:
-- CLI only: `pip install betterleaks-cli` ([`cli/README.md`](cli/README.md))
-- SDK only (macOS/Linux): `pip install betterleaks-sdk` ([`sdk/README.md`](sdk/README.md))
+You can install either component individually.
+
+- CLI only: `pip install betterleaks-cli` ([`cli/README.md`](https://github.com/betterleaks/betterleaks/blob/main/bindings/python/cli/README.md))
+- SDK only (macOS/Linux): `pip install betterleaks-sdk` ([`sdk/README.md`](https://github.com/betterleaks/betterleaks/blob/main/bindings/python/sdk/README.md))
 
 ---
 
@@ -19,13 +21,15 @@ If you only want the CLI or only the C ABI SDK, you can also install them indivi
 pip install betterleaks
 ```
 
+Use `pip install --pre betterleaks` to include release candidates when pip chooses a version.
+
 ### Platform Support
 
 | Platform | Architecture | CLI (`betterleaks`) | Python API (`scan_string` / `scan_file`) |
 | --- | --- | --- | --- |
-| macOS 12+ | ARM64 & x86-64 | Via `betterleaks-cli` | Native C ABI (`betterleaks-sdk`) |
+| macOS | ARM64 & x86-64 | Release CLI with its minimum macOS version encoded in the wheel | Native C ABI on macOS 12+ (`betterleaks-sdk`) |
 | Linux (glibc) | x86-64 & ARM64 | Via `betterleaks-cli` | Native C ABI (`betterleaks-sdk`) |
-| Windows | x86-64 | Via `betterleaks-cli` | CLI subprocess fallback (`betterleaks-cli`) |
+| Windows | x86-64 & ARM64 | Via `betterleaks-cli` | CLI only |
 
 ### Building from Source
 
@@ -39,9 +43,11 @@ pip install ./bindings/python/cli ./bindings/python/sdk ./bindings/python
 
 ---
 
+For a Windows checkout install, use `pip install ./bindings/python/cli ./bindings/python`.
+
 ## Python Quickstart
 
-All scan results are returned as strongly typed Python dataclasses (`Finding`, `Match`, `Location`) with full type annotations across `scan_string`, `scan_file`, and `Scanner`.
+The native SDK runs on the macOS and Linux targets listed above. Its scan methods return Python dataclasses (`Finding`, `Match`, `Location`) with full type annotations across `scan_string`, `scan_file`, and `Scanner`.
 
 ### Scanning Strings & Files
 
@@ -58,7 +64,7 @@ export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 try:
     findings: List[Finding] = betterleaks.scan_string(content)
     for finding in findings:
-        print(f"[{finding.rule_id}] Secret: {finding.secret}")
+        print(f"Rule: {finding.rule_id}")
         print(f"  Confidence: {finding.confidence}")
         print(f"  Line: {finding.location.start_line}, Col: {finding.location.start_column}")
         print(f"  Fingerprint: {finding.match.fingerprint}")
@@ -106,10 +112,11 @@ with betterleaks.create_scanner(config_toml=toml_rules) as scanner:
 
 | Symbol | Signature | Description |
 | --- | --- | --- |
-| `scan_string` | `(content: str, config_path: Optional[str] = None) -> List[Finding]` | Scan in-memory text using a cached scanner. |
-| `scan_file` | `(file_path: str, config_path: Optional[str] = None) -> List[Finding]` | Scan a regular file using a cached scanner. |
+| `scan_string` | `(content: str, config_path: Optional[str] = None) -> List[Finding]` | Scan in-memory text with the selected configuration. |
+| `scan_file` | `(file_path: str, config_path: Optional[str] = None) -> List[Finding]` | Scan a regular file with the selected configuration. |
 | `create_scanner` | `(config_path: Optional[str] = None, config_toml: Optional[str] = None, workers: int = 0, max_decode_depth: int = 0, max_input_bytes: Optional[int] = None, max_findings: Optional[int] = None) -> Scanner` | Create a reusable `Scanner` context manager with custom rules and limits. |
 | `Scanner` | `.scan_string(content: str, attributes: Optional[Dict[str, str]] = None) -> List[Finding]`<br>`.scan_file(file_path: str) -> List[Finding]`<br>`.close() -> None` | Handle-backed scanner supporting `with` statements. |
+| `Scanner.scan_string_report`, `Scanner.scan_file_report` | Same arguments as the respective scan method | Return the engine report including findings, summary, config hash and engine version. |
 | `BetterleaksError` | `class BetterleaksError(Exception)` | Raised on invalid config, missing/non-regular files, limit errors, or runtime failures. |
 
 ### `Finding` (dataclass, `collections.abc.Mapping`)
@@ -119,7 +126,7 @@ with betterleaks.create_scanner(config_toml=toml_rules) as scanner:
 | `rule_id` | `str` | Identifier of the triggered rule (e.g. `github-pat`, `aws-access-token`). |
 | `description` | `str` | Description of the credential risk. |
 | `confidence` | `str` | Detection confidence rating (`low`, `medium`, `high`). |
-| `match` | `Match` | Match details (`full`, `value`, `fingerprint`, `line`, `captures`). |
+| `match` | `Match` | Match details (`full`, `value`, `fingerprint`, `entropy`, `context`, `captures`). |
 | `location` | `Location` | Source coordinates (`path`, `start_line`, `end_line`, `start_column`, `end_column`). |
 | `tags` | `List[str]` | Rule tags. |
 | `raw` | `Dict[str, Any]` | Raw decoded JSON object for any additional engine fields. |
@@ -138,6 +145,8 @@ with betterleaks.create_scanner(config_toml=toml_rules) as scanner:
 | `value` | `str` | `""` | Extracted secret/credential value. |
 | `fingerprint` | `Optional[str]` | `None` | Deterministic finding fingerprint. |
 | `line` | `Optional[str]` | `None` | Matched line text, if included. |
+| `entropy` | `Optional[float]` | `None` | Entropy of the matched value when reported. |
+| `context` | `Optional[str]` | `None` | Surrounding source text when requested by the rule. |
 | `captures` | `Dict[str, str]` | `{}` | Named regex capture groups. |
 
 ### `Location` (dataclass)
@@ -154,12 +163,14 @@ with betterleaks.create_scanner(config_toml=toml_rules) as scanner:
 
 ## Benchmarks & Tests
 
-See [docs/benchmarks.md](docs/benchmarks.md) and [scripts/bench.py](scripts/bench.py).
+See [docs/benchmarks.md](https://github.com/betterleaks/betterleaks/blob/main/bindings/python/docs/benchmarks.md) and [scripts/bench.py](https://github.com/betterleaks/betterleaks/blob/main/bindings/python/scripts/bench.py).
 
 ```bash
 pytest -v bindings/python/tests
 ```
 
+For release and account setup, see the [publishing guide](https://github.com/betterleaks/betterleaks/blob/main/bindings/python/docs/publishing.md).
+
 ## License
 
-MIT License. See [LICENSE](../../LICENSE) for details.
+MIT License. See [LICENSE](https://github.com/betterleaks/betterleaks/blob/main/LICENSE) for details.

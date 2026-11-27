@@ -246,6 +246,8 @@ on conflicting contents or an attempt to move `next` backwards.
 
 The Python bindings live under [`bindings/python/`](python/README.md) as three complementary distributions sharing one engine without duplicating native code:
 
-- `betterleaks` ([`bindings/python/`](python/README.md)) — meta-package providing `import betterleaks` (re-exporting `betterleaks_sdk` on macOS/Linux, falling back to `betterleaks_cli` on Windows) plus the `betterleaks` CLI entrypoint.
+- `betterleaks` ([`bindings/python/`](python/README.md)) — meta-package providing `import betterleaks` (re-exporting `betterleaks_sdk` on macOS/Linux) plus the `betterleaks` CLI entrypoint.
 - `betterleaks-sdk` ([`bindings/python/sdk/`](python/sdk/README.md)) — standalone native C ABI SDK (`import betterleaks_sdk`) for macOS and glibc Linux (no CLI binary, Windows unsupported).
 - `betterleaks-cli` ([`bindings/python/cli/`](python/cli/README.md)) — standalone CGO-free `betterleaks` CLI distribution (`import betterleaks_cli`) for macOS, Linux, and Windows.
+
+Release maintainers can follow the [Python publishing guide](python/docs/publishing.md).

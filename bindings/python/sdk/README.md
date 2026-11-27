@@ -4,7 +4,7 @@ Native in-process Python SDK for [Betterleaks](https://github.com/betterleaks/be
 
 `pip install betterleaks-sdk` installs **only** the C ABI shared library and Python bindings (`import betterleaks_sdk`) on macOS and glibc Linux — no CLI binary is bundled, and Windows is not supported.
 
-For the full bundle (Python SDK + `betterleaks` CLI + Windows support via CLI fallback), install [`betterleaks`](../README.md). For the standalone CLI binary, install [`betterleaks-cli`](../cli/README.md).
+For the full bundle (Python SDK + `betterleaks` CLI), install [`betterleaks`](https://github.com/betterleaks/betterleaks/blob/main/bindings/python/README.md). For the standalone CLI binary, install [`betterleaks-cli`](https://github.com/betterleaks/betterleaks/blob/main/bindings/python/cli/README.md).
 
 ---
 
@@ -46,11 +46,13 @@ try:
         "GITHUB_TOKEN=ghp_example..."
     )
     for finding in findings:
-        print(finding.rule_id, finding.secret, finding.location.start_line)
+        print(finding.rule_id, finding.location.start_line)
 except BetterleaksError as err:
     print(f"Scan failed: {err}")
 ```
 
+Use `scanner.scan_string_report(text)` or `scanner.scan_file_report(path)` to obtain the full engine report, including `engine_version`, `config_hash`, and `summary`. The existing scan methods return typed findings.
+
 ## License
 
-MIT License. See [LICENSE](../../../LICENSE) for details.
+MIT License. See [LICENSE](https://github.com/betterleaks/betterleaks/blob/main/LICENSE) for details.

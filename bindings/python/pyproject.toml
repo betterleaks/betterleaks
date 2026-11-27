@@ -1,5 +1,9 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = [
+    "setuptools==75.3.2; python_version < '3.9'",
+    "setuptools==80.9.0; python_version >= '3.9'",
+    "wheel==0.45.1",
+]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +12,7 @@ dynamic = ["version"]
 description = "Python bindings and CLI for Betterleaks, the high-performance secret and credential detection engine."
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [
     { name = "Betterleaks Contributors" }
 ]
@@ -35,8 +39,8 @@ classifiers = [
     "Environment :: Console",
 ]
 dependencies = [
-    "betterleaks-cli>=2.0.0,<3.0.0",
-    "betterleaks-sdk>=2.0.0,<3.0.0; sys_platform != 'win32'",
+    "betterleaks-cli==2.0.0.dev0",
+    "betterleaks-sdk==2.0.0.dev0; sys_platform != 'win32'",
 ]
 
 [project.optional-dependencies]
