@@ -1,0 +1,12 @@
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+_upstream/
+src/*.egg-info/
+src/betterleaks_sdk/*.so
+src/betterleaks_sdk/*.dylib
+src/betterleaks_sdk/*.dll
+__pycache__/
+*.py[cod]
