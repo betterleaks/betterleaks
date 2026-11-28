@@ -51,18 +51,20 @@ func genericCredential() config.Rule {
 	// Recognize labels such as S3_API_KEY without consuming a long, unbroken
 	// token assigned directly to "key" as a record label.
 	recordLabel := jsonRecordSpace + `"(?:[a-z0-9]{0,16}[_.-]){0,4}(?:` + identifiers + `)[a-z0-9_.-]{0,20}"` + jsonRecordSpace + `(?:,` + jsonRecordValue + `|value[ \t]*=|>)`
-	operator := `(?:(?:=>|:{1,3}=|\|\||\?=|[=:])(?:` + recordLabel + `)?|,(?:` + jsonRecordValue + `)?|['"]` + jsonRecordSpace + `(?:value[ \t]*=|>))`
+	operator := `(?:(?:=>|:{1,3}=|\|\||\?\?|\?=|[=:])(?:` + recordLabel + `)?|,(?:` + jsonRecordValue + `)?|['"]` + jsonRecordSpace + `(?:value[ \t]*=|>))`
 	// Keep the identifier on one line. Whitespace may precede the operator,
 	// but a comment must not absorb the next line's field or assignment.
 	identifier := `(?:` + identifiers + `)[ \t'"\w.-]{0,20}[ \t'"]{0,20}` + jsonRecordSpace
 	// Require the opening '<'. Rejecting closing tags in a filter is too late:
 	// a discarded match could have already consumed the next element's secret.
 	xmlIdentifier := `<[\w.:-]{0,64}(?:` + identifiers + `)[\w.:-]{0,20}` + xmlOpeningTagEnd
+	const fallbackOperator = `(?:=>|:{1,3}=|\|\||\?\?|\?=|[=:,])`
+	const fallbackReference = `(?:[\w$]+(?:\.[\w$]+)+[ \t]*(?:\|\||\?\?)[ \t]*)`
 	r := config.Rule{
 		ID:          "generic-api-key",
 		Confidence:  "low",
 		Description: "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
-		Regex: `(?i)(?:` + identifier + operator + `|` + xmlIdentifier + `)` + structuredValuePrefix + `(?:<!\[CDATA\[)?` +
+		Regex: `(?i)(?:` + identifier + operator + `|` + xmlIdentifier + `)` + structuredValuePrefix + fallbackReference + `*(?:<!\[CDATA\[)?` +
 			`[\x60'"\s=]{0,5}(` + token + `)(?:\\?['"\x60]|[\s;]|` + xmlClosingTag + `|\]\]>|\\[nr]|$)`,
 		Keywords: []string{
 			"access",
@@ -119,11 +121,13 @@ let genericMatchPrefix = findMatch(
 );
 
 // Keep credential-path names and confidence hints, excluding skipped metadata.
+let fallbackReferences = findMatch(nameContext, ` + "`" + fallbackOperator + `[ \t]*` + fallbackReference + "+`" + `);
 let genericMatchContext =
   genericMatchPrefix +
-  nameContext;
+  (fallbackReferences == "" ? nameContext
+    : replace(nameContext, fallbackReferences, findMatch(fallbackReferences, ` + "`^" + fallbackOperator + "`" + `), 1));
 
-let level = matchesAny(genericMatchContext, [
+let level = matchesAny(genericMatchPrefix + nameContext, [
   ` + "`(?i)\\b[a-z0-9]+[_.-]+token\\b`" + `
 ]) ? "medium" : "low";
 let _ = setConfidence(level);
@@ -156,6 +160,16 @@ let _ = setConfidence(level);
 		rulebuilder.Match("word filter only examines value", "authtype_api_key = RFbD56TI2smTyVsGd5Xav0yu99ZAMP", "RFbD56TI2smTyVsGd5Xav0yu99ZAMP"),
 		rulebuilder.Match("key starting with C.", `api_key = "C.A1B2C3D4E5F6G7H8I9J0K1"`, "C.A1B2C3D4E5F6G7H8I9J0K1"),
 		rulebuilder.Match("key starting with C. 2", `api_key = "C.A1B2_C3D4E5F6G7H8I9J0K1"`, "C.A1B2_C3D4E5F6G7H8I9J0K1"),
+		rulebuilder.Match("nullish fallback", "const apiKey = process.env.SERVICE_API_KEY ?? 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4';", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.Match("nullish fallback argument", "client.init(process.env.SERVICE_API_KEY ?? 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4');", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.Match("spaced logical OR fallback", "const token = process.env.SERVICE_TOKEN || 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4';", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.Match("chained fallback", "const token = process.env.SERVICE_TOKEN || process.env.FALLBACK || 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4';", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.Match("fallback after a filtered reference name", "const token = config.primaryKey || process.env.SERVICE_TOKEN||'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4';", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.Match("fallback after public_key reference", "const apiKey = config.public_key || 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4';", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.Match("fallback after key_id reference", "const apiKey = settings.key_id ?? 'Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4';", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.Match("undotted value before logical OR", "api_key = Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4 || fallbackValue", "Zq8rT2vLm4Xp9Wc7Hn3Bk6Yd1Fs5Gj0Ae2Ru8Ti4"),
+		rulebuilder.NoMatch("empty nullish fallback", "const token = process.env.SERVICE_TOKEN ?? '';"),
+		rulebuilder.NoMatch("reference nullish fallback", "const apiKey = process.env.SERVICE_API_KEY ?? process.env.OTHER_API_KEY;"),
 		rulebuilder.NoMatch("Access", `"accessor":"rA1wk0Y45YCufyfq",`),
 		rulebuilder.NoMatch("false positive 1", "report_access_id: e8e4df51-2054-49b0-ab1c-516ac95c691d"),
 		rulebuilder.NoMatch("false positive 2", `accessibilityYesOptionId = "0736f5ef-7e88-499a-80cc-90c85d2a5180"`),
