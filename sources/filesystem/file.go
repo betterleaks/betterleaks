@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,7 +16,78 @@ import (
 	"github.com/betterleaks/betterleaks/v2/sources"
 	"github.com/betterleaks/betterleaks/v2/sources/internal/stream"
 	"github.com/mholt/archives"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
+
+var (
+	bomUTF8    = []byte{0xEF, 0xBB, 0xBF}
+	bomUTF16LE = []byte{0xFF, 0xFE}
+	bomUTF16BE = []byte{0xFE, 0xFF}
+)
+
+func hasBOM(head []byte) bool {
+	return bytes.HasPrefix(head, bomUTF8) || bytes.HasPrefix(head, bomUTF16LE) || bytes.HasPrefix(head, bomUTF16BE)
+}
+
+// decodeBOM returns content transcoded to plain UTF-8 when it starts with a
+// UTF-8 or UTF-16 byte order mark, so byte/ASCII-oriented rule regexes can
+// match it. Content without a BOM is returned without a transcoder. A regular
+// *os.File is probed in place so it keeps the stream package's readahead path.
+//
+// ponytail: only UTF-8/UTF-16 BOMs are recognized, not UTF-32 or BOM-less
+// UTF-16, and a binary file that happens to start with a UTF-16 BOM is
+// misdecoded. Move to content-based charset detection if that matters.
+func decodeBOM(content io.Reader) io.Reader {
+	if f, ok := content.(*os.File); ok {
+		if pos, err := f.Seek(0, io.SeekCurrent); err == nil {
+			var head [3]byte
+			n, _ := f.ReadAt(head[:], pos)
+			if !hasBOM(head[:n]) {
+				return f
+			}
+			return transform.NewReader(f, unicode.BOMOverride(transform.Nop))
+		}
+	}
+	head := make([]byte, len(bomUTF8))
+	n, err := io.ReadFull(content, head)
+	head = head[:n]
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		err = io.EOF
+	}
+	replay := &replayReader{head: head, err: err, r: content}
+	if !hasBOM(head) {
+		return replay
+	}
+	return transform.NewReader(replay, unicode.BOMOverride(transform.Nop))
+}
+
+// replayReader returns bytes already consumed to sniff a BOM, followed by the
+// rest of r. The first Read tops up from r in the same call, so the read sizes
+// the stream package sees match an unwrapped reader's.
+type replayReader struct {
+	head []byte
+	err  error // error from the sniff, reported once head is drained
+	r    io.Reader
+}
+
+func (r *replayReader) Read(p []byte) (int, error) {
+	if len(r.head) == 0 {
+		if r.err != nil {
+			err := r.err
+			r.err = nil
+			return 0, err
+		}
+		return r.r.Read(p)
+	}
+	n := copy(p, r.head)
+	r.head = r.head[n:]
+	if len(r.head) == 0 && r.err == nil && n < len(p) {
+		m, err := r.r.Read(p[n:])
+		return n + m, err
+	}
+	return n, nil
+}
 
 type seekReaderAt interface {
 	io.ReaderAt
@@ -155,7 +227,7 @@ func (s *File) Fragments(ctx context.Context, yield sources.FragmentsFunc) (err 
 	}
 
 	isArchiveContent := s.archiveDepth > 0
-	return s.fileFragments(ctx, stream, isArchiveContent, yield)
+	return s.fileFragments(ctx, decodeBOM(stream), isArchiveContent, yield)
 }
 
 // extractorFragments recursively crawls archives and yields fragments
