@@ -2672,7 +2672,7 @@ entropy(finding["secret"]) <= 2.75
 [[rules]]
 id = "curl-auth-user"
 description = "Discovered a potential basic authorization token provided in a curl command, which could compromise the curl accessed resource."
-regex = '''\bcurl\b(?:.*|.*(?:[\r\n]{1,2}.*){1,5})[ \t\n\r](?:-u|--user)(?:=|[ \t]{0,5})("(:[^"]{3,}|[^:"]{3,}:|[^:"]{3,}:[^"]{3,})"|'([^:']{3,}:[^']{3,})'|((?:"[^"]{3,}"|'[^']{3,}'|[\w$@.-]+):(?:"[^"]{3,}"|'[^']{3,}'|[\w${}@.-]+)))(?:\s|\z)'''
+regex = '''\bcurl\b(?:.*|.*(?:[\r\n]{1,2}.*){1,5})(?:[ \t\n\r](?:-u|--user)(?:=|[ \t]{0,5})|['"](?:-u|--user)(?:=|['"],[ \t]{0,5}))("(:[^"]{3,}|[^:"]{3,}:|[^:"]{3,}:[^"]{3,})"|'([^:']{3,}:[^']{3,})'|((?:"[^"]{3,}"|'[^']{3,}'|[\w$@.-]+):(?:"[^"]{3,}"|'[^']{3,}'|[\w${}@.-]+)))(?:\s|\z|['"]?[,\]])'''
 confidence = "high"
 keywords = ["curl"]
 filter = '''
